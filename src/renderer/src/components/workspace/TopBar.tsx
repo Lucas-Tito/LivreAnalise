@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BookText, Download, Upload, FolderOpen, Loader2 } from 'lucide-react'
+import { BookText, Download, Upload, Loader2 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -59,8 +59,15 @@ export function TopBar(): JSX.Element {
   return (
     <div className="flex h-12 shrink-0 items-center justify-between border-b bg-card px-3">
       <div className="flex items-center gap-2">
-        <BookText className="h-5 w-5 text-primary" />
-        <span className="font-semibold">LivreAnalise</span>
+        <button
+          type="button"
+          onClick={closeProject}
+          title="Voltar para a biblioteca de projetos"
+          className="-mx-2 flex items-center gap-2 rounded px-2 py-1 transition-colors hover:bg-accent"
+        >
+          <BookText className="h-5 w-5 text-primary" />
+          <span className="font-semibold">LivreAnalise</span>
+        </button>
         <span className="text-muted-foreground">/</span>
         <span className="text-sm">{project?.name}</span>
       </div>
@@ -90,9 +97,6 @@ export function TopBar(): JSX.Element {
             <Download className="h-4 w-4" />
           )}
           Exportar QDPX
-        </Button>
-        <Button size="sm" variant="ghost" onClick={closeProject}>
-          <FolderOpen className="h-4 w-4" /> Trocar projeto
         </Button>
         <ThemeToggle />
       </div>
