@@ -33,13 +33,13 @@ export function DocumentsPanel(): JSX.Element {
           disabled={busy}
           onClick={importDocuments}
         >
-          <FilePlus className="h-4 w-4" /> Importar transcricoes
+          <FilePlus className="h-4 w-4" /> Importar documentos
         </Button>
       </div>
       <div className="flex-1 overflow-auto p-1">
         {documents.length === 0 ? (
           <p className="p-4 text-center text-xs text-muted-foreground">
-            Nenhuma transcricao importada.
+            Nenhum documento importado.
           </p>
         ) : (
           <ul className="space-y-0.5">
@@ -96,7 +96,7 @@ export function DocumentsPanel(): JSX.Element {
       <SimplePromptDialog
         open={renaming !== null}
         onOpenChange={(o) => !o && setRenaming(null)}
-        title="Renomear transcricao"
+        title="Renomear documento"
         label="Nome"
         initialValue={renaming?.name}
         onSubmit={(name) => renaming && renameDocument(renaming.id, name)}

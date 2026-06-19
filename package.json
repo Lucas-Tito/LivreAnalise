@@ -1,7 +1,7 @@
 {
   "name": "livreanalise",
   "version": "0.1.0",
-  "description": "Aplicativo desktop de codificacao qualitativa de transcricoes (substituto do ATLAS.ti)",
+  "description": "Aplicativo desktop de codificacao qualitativa de documentos (substituto do ATLAS.ti)",
   "main": "./out/main/index.js",
   "author": "LivreAnalise",
   "license": "MIT",

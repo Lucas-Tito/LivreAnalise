@@ -19,9 +19,9 @@ export function registerDocumentHandlers(): void {
 
   ipcMain.handle(IPC.documents.import, async (): Promise<DocumentRecord[]> => {
     const result = await dialog.showOpenDialog({
-      title: 'Importar transcricoes',
+      title: 'Importar documentos',
       properties: ['openFile', 'multiSelections'],
-      filters: [{ name: 'Transcricoes', extensions: ['txt', 'docx'] }]
+      filters: [{ name: 'Documentos', extensions: ['txt', 'docx'] }]
     })
     if (result.canceled || result.filePaths.length === 0) return []
     const created: DocumentRecord[] = []

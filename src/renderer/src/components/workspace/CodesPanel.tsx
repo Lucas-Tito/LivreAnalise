@@ -182,8 +182,8 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
       <div className="flex-1 overflow-auto p-1">
         {tree.length === 0 ? (
           <p className="p-4 text-center text-xs text-muted-foreground">
-            Nenhum codigo ainda. Crie codigos ou selecione um trecho da
-            transcricao.
+            Nenhum codigo ainda. Crie codigos ou selecione um trecho do
+            documento.
           </p>
         ) : (
           <ul>{tree.map((n) => renderNode(n, 0))}</ul>

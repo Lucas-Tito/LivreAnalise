@@ -22,7 +22,7 @@ export function HomeLibrary(): JSX.Element {
           <div>
             <h1 className="text-2xl font-semibold">LivreAnalise</h1>
             <p className="text-sm text-muted-foreground">
-              Codificacao qualitativa de transcricoes de entrevistas
+              Codificacao qualitativa de documentos
             </p>
           </div>
           <div className="ml-auto">
