@@ -31,6 +31,10 @@ export function CodingPopover({ x, y, onClose, onApply }: Props): JSX.Element {
     c.name.toLowerCase().includes(filter.toLowerCase())
   )
   const lastUsed = codes.find((c) => c.id === lastUsedCodeId)
+  const showLastUsed = lastUsed != null && filter === ''
+  const listCodes = showLastUsed
+    ? filtered.filter((c) => c.id !== lastUsedCodeId)
+    : filtered
   const exactMatch = codes.some(
     (c) => c.name.toLowerCase() === filter.trim().toLowerCase()
   )
@@ -70,7 +74,7 @@ export function CodingPopover({ x, y, onClose, onApply }: Props): JSX.Element {
         placeholder="Buscar ou criar codigo..."
         className="mb-2 h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
-      {lastUsed && filter === '' && (
+      {showLastUsed && (
         <button
           onClick={() => onApply(lastUsed.id)}
           className="mb-1 flex w-full items-center gap-2 rounded-sm bg-accent/50 px-2 py-1.5 text-left text-sm hover:bg-accent"
@@ -84,7 +88,7 @@ export function CodingPopover({ x, y, onClose, onApply }: Props): JSX.Element {
         </button>
       )}
       <div className="max-h-56 overflow-auto">
-        {filtered.map((c) => (
+        {listCodes.map((c) => (
           <button
             key={c.id}
             onClick={() => onApply(c.id)}
@@ -106,7 +110,7 @@ export function CodingPopover({ x, y, onClose, onApply }: Props): JSX.Element {
             Criar codigo "{filter.trim()}"
           </button>
         )}
-        {filtered.length === 0 && !filter.trim() && (
+        {listCodes.length === 0 && !filter.trim() && !showLastUsed && (
           <p className="px-2 py-3 text-center text-xs text-muted-foreground">
             Digite para buscar ou criar um codigo
           </p>
