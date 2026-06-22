@@ -1,0 +1,3 @@
+#!/bin/sh
+# Remove co-autoria do Cursor injetada automaticamente pelo IDE.
+sed -i '/^Co-authored-by: Cursor /d' "$1"

@@ -25,10 +25,13 @@ Use escopo quando fizer sentido (ex.: `renderer`, `main`, `qdpx`).
 
 - **Não** altere autor ou committer (`--author`, `GIT_AUTHOR_*`, etc.)
 - **Não** adicione `Co-authored-by`, `Signed-off-by` nem créditos ao agente/IA
+- O Cursor injeta `Co-authored-by: Cursor` automaticamente — **sempre** commitar com:
+  `git -c core.hooksPath=.githooks commit -m "título"`
+- Os hooks em `.githooks/` removem essa linha antes do commit ser criado
 - Use a identidade git já configurada no ambiente do usuário
 
 ## Execução
 
 - Só commitar quando o usuário pedir explicitamente
-- Nunca usar `--no-verify` salvo pedido explícito
+- Nunca usar `--no-verify` salvo pedido explícito (isso desativa o hook de autoria)
 - Nunca fazer push salvo pedido explícito
