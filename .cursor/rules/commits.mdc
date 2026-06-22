@@ -1,0 +1,34 @@
+---
+description: Convenção obrigatória de commits neste repositório
+alwaysApply: true
+---
+
+# Commits neste repositório
+
+Quando o usuário pedir para commitar (em qualquer chat deste projeto), siga **sempre** estas regras.
+
+## Formato
+
+- Conventional Commits em **português**
+- Apenas o **título** (uma linha) — **sem corpo nem descrição**
+- Exemplo: `fix(renderer): manter destaque da seleção ao abrir popover`
+
+## Tipos comuns
+
+`feat`, `fix`, `chore`, `test`, `refactor`, `docs`, `style`, `perf`
+
+## Escopo
+
+Use escopo quando fizer sentido (ex.: `renderer`, `main`, `qdpx`).
+
+## Autoria
+
+- **Não** altere autor ou committer (`--author`, `GIT_AUTHOR_*`, etc.)
+- **Não** adicione `Co-authored-by`, `Signed-off-by` nem créditos ao agente/IA
+- Use a identidade git já configurada no ambiente do usuário
+
+## Execução
+
+- Só commitar quando o usuário pedir explicitamente
+- Nunca usar `--no-verify` salvo pedido explícito
+- Nunca fazer push salvo pedido explícito
