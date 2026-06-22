@@ -131,12 +131,17 @@ export function listCodes(): CodeWithCount[] {
       parentId: codes.parentId,
       sortOrder: codes.sortOrder,
       createdAt: codes.createdAt,
-      usageCount: sql<number>`(SELECT COUNT(*) FROM codings WHERE codings.code_id = ${codes.id})`
+      usageCount: sql<number>`cast(count(${codings.id}) as integer)`
     })
     .from(codes)
+    .leftJoin(codings, eq(codings.codeId, codes.id))
+    .groupBy(codes.id)
     .orderBy(asc(codes.sortOrder), asc(codes.name))
     .all()
-  return rows as CodeWithCount[]
+  return rows.map((row) => ({
+    ...row,
+    usageCount: Number(row.usageCount)
+  }))
 }
 
 function getCode(id: number): Code {

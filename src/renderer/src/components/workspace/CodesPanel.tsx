@@ -117,9 +117,11 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
               style={{ backgroundColor: node.code.color }}
             />
             <span className="truncate">{node.code.name}</span>
-            <span className="ml-auto shrink-0 rounded bg-muted px-1.5 text-xs text-muted-foreground">
-              {node.code.usageCount}
-            </span>
+            {node.code.usageCount > 0 && (
+              <span className="ml-auto shrink-0 rounded bg-muted px-1.5 text-xs text-muted-foreground">
+                {node.code.usageCount}
+              </span>
+            )}
           </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
