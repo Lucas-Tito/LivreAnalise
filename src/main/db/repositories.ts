@@ -15,6 +15,7 @@ import type {
   UpdateGroupInput
 } from '@shared/types'
 import { adjustCodings } from '../services/editAdjust'
+import { findConnectedCodings } from '../services/codingMerge'
 import { getDb } from './index'
 import {
   codeGroupMembers,
@@ -315,35 +316,76 @@ function getCoding(id: number): Coding {
 
 export function createCoding(input: CreateCodingInput): Coding {
   const db = getDb()
-  const guid = uuid()
-  const res = db
-    .insert(codings)
-    .values({
-      guid,
-      documentId: input.documentId,
-      codeId: input.codeId,
-      startPos: input.startPos,
-      endPos: input.endPos
-    })
-    .onConflictDoNothing()
-    .run()
-  touchProject()
-  if (res.changes === 0) {
+
+  return db.transaction(() => {
     const existing = db
       .select()
       .from(codings)
       .where(
         and(
           eq(codings.documentId, input.documentId),
-          eq(codings.codeId, input.codeId),
-          eq(codings.startPos, input.startPos),
-          eq(codings.endPos, input.endPos)
+          eq(codings.codeId, input.codeId)
         )
       )
-      .get()
-    return existing as Coding
-  }
-  return getCoding(Number(res.lastInsertRowid))
+      .all() as Coding[]
+
+    const { ids: mergeIds, start, end } = findConnectedCodings(
+      existing,
+      input.startPos,
+      input.endPos
+    )
+
+    if (mergeIds.length > 0) {
+      const keeper = existing
+        .filter((c) => mergeIds.includes(c.id))
+        .reduce((a, b) => (a.id < b.id ? a : b))
+
+      for (const id of mergeIds) {
+        if (id !== keeper.id) {
+          db.delete(codings).where(eq(codings.id, id)).run()
+        }
+      }
+
+      db.update(codings)
+        .set({ startPos: start, endPos: end })
+        .where(eq(codings.id, keeper.id))
+        .run()
+
+      touchProject()
+      return getCoding(keeper.id)
+    }
+
+    const guid = uuid()
+    const res = db
+      .insert(codings)
+      .values({
+        guid,
+        documentId: input.documentId,
+        codeId: input.codeId,
+        startPos: input.startPos,
+        endPos: input.endPos
+      })
+      .onConflictDoNothing()
+      .run()
+
+    touchProject()
+    if (res.changes === 0) {
+      const duplicate = db
+        .select()
+        .from(codings)
+        .where(
+          and(
+            eq(codings.documentId, input.documentId),
+            eq(codings.codeId, input.codeId),
+            eq(codings.startPos, input.startPos),
+            eq(codings.endPos, input.endPos)
+          )
+        )
+        .get()
+      return duplicate as Coding
+    }
+    return getCoding(Number(res.lastInsertRowid))
+  })
 }
 
 export function deleteCoding(id: number): void {
