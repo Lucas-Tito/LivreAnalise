@@ -73,3 +73,13 @@ body {
 .transcript ::selection {
   background: hsl(var(--primary) / 0.45);
 }
+
+.transcript .pending-selection {
+  background: hsl(var(--primary) / 0.45);
+  border-radius: 2px;
+}
+
+.transcript .pending-selection-coded {
+  outline: 2px solid hsl(var(--primary) / 0.55);
+  outline-offset: -2px;
+}

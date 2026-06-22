@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeSegments } from '../src/renderer/src/lib/segments'
+import { computeSegments, markPendingSelection } from '../src/renderer/src/lib/segments'
 import type { Coding } from '../src/shared/types'
 
 function coding(id: number, startPos: number, endPos: number): Coding {
@@ -55,6 +55,34 @@ describe('computeSegments', () => {
       { start: 0, end: 2, codingIds: [] },
       { start: 2, end: 5, codingIds: [1, 2] },
       { start: 5, end: 8, codingIds: [] }
+    ])
+  })
+})
+
+describe('markPendingSelection', () => {
+  it('marks nothing when pending is null', () => {
+    const segs = computeSegments(10, [])
+    expect(markPendingSelection(segs, null)).toEqual([
+      { start: 0, end: 10, codingIds: [], isPending: false }
+    ])
+  })
+
+  it('splits uncoded text at pending boundaries', () => {
+    const segs = computeSegments(10, [])
+    expect(markPendingSelection(segs, { start: 3, end: 7 })).toEqual([
+      { start: 0, end: 3, codingIds: [], isPending: false },
+      { start: 3, end: 7, codingIds: [], isPending: true },
+      { start: 7, end: 10, codingIds: [], isPending: false }
+    ])
+  })
+
+  it('marks overlap inside an existing coded segment', () => {
+    const segs = computeSegments(10, [coding(1, 0, 6)])
+    expect(markPendingSelection(segs, { start: 2, end: 4 })).toEqual([
+      { start: 0, end: 2, codingIds: [1], isPending: false },
+      { start: 2, end: 4, codingIds: [1], isPending: true },
+      { start: 4, end: 6, codingIds: [1], isPending: false },
+      { start: 6, end: 10, codingIds: [], isPending: false }
     ])
   })
 })

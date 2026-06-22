@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { FileText, Pencil, Save, Trash2, X } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
-import { computeSegments } from '@/lib/segments'
+import { computeSegments, markPendingSelection } from '@/lib/segments'
 import { contrastText } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { CodingPopover } from './CodingPopover'
@@ -78,6 +78,10 @@ export function TranscriptPanel(): JSX.Element {
   const segments = useMemo(
     () => computeSegments(text.length, codings),
     [text, codings]
+  )
+  const displaySegments = useMemo(
+    () => markPendingSelection(segments, pending),
+    [segments, pending]
   )
   const draftSegments = useMemo(
     () => computeSegments(draft.length, codings),
@@ -331,11 +335,15 @@ export function TranscriptPanel(): JSX.Element {
                 (Documento vazio)
               </span>
             ) : (
-              segments.map((seg) => {
+              displaySegments.map((seg) => {
                 const segText = text.slice(seg.start, seg.end)
                 if (seg.codingIds.length === 0) {
                   return (
-                    <span key={seg.start} data-pos={seg.start}>
+                    <span
+                      key={`${seg.start}-${seg.isPending}`}
+                      data-pos={seg.start}
+                      className={seg.isPending ? 'pending-selection' : undefined}
+                    >
                       {segText}
                     </span>
                   )
@@ -349,8 +357,9 @@ export function TranscriptPanel(): JSX.Element {
                 const isHover = seg.codingIds.includes(hoverCoding ?? -1)
                 return (
                   <span
-                    key={seg.start}
+                    key={`${seg.start}-${seg.isPending}`}
                     data-pos={seg.start}
+                    className={seg.isPending ? 'pending-selection-coded' : undefined}
                     title={seg.codingIds
                       .map((id) => {
                         const cd = codings.find((c) => c.id === id)
