@@ -105,6 +105,17 @@ export function TranscriptPanel(): JSX.Element {
     () => new Set(codings.map((c) => c.codeId)).size,
     [codings]
   )
+  const { textLines, lineStarts } = useMemo(() => {
+    const textLines = text.split('\n')
+    const lineStarts: number[] = []
+    let pos = 0
+    for (const line of textLines) {
+      lineStarts.push(pos)
+      pos += line.length + 1
+    }
+    return { textLines, lineStarts }
+  }, [text])
+
   const draftSegments = useMemo(() => {
     const previewCodings = applyCodingAdjustments(codings, text, draft)
     return computeSegments(draft.length, previewCodings)
@@ -353,53 +364,77 @@ export function TranscriptPanel(): JSX.Element {
           <div
             ref={textRef}
             onMouseUp={handleMouseUp}
-            className="transcript flex-1 whitespace-pre-wrap px-6 py-5 text-[15px] leading-7"
+            className="transcript flex-1 py-5 text-[15px] leading-7"
           >
             {segments.length === 0 ? (
-              <span className="text-muted-foreground">
-                (Documento vazio)
-              </span>
+              <div className="flex">
+                <div className="w-12 shrink-0" />
+                <span className="pr-6 text-muted-foreground">(Documento vazio)</span>
+              </div>
             ) : (
-              displaySegments.map((seg) => {
-                const segText = text.slice(seg.start, seg.end)
-                if (seg.codingIds.length === 0) {
-                  return (
-                    <span
-                      key={`${seg.start}-${seg.isPending}`}
-                      data-pos={seg.start}
-                      className={seg.isPending ? 'pending-selection' : undefined}
-                    >
-                      {segText}
-                    </span>
-                  )
-                }
-                const topCoding = codings.find(
-                  (c) => c.id === seg.codingIds[seg.codingIds.length - 1]
+              textLines.map((lineText, lineIdx) => {
+                const lineStart = lineStarts[lineIdx]
+                const lineEnd = lineStart + lineText.length
+                const lineSegs = displaySegments.filter(
+                  (s) => s.end > lineStart && s.start < lineEnd
                 )
-                const topColor = topCoding
-                  ? codeMap.get(topCoding.codeId)?.color ?? '#888'
-                  : '#888'
-                const isHover = seg.codingIds.includes(hoverCoding ?? -1)
                 return (
-                  <span
-                    key={`${seg.start}-${seg.isPending}`}
-                    data-pos={seg.start}
-                    className={seg.isPending ? 'pending-selection-coded' : undefined}
-                    title={seg.codingIds
-                      .map((id) => {
-                        const cd = codings.find((c) => c.id === id)
-                        return cd ? codeMap.get(cd.codeId)?.name : ''
-                      })
-                      .filter(Boolean)
-                      .join(', ')}
-                    style={{
-                      backgroundColor: `${topColor}${isHover ? alpha.bgHover : alpha.bg}`,
-                      boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}`,
-                      borderRadius: 2
-                    }}
-                  >
-                    {segText}
-                  </span>
+                  <div key={lineIdx} className="flex">
+                    <div className="w-12 shrink-0 select-none pr-3 text-right text-xs leading-7 text-muted-foreground/40">
+                      {lineIdx + 1}
+                    </div>
+                    <div className="flex-1 whitespace-pre-wrap break-words pr-6">
+                      {lineSegs.length === 0 ? (
+                        <span data-pos={lineStart}>{lineText || '\u200b'}</span>
+                      ) : (
+                        lineSegs.map((seg) => {
+                          const segStart = Math.max(seg.start, lineStart)
+                          const segEnd = Math.min(seg.end, lineEnd)
+                          const segText = text.slice(segStart, segEnd)
+                          if (!segText) return null
+                          if (seg.codingIds.length === 0) {
+                            return (
+                              <span
+                                key={`${segStart}-${seg.isPending}`}
+                                data-pos={segStart}
+                                className={seg.isPending ? 'pending-selection' : undefined}
+                              >
+                                {segText}
+                              </span>
+                            )
+                          }
+                          const topCoding = codings.find(
+                            (c) => c.id === seg.codingIds[seg.codingIds.length - 1]
+                          )
+                          const topColor = topCoding
+                            ? codeMap.get(topCoding.codeId)?.color ?? '#888'
+                            : '#888'
+                          const isHover = seg.codingIds.includes(hoverCoding ?? -1)
+                          return (
+                            <span
+                              key={`${segStart}-${seg.isPending}`}
+                              data-pos={segStart}
+                              className={seg.isPending ? 'pending-selection-coded' : undefined}
+                              title={seg.codingIds
+                                .map((id) => {
+                                  const cd = codings.find((c) => c.id === id)
+                                  return cd ? codeMap.get(cd.codeId)?.name : ''
+                                })
+                                .filter(Boolean)
+                                .join(', ')}
+                              style={{
+                                backgroundColor: `${topColor}${isHover ? alpha.bgHover : alpha.bg}`,
+                                boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}`,
+                                borderRadius: 2
+                              }}
+                            >
+                              {segText}
+                            </span>
+                          )
+                        })
+                      )}
+                    </div>
+                  </div>
                 )
               })
             )}
