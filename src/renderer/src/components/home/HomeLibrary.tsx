@@ -2,6 +2,19 @@ import { useEffect } from 'react'
 import { FilePlus2, FolderOpen, Clock, BookText } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { formatCount } from '@/lib/utils'
+
+function formatProjectStats(stats: {
+  documents: number
+  quotes: number
+  codesUsed: number
+}): string {
+  return [
+    formatCount(stats.documents, 'documento', 'documentos'),
+    formatCount(stats.quotes, 'citação', 'citações'),
+    formatCount(stats.codesUsed, 'código usado', 'códigos usados')
+  ].join(' · ')
+}
 
 export function HomeLibrary(): JSX.Element {
   const recents = useAppStore((s) => s.recents)
@@ -74,6 +87,11 @@ export function HomeLibrary(): JSX.Element {
                       <div className="truncate text-xs text-muted-foreground">
                         {r.path}
                       </div>
+                      {r.stats && (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {formatProjectStats(r.stats)}
+                        </div>
+                      )}
                     </div>
                     <span className="ml-4 shrink-0 text-xs text-muted-foreground">
                       {new Date(r.lastOpenedAt).toLocaleDateString()}

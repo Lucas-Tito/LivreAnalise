@@ -7,8 +7,10 @@
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
+    "predev": "node scripts/ensure-electron-native.mjs",
     "build": "electron-vite build",
     "start": "electron-vite preview",
+    "prestart": "node scripts/ensure-electron-native.mjs",
     "rebuild": "rm -rf node_modules/better-sqlite3/build && ./node_modules/app-builder-lib/node_modules/.bin/electron-rebuild -f -w better-sqlite3",
     "rebuild:node": "npm rebuild better-sqlite3",
     "pretest": "npm run rebuild:node",

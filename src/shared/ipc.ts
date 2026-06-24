@@ -14,6 +14,7 @@ import type {
   OpenProjectResult,
   ProjectMeta,
   RecentProject,
+  RecentProjectWithStats,
   UpdateCodeInput,
   UpdateGroupInput
 } from './types'
@@ -69,7 +70,7 @@ export interface Api {
     openPath: (path: string) => Promise<OpenProjectResult | null>
     current: () => Promise<ProjectMeta | null>
     close: () => Promise<void>
-    recents: () => Promise<RecentProject[]>
+    recents: () => Promise<RecentProjectWithStats[]>
   }
   documents: {
     list: () => Promise<DocumentRecord[]>

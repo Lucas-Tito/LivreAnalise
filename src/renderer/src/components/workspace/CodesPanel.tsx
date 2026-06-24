@@ -150,7 +150,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                 onClick={() => {
                   if (
                     confirm(
-                      `Excluir o codigo "${node.code.name}"? Subcodigos e codificacoes serao removidos.`
+                      `Excluir o codigo "${node.code.name}"? Subcodigos e citacoes serao removidos.`
                     )
                   ) {
                     deleteCode(node.code.id)

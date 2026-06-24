@@ -46,7 +46,7 @@ export function TopBar(): JSX.Element {
             ? `\n\nIgnorado (nao suportado): ${report.skipped.join(', ')}`
             : ''
         alert(
-          `Importacao concluida:\n${report.documents} documentos, ${report.codes} codigos, ${report.groups} grupos, ${report.codings} codificacoes.${skipped}`
+          `Importacao concluida:\n${report.documents} documentos, ${report.codes} codigos, ${report.groups} grupos, ${report.codings} citacoes.${skipped}`
         )
       }
     } catch (e) {

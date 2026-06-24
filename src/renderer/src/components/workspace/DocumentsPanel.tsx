@@ -75,7 +75,7 @@ export function DocumentsPanel(): JSX.Element {
                         onClick={() => {
                           if (
                             confirm(
-                              `Excluir "${doc.name}" e todas as suas codificacoes?`
+                              `Excluir "${doc.name}" e todas as suas citacoes?`
                             )
                           ) {
                             deleteDocument(doc.id)

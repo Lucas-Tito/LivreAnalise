@@ -9,14 +9,14 @@ import type {
   DocumentRecord,
   DocumentWithText,
   ProjectMeta,
-  RecentProject,
+  RecentProjectWithStats,
   UpdateCodeInput,
   UpdateGroupInput
 } from '@shared/types'
 
 interface AppState {
   project: ProjectMeta | null
-  recents: RecentProject[]
+  recents: RecentProjectWithStats[]
   documents: DocumentRecord[]
   currentDocument: DocumentWithText | null
   codes: CodeWithCount[]

@@ -3,7 +3,7 @@ import { FileText, Pencil, Save, Trash2, X } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { computeSegments, markPendingSelection } from '@/lib/segments'
 import { applyCodingAdjustments } from '@shared/editAdjust'
-import { contrastText } from '@/lib/utils'
+import { contrastText, formatCount } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { CodingPopover } from './CodingPopover'
 import type { CodeWithCount } from '@shared/types'
@@ -83,6 +83,11 @@ export function TranscriptPanel(): JSX.Element {
   const displaySegments = useMemo(
     () => markPendingSelection(segments, pending),
     [segments, pending]
+  )
+  const quoteCount = codings.length
+  const codesUsedInDoc = useMemo(
+    () => new Set(codings.map((c) => c.codeId)).size,
+    [codings]
   )
   const draftSegments = useMemo(() => {
     const previewCodings = applyCodingAdjustments(codings, text, draft)
@@ -235,8 +240,8 @@ export function TranscriptPanel(): JSX.Element {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground">
-            {currentDocument.charCount.toLocaleString()} caracteres ·{' '}
-            {codings.length} codificacoes
+            {formatCount(quoteCount, 'citação', 'citações')} ·{' '}
+            {formatCount(codesUsedInDoc, 'código usado', 'códigos usados')}
           </span>
           {editing ? (
             <>
@@ -259,8 +264,8 @@ export function TranscriptPanel(): JSX.Element {
         <div className="flex flex-1 flex-col overflow-hidden p-4">
           {codings.length > 0 && (
             <p className="mb-2 text-xs text-amber-500">
-              Os trechos codificados aparecem realcados. Editar o texto pode
-              reposicionar ou remover codificacoes automaticamente conforme o
+              Os trechos citados aparecem realcados. Editar o texto pode
+              reposicionar ou remover citacoes automaticamente conforme o
               trecho alterado.
             </p>
           )}
@@ -405,7 +410,7 @@ export function TranscriptPanel(): JSX.Element {
                 <span className="truncate">{bar.name}</span>
                 <button
                   className="ml-auto opacity-0 group-hover:opacity-100"
-                  title="Remover codificacao"
+                  title="Remover citacao"
                   onClick={() => removeCoding(bar.codingId)}
                 >
                   <Trash2 className="h-3 w-3" />

@@ -12,6 +12,7 @@ import {
 } from '../db'
 import { projectMeta } from '../db/schema'
 import { pushRecent, readRecents } from '../services/recents'
+import { readProjectStats } from '../db/projectStats'
 
 const PROJECT_EXT = 'liva'
 
@@ -82,7 +83,10 @@ export function registerProjectHandlers(): void {
   })
 
   ipcMain.handle(IPC.project.recents, async () => {
-    return readRecents()
+    return readRecents().map((recent) => ({
+      ...recent,
+      stats: readProjectStats(recent.path)
+    }))
   })
 }
 

@@ -37,3 +37,7 @@ export const CODE_PALETTE = [
 export function randomColor(): string {
   return CODE_PALETTE[Math.floor(Math.random() * CODE_PALETTE.length)]
 }
+
+export function formatCount(n: number, singular: string, plural: string): string {
+  return `${n.toLocaleString('pt-BR')} ${n === 1 ? singular : plural}`
+}

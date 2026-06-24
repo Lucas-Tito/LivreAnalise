@@ -13,6 +13,16 @@ export interface RecentProject {
   lastOpenedAt: string
 }
 
+export interface ProjectStats {
+  documents: number
+  quotes: number
+  codesUsed: number
+}
+
+export interface RecentProjectWithStats extends RecentProject {
+  stats: ProjectStats | null
+}
+
 export type DocumentFormat = 'txt' | 'docx'
 
 export interface DocumentRecord {
