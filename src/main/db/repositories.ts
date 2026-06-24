@@ -14,7 +14,7 @@ import type {
   UpdateCodeInput,
   UpdateGroupInput
 } from '@shared/types'
-import { adjustCodings } from '../services/editAdjust'
+import { adjustCodings } from '@shared/editAdjust'
 import { findConnectedCodings } from '../services/codingMerge'
 import { getDb } from './index'
 import {

@@ -96,3 +96,20 @@ export function adjustCodings(
 
   return { updates, removeIds }
 }
+
+export function applyCodingAdjustments<T extends AdjustableCoding>(
+  codings: T[],
+  oldText: string,
+  newText: string
+): T[] {
+  const { updates, removeIds } = adjustCodings(codings, oldText, newText)
+  const removeSet = new Set(removeIds)
+  const updateMap = new Map(updates.map((u) => [u.id, u]))
+
+  return codings
+    .filter((c) => !removeSet.has(c.id))
+    .map((c) => {
+      const update = updateMap.get(c.id)
+      return update ? { ...c, startPos: update.startPos, endPos: update.endPos } : c
+    })
+}

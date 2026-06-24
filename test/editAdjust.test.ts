@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   adjustCodings,
+  applyCodingAdjustments,
   diffText,
   type AdjustableCoding
-} from '../src/main/services/editAdjust'
+} from '../src/shared/editAdjust'
 
 function c(id: number, startPos: number, endPos: number): AdjustableCoding {
   return { id, startPos, endPos }
@@ -76,5 +77,17 @@ describe('adjustCodings', () => {
     )
     expect(res.removeIds).toEqual([2])
     expect(res.updates).toEqual([{ id: 3, startPos: 5, endPos: 7 }])
+  })
+})
+
+describe('applyCodingAdjustments', () => {
+  it('returns codings with updated positions', () => {
+    const adjusted = applyCodingAdjustments([c(1, 4, 6)], 'abcdef', 'abXXXcdef')
+    expect(adjusted).toEqual([{ id: 1, startPos: 7, endPos: 9 }])
+  })
+
+  it('drops removed codings from the result', () => {
+    const adjusted = applyCodingAdjustments([c(1, 1, 3)], 'abcdef', 'abXYZf')
+    expect(adjusted).toEqual([])
   })
 })

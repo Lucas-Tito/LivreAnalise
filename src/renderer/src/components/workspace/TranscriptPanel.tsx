@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { FileText, Pencil, Save, Trash2, X } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { computeSegments, markPendingSelection } from '@/lib/segments'
+import { applyCodingAdjustments } from '@shared/editAdjust'
 import { contrastText } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { CodingPopover } from './CodingPopover'
@@ -83,10 +84,10 @@ export function TranscriptPanel(): JSX.Element {
     () => markPendingSelection(segments, pending),
     [segments, pending]
   )
-  const draftSegments = useMemo(
-    () => computeSegments(draft.length, codings),
-    [draft, codings]
-  )
+  const draftSegments = useMemo(() => {
+    const previewCodings = applyCodingAdjustments(codings, text, draft)
+    return computeSegments(draft.length, previewCodings)
+  }, [draft, codings, text])
 
   const syncScroll = (): void => {
     if (backdropRef.current && textareaRef.current) {
@@ -154,6 +155,10 @@ export function TranscriptPanel(): JSX.Element {
     setBars(placed)
     setColumnCount(Math.max(1, colBottoms.length))
   }, [codings, codeMap])
+
+  useLayoutEffect(() => {
+    if (editing) syncScroll()
+  }, [editing, draft])
 
   useLayoutEffect(() => {
     measure()
@@ -301,7 +306,6 @@ export function TranscriptPanel(): JSX.Element {
                   </span>
                 )
               })}
-              {'\n'}
             </div>
             <textarea
               ref={textareaRef}
