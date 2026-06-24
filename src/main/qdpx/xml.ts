@@ -1,4 +1,5 @@
 import { XMLBuilder, XMLParser } from 'fast-xml-parser'
+import { v4 as uuid } from 'uuid'
 import { APP_ORIGIN, nowIso, QDPX_NAMESPACE } from './constants'
 import type {
   ParsedQdpx,
@@ -65,9 +66,37 @@ export function buildQde(project: QdpxProject): string {
           : [{ guid: '00000000-0000-0000-0000-000000000001', name: 'LivreAnalise' }]
         ).map((u) => ({ '@_guid': u.guid, '@_name': u.name }))
       },
-      CodeBook: {
-        Codes: { Code: buildCodeNodes(project.codes) }
-      },
+      ...(project.codes.length > 0
+        ? {
+            CodeBook: {
+              Codes: { Code: buildCodeNodes(project.codes) }
+            }
+          }
+        : {}),
+      ...(project.documents.length > 0
+        ? {
+            Sources: {
+              TextSource: project.documents.map((doc) => ({
+                '@_guid': doc.guid,
+                '@_name': doc.name,
+                '@_plainTextPath': `internal://${doc.guid}.txt`,
+                ...(doc.selections.length > 0
+                  ? {
+                      PlainTextSelection: doc.selections.map((sel) => ({
+                        '@_guid': sel.guid,
+                        '@_startPosition': String(sel.startPosition),
+                        '@_endPosition': String(sel.endPosition),
+                        Coding: sel.codeGuids.map((codeGuid) => ({
+                          '@_guid': uuid(),
+                          CodeRef: { '@_targetGUID': codeGuid }
+                        }))
+                      }))
+                    }
+                  : {})
+              }))
+            }
+          }
+        : {}),
       ...(project.groups.length > 0
         ? {
             Sets: {
@@ -85,27 +114,7 @@ export function buildQde(project: QdpxProject): string {
               }))
             }
           }
-        : {}),
-      Sources: {
-        TextSource: project.documents.map((doc) => ({
-          '@_guid': doc.guid,
-          '@_name': doc.name,
-          '@_plainTextPath': `internal://${doc.guid}.txt`,
-          ...(doc.selections.length > 0
-            ? {
-                PlainTextSelection: doc.selections.map((sel) => ({
-                  '@_guid': sel.guid,
-                  '@_startPosition': String(sel.startPosition),
-                  '@_endPosition': String(sel.endPosition),
-                  Coding: sel.codeGuids.map((codeGuid) => ({
-                    '@_guid': `${sel.guid}-${codeGuid}`,
-                    CodeRef: { '@_targetGUID': codeGuid }
-                  }))
-                }))
-              }
-            : {})
-        }))
-      }
+        : {})
     }
   }
 
@@ -113,7 +122,8 @@ export function buildQde(project: QdpxProject): string {
     attributeNamePrefix: '@_',
     ignoreAttributes: false,
     format: true,
-    suppressEmptyNode: true
+    suppressEmptyNode: true,
+    suppressBooleanAttributes: false
   })
   return `<?xml version="1.0" encoding="utf-8"?>\n${builder.build(obj)}`
 }
