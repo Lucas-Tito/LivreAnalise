@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { FileText, Pencil, Save, Trash2, X } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { computeSegments, markPendingSelection } from '@/lib/segments'
@@ -69,6 +69,21 @@ export function TranscriptPanel(): JSX.Element {
     y: number
     label: string
   } | null>(null)
+
+  const [isDark, setIsDark] = useState(
+    () => document.documentElement.classList.contains('dark')
+  )
+  useEffect(() => {
+    const obs = new MutationObserver(() =>
+      setIsDark(document.documentElement.classList.contains('dark'))
+    )
+    obs.observe(document.documentElement, { attributeFilter: ['class'] })
+    return () => obs.disconnect()
+  }, [])
+
+  const alpha = isDark
+    ? { bg: '40', bgHover: '60', bar: 'bb' }
+    : { bg: '1a', bgHover: '33', bar: '66' }
 
   const codeMap = useMemo(() => {
     const map = new Map<number, CodeWithCount>()
@@ -303,8 +318,8 @@ export function TranscriptPanel(): JSX.Element {
                     key={seg.start}
                     data-names={names}
                     style={{
-                      backgroundColor: `${topColor}1a`,
-                      boxShadow: `inset 0 -2px 0 0 ${topColor}66`,
+                      backgroundColor: `${topColor}${alpha.bg}`,
+                      boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}`,
                       borderRadius: 2
                     }}
                   >
@@ -378,8 +393,8 @@ export function TranscriptPanel(): JSX.Element {
                       .filter(Boolean)
                       .join(', ')}
                     style={{
-                      backgroundColor: `${topColor}${isHover ? '33' : '1a'}`,
-                      boxShadow: `inset 0 -2px 0 0 ${topColor}66`,
+                      backgroundColor: `${topColor}${isHover ? alpha.bgHover : alpha.bg}`,
+                      boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}`,
                       borderRadius: 2
                     }}
                   >
