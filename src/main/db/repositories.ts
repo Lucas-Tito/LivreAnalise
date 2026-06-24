@@ -8,6 +8,7 @@ import type {
   CodingWithCode,
   CreateCodeInput,
   CreateCodingInput,
+  UpdateCodingInput,
   CreateGroupInput,
   DocumentRecord,
   DocumentWithText,
@@ -386,6 +387,16 @@ export function createCoding(input: CreateCodingInput): Coding {
     }
     return getCoding(Number(res.lastInsertRowid))
   })
+}
+
+export function updateCoding(input: UpdateCodingInput): Coding {
+  const db = getDb()
+  db.update(codings)
+    .set({ startPos: input.startPos, endPos: input.endPos })
+    .where(eq(codings.id, input.id))
+    .run()
+  touchProject()
+  return getCoding(input.id)
 }
 
 export function deleteCoding(id: number): void {

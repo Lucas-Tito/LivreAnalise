@@ -15,6 +15,7 @@ import type {
   ProjectMeta,
   RecentProject,
   RecentProjectWithStats,
+  UpdateCodingInput,
   UpdateCodeInput,
   UpdateGroupInput
 } from './types'
@@ -55,6 +56,7 @@ export const IPC = {
     listByDocument: 'codings:listByDocument',
     listByCode: 'codings:listByCode',
     create: 'codings:create',
+    update: 'codings:update',
     delete: 'codings:delete'
   },
   qdpx: {
@@ -99,6 +101,7 @@ export interface Api {
     listByDocument: (documentId: number) => Promise<Coding[]>
     listByCode: (codeId: number) => Promise<CodingWithCode[]>
     create: (input: CreateCodingInput) => Promise<Coding>
+    update: (input: UpdateCodingInput) => Promise<Coding>
     delete: (id: number) => Promise<void>
   }
   qdpx: {

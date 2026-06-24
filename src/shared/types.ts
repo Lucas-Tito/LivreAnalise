@@ -121,6 +121,12 @@ export interface CreateCodingInput {
   endPos: number
 }
 
+export interface UpdateCodingInput {
+  id: number
+  startPos: number
+  endPos: number
+}
+
 export interface OpenProjectResult {
   meta: ProjectMeta
   path: string

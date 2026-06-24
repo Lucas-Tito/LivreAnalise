@@ -50,6 +50,7 @@ export function TranscriptPanel(): JSX.Element {
   const codings = useAppStore((s) => s.codings)
   const codes = useAppStore((s) => s.codes)
   const addCoding = useAppStore((s) => s.addCoding)
+  const updateCoding = useAppStore((s) => s.updateCoding)
   const removeCoding = useAppStore((s) => s.removeCoding)
   const updateDocumentText = useAppStore((s) => s.updateDocumentText)
 
@@ -61,6 +62,9 @@ export function TranscriptPanel(): JSX.Element {
   const [bars, setBars] = useState<Bar[]>([])
   const [columnCount, setColumnCount] = useState(1)
   const [hoverCoding, setHoverCoding] = useState<number | null>(null)
+  const [selectedCodingId, setSelectedCodingId] = useState<number | null>(null)
+  const [dragging, setDragging] = useState<{ codingId: number; end: 'start' | 'end' } | null>(null)
+  const [dragPreviewPos, setDragPreviewPos] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
@@ -85,6 +89,43 @@ export function TranscriptPanel(): JSX.Element {
     ? { bg: '40', bgHover: '60', bar: 'bb' }
     : { bg: '1a', bgHover: '33', bar: '66' }
 
+  const posFromPoint = useCallback((x: number, y: number): number | null => {
+    const range = document.caretRangeFromPoint?.(x, y)
+    if (!range) return null
+    return resolveOffset(range.startContainer, range.startOffset)
+  }, [])
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent): void => {
+      if (!dragging) return
+      const pos = posFromPoint(e.clientX, e.clientY)
+      setDragPreviewPos(pos)
+    }
+    const onMouseUp = (e: MouseEvent): void => {
+      if (!dragging) return
+      const coding = codings.find((c) => c.id === dragging.codingId)
+      if (!coding) { setDragging(null); setDragPreviewPos(null); return }
+      const pos = posFromPoint(e.clientX, e.clientY)
+      if (pos == null) { setDragging(null); setDragPreviewPos(null); return }
+      const textLen = currentDocument?.plainText.length ?? 0
+      if (dragging.end === 'start') {
+        const newStart = Math.max(0, Math.min(pos, coding.endPos - 1))
+        if (newStart !== coding.startPos) updateCoding(coding.id, newStart, coding.endPos)
+      } else {
+        const newEnd = Math.max(coding.startPos + 1, Math.min(pos, textLen))
+        if (newEnd !== coding.endPos) updateCoding(coding.id, coding.startPos, newEnd)
+      }
+      setDragging(null)
+      setDragPreviewPos(null)
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [dragging, codings, currentDocument, posFromPoint, updateCoding])
+
   const codeMap = useMemo(() => {
     const map = new Map<number, CodeWithCount>()
     for (const c of codes) map.set(c.id, c)
@@ -92,13 +133,32 @@ export function TranscriptPanel(): JSX.Element {
   }, [codes])
 
   const text = currentDocument?.plainText ?? ''
+
+  const previewCodings = useMemo(() => {
+    if (!dragging || dragPreviewPos == null) return codings
+    return codings.map((c) => {
+      if (c.id !== dragging.codingId) return c
+      if (dragging.end === 'start') {
+        const newStart = Math.max(0, Math.min(dragPreviewPos, c.endPos - 1))
+        return { ...c, startPos: newStart }
+      } else {
+        const newEnd = Math.max(c.startPos + 1, Math.min(dragPreviewPos, text.length))
+        return { ...c, endPos: newEnd }
+      }
+    })
+  }, [dragging, dragPreviewPos, codings, text])
+
   const segments = useMemo(
     () => computeSegments(text.length, codings),
     [text, codings]
   )
+  const previewSegments = useMemo(
+    () => computeSegments(text.length, previewCodings),
+    [text, previewCodings]
+  )
   const displaySegments = useMemo(
-    () => markPendingSelection(segments, pending),
-    [segments, pending]
+    () => markPendingSelection(dragging ? previewSegments : segments, pending),
+    [dragging, previewSegments, segments, pending]
   )
   const quoteCount = codings.length
   const codesUsedInDoc = useMemo(
@@ -202,6 +262,7 @@ export function TranscriptPanel(): JSX.Element {
   }, [measure, text])
 
   const handleMouseUp = (): void => {
+    if (dragging) return
     const selection = window.getSelection()
     if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
       return
@@ -359,7 +420,12 @@ export function TranscriptPanel(): JSX.Element {
           </div>
         </div>
       ) : (
-        <div ref={scrollRef} className="relative flex-1 overflow-auto">
+        <div
+          ref={scrollRef}
+          className="relative flex-1 overflow-auto"
+          style={dragging ? { cursor: 'col-resize', userSelect: 'none' } : undefined}
+          onClick={() => setSelectedCodingId(null)}
+        >
           <div className="flex">
           <div
             ref={textRef}
@@ -403,13 +469,31 @@ export function TranscriptPanel(): JSX.Element {
                               </span>
                             )
                           }
-                          const topCoding = codings.find(
+                          const topCodingObj = codings.find(
                             (c) => c.id === seg.codingIds[seg.codingIds.length - 1]
                           )
-                          const topColor = topCoding
-                            ? codeMap.get(topCoding.codeId)?.color ?? '#888'
+                          const topColor = topCodingObj
+                            ? codeMap.get(topCodingObj.codeId)?.color ?? '#888'
                             : '#888'
                           const isHover = seg.codingIds.includes(hoverCoding ?? -1)
+                          const isSelected = seg.codingIds.includes(selectedCodingId ?? -1)
+                          const selCoding = isSelected
+                            ? codings.find((c) => c.id === selectedCodingId)
+                            : null
+                          const showStartHandle = selCoding != null && segStart === selCoding.startPos
+                          const showEndHandle = selCoding != null && segEnd === selCoding.endPos
+                          const handleStyle: React.CSSProperties = {
+                            display: 'inline-block',
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            backgroundColor: topColor,
+                            cursor: 'col-resize',
+                            verticalAlign: 'middle',
+                            flexShrink: 0,
+                            position: 'relative',
+                            zIndex: 10,
+                          }
                           return (
                             <span
                               key={`${segStart}-${seg.isPending}`}
@@ -423,12 +507,40 @@ export function TranscriptPanel(): JSX.Element {
                                 .filter(Boolean)
                                 .join(', ')}
                               style={{
-                                backgroundColor: `${topColor}${isHover ? alpha.bgHover : alpha.bg}`,
-                                boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}`,
-                                borderRadius: 2
+                                backgroundColor: `${topColor}${isHover || isSelected ? alpha.bgHover : alpha.bg}`,
+                                boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}${isSelected ? `, 0 0 0 1px ${topColor}66` : ''}`,
+                                borderRadius: 2,
+                                cursor: 'pointer',
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedCodingId(
+                                  seg.codingIds[seg.codingIds.length - 1]
+                                )
+                                setPending(null)
                               }}
                             >
+                              {showStartHandle && (
+                                <span
+                                  style={{ ...handleStyle, marginRight: 2 }}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setDragging({ codingId: selCoding!.id, end: 'start' })
+                                  }}
+                                />
+                              )}
                               {segText}
+                              {showEndHandle && (
+                                <span
+                                  style={{ ...handleStyle, marginLeft: 2 }}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setDragging({ codingId: selCoding!.id, end: 'end' })
+                                  }}
+                                />
+                              )}
                             </span>
                           )
                         })
@@ -449,13 +561,16 @@ export function TranscriptPanel(): JSX.Element {
                 key={bar.codingId}
                 onMouseEnter={() => setHoverCoding(bar.codingId)}
                 onMouseLeave={() => setHoverCoding(null)}
-                className="group absolute flex h-[22px] items-center gap-1 rounded px-1.5 text-xs"
+                onClick={(e) => { e.stopPropagation(); setSelectedCodingId(bar.codingId) }}
+                className="group absolute flex h-[22px] cursor-pointer items-center gap-1 rounded px-1.5 text-xs"
                 style={{
                   top: bar.top,
                   left: 8 + bar.column * 150,
                   width: 142,
                   backgroundColor: bar.color,
-                  color: contrastText(bar.color)
+                  color: contrastText(bar.color),
+                  outline: selectedCodingId === bar.codingId ? `2px solid ${bar.color}` : undefined,
+                  outlineOffset: 2,
                 }}
               >
                 <span className="truncate">{bar.name}</span>

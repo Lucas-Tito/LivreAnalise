@@ -51,6 +51,7 @@ interface AppState {
 
   refreshCodings: () => Promise<void>
   addCoding: (codeId: number, startPos: number, endPos: number) => Promise<void>
+  updateCoding: (id: number, startPos: number, endPos: number) => Promise<void>
   removeCoding: (id: number) => Promise<void>
   setLastUsedCode: (id: number) => void
 }
@@ -244,6 +245,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ lastUsedCodeId: codeId })
     await get().refreshCodings()
     await get().refreshCodes()
+  },
+
+  updateCoding: async (id, startPos, endPos) => {
+    await window.api.codings.update({ id, startPos, endPos })
+    await get().refreshCodings()
   },
 
   removeCoding: async (id) => {

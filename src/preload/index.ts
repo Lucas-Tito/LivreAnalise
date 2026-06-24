@@ -40,6 +40,7 @@ const api: Api = {
       ipcRenderer.invoke(IPC.codings.listByDocument, documentId),
     listByCode: (codeId) => ipcRenderer.invoke(IPC.codings.listByCode, codeId),
     create: (input) => ipcRenderer.invoke(IPC.codings.create, input),
+    update: (input) => ipcRenderer.invoke(IPC.codings.update, input),
     delete: (id) => ipcRenderer.invoke(IPC.codings.delete, id)
   },
   qdpx: {
