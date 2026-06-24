@@ -24,6 +24,7 @@ interface Bar {
   column: number
 }
 
+
 function resolveOffset(node: Node, offset: number): number | null {
   if (node.nodeType === Node.TEXT_NODE) {
     const el = node.parentElement
@@ -302,8 +303,8 @@ export function TranscriptPanel(): JSX.Element {
                     key={seg.start}
                     data-names={names}
                     style={{
-                      backgroundColor: `${topColor}33`,
-                      boxShadow: `inset 0 -2px 0 0 ${topColor}`,
+                      backgroundColor: `${topColor}1a`,
+                      boxShadow: `inset 0 -2px 0 0 ${topColor}66`,
                       borderRadius: 2
                     }}
                   >
@@ -377,8 +378,8 @@ export function TranscriptPanel(): JSX.Element {
                       .filter(Boolean)
                       .join(', ')}
                     style={{
-                      backgroundColor: `${topColor}${isHover ? '66' : '33'}`,
-                      boxShadow: `inset 0 -2px 0 0 ${topColor}`,
+                      backgroundColor: `${topColor}${isHover ? '33' : '1a'}`,
+                      boxShadow: `inset 0 -2px 0 0 ${topColor}66`,
                       borderRadius: 2
                     }}
                   >
