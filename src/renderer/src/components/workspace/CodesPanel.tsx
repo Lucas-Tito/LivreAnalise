@@ -3,13 +3,13 @@ import {
   ChevronDown,
   ChevronRight,
   Plus,
-  FolderPlus,
   Layers,
   MoreVertical,
   Pencil,
   Trash2,
   CornerDownRight,
   List,
+  Tags,
   Users
 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
@@ -45,6 +45,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const createCollection = useAppStore((s) => s.createCollection)
   const updateCollection = useAppStore((s) => s.updateCollection)
   const deleteCollection = useAppStore((s) => s.deleteCollection)
+  const refreshCollections = useAppStore((s) => s.refreshCollections)
 
   const tree = useMemo(
     () => buildLibraryTree(codes, collections, collectionMembers),
@@ -55,10 +56,12 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     mode: 'create' | 'edit' | 'child'
     code?: CodeWithCount
   } | null>(null)
-  const [collectionPrompt, setCollectionPrompt] = useState<{
-    mode: 'create' | 'edit'
-    collection?: Collection
-  } | null>(null)
+  const [prompt, setPrompt] = useState<
+    | { kind: 'renameCollection'; collection: Collection }
+    | { kind: 'groupFromCode'; code: CodeWithCount }
+    | { kind: 'collectionFromGroup'; code: CodeWithCount }
+    | null
+  >(null)
   const [membersCollection, setMembersCollection] = useState<Collection | null>(
     null
   )
@@ -92,12 +95,23 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     }
   }
 
-  const handleCollectionSubmit = (name: string): void => {
-    if (!collectionPrompt) return
-    if (collectionPrompt.mode === 'edit' && collectionPrompt.collection) {
-      updateCollection({ id: collectionPrompt.collection.id, name })
+  // Grupo e colecao nascem a partir de quem eles agrupam: assim um grupo nunca
+  // existe vazio, e "codigo que tem filhos" continua sendo a unica definicao.
+  const handlePrompt = async (name: string): Promise<void> => {
+    if (!prompt) return
+    if (prompt.kind === 'renameCollection') {
+      await updateCollection({ id: prompt.collection.id, name })
+    } else if (prompt.kind === 'groupFromCode') {
+      const group = await createCode({
+        name,
+        color: prompt.code.color,
+        parentId: null
+      })
+      await updateCode({ id: prompt.code.id, parentId: group.id })
     } else {
-      createCollection({ name })
+      const collection = await createCollection({ name })
+      await window.api.collections.addMember(collection.id, prompt.code.id)
+      await refreshCollections()
     }
   }
 
@@ -132,10 +146,17 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
             onClick={() => onViewCode(node.code)}
             title={node.code.description ?? undefined}
           >
-            <span
-              className="h-3 w-3 shrink-0 rounded-full"
-              style={{ backgroundColor: node.code.color }}
-            />
+            {hasChildren ? (
+              <Tags
+                className="h-3.5 w-3.5 shrink-0"
+                style={{ color: node.code.color }}
+              />
+            ) : (
+              <span
+                className="h-3 w-3 shrink-0 rounded-full"
+                style={{ backgroundColor: node.code.color }}
+              />
+            )}
             <span className="truncate">{node.code.name}</span>
             {node.code.usageCount > 0 && (
               <span className="ml-auto shrink-0 rounded bg-muted px-1.5 text-xs text-muted-foreground">
@@ -161,6 +182,23 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                 >
                   <CornerDownRight className="h-4 w-4" /> Adicionar codigo
                   dentro
+                </DropdownMenuItem>
+              )}
+              {hasChildren ? (
+                <DropdownMenuItem
+                  onClick={() =>
+                    setPrompt({ kind: 'collectionFromGroup', code: node.code })
+                  }
+                >
+                  <Layers className="h-4 w-4" /> Criar colecao com este grupo
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem
+                  onClick={() =>
+                    setPrompt({ kind: 'groupFromCode', code: node.code })
+                  }
+                >
+                  <Tags className="h-4 w-4" /> Criar grupo com este codigo
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem
@@ -196,22 +234,14 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex gap-2 border-b p-2">
+      <div className="border-b p-2">
         <Button
           size="sm"
           variant="secondary"
-          className="flex-1"
+          className="w-full"
           onClick={() => setDialogState({ mode: 'create' })}
         >
-          <Plus className="h-4 w-4" /> Codigo
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          className="flex-1"
-          onClick={() => setCollectionPrompt({ mode: 'create' })}
-        >
-          <FolderPlus className="h-4 w-4" /> Colecao
+          <Plus className="h-4 w-4" /> Novo codigo
         </Button>
       </div>
       <div className="flex-1 overflow-auto p-1">
@@ -259,8 +289,8 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() =>
-                            setCollectionPrompt({
-                              mode: 'edit',
+                            setPrompt({
+                              kind: 'renameCollection',
                               collection: node.collection
                             })
                           }
@@ -328,20 +358,26 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
       />
 
       <SimplePromptDialog
-        open={collectionPrompt !== null}
-        onOpenChange={(o) => !o && setCollectionPrompt(null)}
+        open={prompt !== null}
+        onOpenChange={(o) => !o && setPrompt(null)}
         title={
-          collectionPrompt?.mode === 'edit'
+          prompt?.kind === 'renameCollection'
             ? 'Renomear colecao'
-            : 'Nova colecao'
+            : prompt?.kind === 'groupFromCode'
+              ? `Novo grupo com "${prompt.code.name}"`
+              : prompt?.kind === 'collectionFromGroup'
+                ? `Nova colecao com "${prompt.code.name}"`
+                : ''
         }
-        label="Nome da colecao"
+        label={
+          prompt?.kind === 'groupFromCode'
+            ? 'Nome do grupo'
+            : 'Nome da colecao'
+        }
         initialValue={
-          collectionPrompt?.mode === 'edit'
-            ? collectionPrompt.collection?.name
-            : ''
+          prompt?.kind === 'renameCollection' ? prompt.collection.name : ''
         }
-        onSubmit={handleCollectionSubmit}
+        onSubmit={handlePrompt}
       />
 
       <CollectionMembersDialog
