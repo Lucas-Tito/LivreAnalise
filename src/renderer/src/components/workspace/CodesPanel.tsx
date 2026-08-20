@@ -8,6 +8,8 @@ import {
   Pencil,
   Trash2,
   CornerDownRight,
+  CornerUpLeft,
+  FolderMinus,
   List,
   Tags,
   Users
@@ -115,10 +117,21 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     }
   }
 
+  const removeFromCollection = async (
+    collectionId: number,
+    codeId: number
+  ): Promise<void> => {
+    await window.api.collections.removeMember(collectionId, codeId)
+    await refreshCollections()
+  }
+
   const renderCode = (
     node: CodeNode<CodeWithCount>,
     depth: number,
-    path: string
+    path: string,
+    // preenchido so para os filhos diretos de uma colecao: e onde "remover da
+    // colecao" tem sentido, porque niveis mais fundos herdam o pertencimento
+    collectionId: number | null
   ): JSX.Element => {
     const key = `${path}/${node.code.id}`
     const hasChildren = node.children.length > 0
@@ -184,7 +197,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                   dentro
                 </DropdownMenuItem>
               )}
-              {hasChildren ? (
+              {hasChildren && (
                 <DropdownMenuItem
                   onClick={() =>
                     setPrompt({ kind: 'collectionFromGroup', code: node.code })
@@ -192,13 +205,30 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                 >
                   <Layers className="h-4 w-4" /> Criar colecao com este grupo
                 </DropdownMenuItem>
-              ) : (
+              )}
+              {!hasChildren && node.code.parentId == null && (
                 <DropdownMenuItem
                   onClick={() =>
                     setPrompt({ kind: 'groupFromCode', code: node.code })
                   }
                 >
                   <Tags className="h-4 w-4" /> Criar grupo com este codigo
+                </DropdownMenuItem>
+              )}
+              {node.code.parentId != null && (
+                <DropdownMenuItem
+                  onClick={() =>
+                    updateCode({ id: node.code.id, parentId: null })
+                  }
+                >
+                  <CornerUpLeft className="h-4 w-4" /> Remover do grupo
+                </DropdownMenuItem>
+              )}
+              {collectionId != null && (
+                <DropdownMenuItem
+                  onClick={() => removeFromCollection(collectionId, node.code.id)}
+                >
+                  <FolderMinus className="h-4 w-4" /> Remover da colecao
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem
@@ -224,7 +254,9 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
           </DropdownMenu>
         </div>
         {hasChildren && !isCollapsed && (
-          <ul>{node.children.map((c) => renderCode(c, depth + 1, key))}</ul>
+          <ul>
+            {node.children.map((c) => renderCode(c, depth + 1, key, null))}
+          </ul>
         )}
       </li>
     )
@@ -315,7 +347,11 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                     </DropdownMenu>
                   </div>
                   {!isCollapsed && (
-                    <ul>{node.children.map((c) => renderCode(c, 1, key))}</ul>
+                    <ul>
+                      {node.children.map((c) =>
+                        renderCode(c, 1, key, node.collection.id)
+                      )}
+                    </ul>
                   )}
                 </li>
               )
@@ -328,7 +364,9 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                     Sem colecao
                   </p>
                 )}
-                <ul>{tree.loose.map((c) => renderCode(c, 0, 'loose'))}</ul>
+                <ul>
+                  {tree.loose.map((c) => renderCode(c, 0, 'loose', null))}
+                </ul>
               </li>
             )}
           </ul>
