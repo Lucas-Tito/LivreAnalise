@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { computeSegments, markPendingSelection } from '../src/renderer/src/lib/segments'
+import {
+  anchorPositions,
+  buildLineRows,
+  computeSegments,
+  markPendingSelection,
+  resolveAnchorPos
+} from '../src/renderer/src/lib/segments'
 import type { Coding } from '../src/shared/types'
 
 function coding(id: number, startPos: number, endPos: number): Coding {
@@ -84,5 +90,71 @@ describe('markPendingSelection', () => {
       { start: 4, end: 6, codingIds: [1], isPending: false },
       { start: 6, end: 10, codingIds: [], isPending: false }
     ])
+  })
+})
+
+function rowsFor(text: string, list: Coding[]): ReturnType<typeof buildLineRows> {
+  return buildLineRows(
+    text,
+    markPendingSelection(computeSegments(text.length, list), null)
+  )
+}
+
+describe('buildLineRows', () => {
+  it('clips a coded segment at the line boundary', () => {
+    const rows = rowsFor('aa\nbb', [coding(1, 1, 4)])
+    expect(rows.map((r) => r.spans.map((s) => [s.start, s.end, s.text]))).toEqual([
+      [
+        [0, 1, 'a'],
+        [1, 2, 'a']
+      ],
+      [
+        [3, 4, 'b'],
+        [4, 5, 'b']
+      ]
+    ])
+  })
+
+  it('leaves an empty line without spans', () => {
+    const rows = rowsFor('aa\n\nbb', [])
+    expect(rows[1]).toEqual({ index: 1, start: 3, end: 3, spans: [] })
+  })
+})
+
+describe('resolveAnchorPos', () => {
+  it('uses the exact anchor when a span starts at the position', () => {
+    expect(resolveAnchorPos(9, [0, 9, 20])).toBe(9)
+  })
+
+  it('falls back to the next anchor when no span starts at the position', () => {
+    expect(resolveAnchorPos(8, [0, 9, 20])).toBe(9)
+  })
+
+  it('falls back to the previous anchor when nothing starts later', () => {
+    expect(resolveAnchorPos(25, [0, 9, 20])).toBe(20)
+  })
+
+  it('returns null when there is no anchor at all', () => {
+    expect(resolveAnchorPos(3, [])).toBeNull()
+  })
+})
+
+describe('margin label anchors (issue #22)', () => {
+  it('anchors a coding that starts on a line break to the next line', () => {
+    const text = 'linha um\nlinha dois'
+    const c = coding(1, 8, text.length)
+    const anchors = anchorPositions(rowsFor(text, [c]))
+    // no span can start on the newline itself: it has no glyph
+    expect(anchors).not.toContain(8)
+    expect(resolveAnchorPos(c.startPos, anchors)).toBe(9)
+  })
+
+  it('anchors every coding start in a multi-line document', () => {
+    const text = 'aa\nbb\n\ncc'
+    const list = [coding(1, 2, 5), coding(2, 5, 9), coding(3, 0, 2)]
+    const anchors = anchorPositions(rowsFor(text, list))
+    for (const c of list) {
+      expect(resolveAnchorPos(c.startPos, anchors)).not.toBeNull()
+    }
   })
 })

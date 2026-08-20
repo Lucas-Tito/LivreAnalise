@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { FileText, Pencil, Save, Trash2, X } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
-import { computeSegments, markPendingSelection } from '@/lib/segments'
+import {
+  anchorPositions,
+  buildLineRows,
+  computeSegments,
+  markPendingSelection,
+  resolveAnchorPos
+} from '@/lib/segments'
 import { applyCodingAdjustments } from '@shared/editAdjust'
 import { contrastText, formatCount } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -165,16 +171,10 @@ export function TranscriptPanel(): JSX.Element {
     () => new Set(codings.map((c) => c.codeId)).size,
     [codings]
   )
-  const { textLines, lineStarts } = useMemo(() => {
-    const textLines = text.split('\n')
-    const lineStarts: number[] = []
-    let pos = 0
-    for (const line of textLines) {
-      lineStarts.push(pos)
-      pos += line.length + 1
-    }
-    return { textLines, lineStarts }
-  }, [text])
+  const lineRows = useMemo(
+    () => buildLineRows(text, displaySegments),
+    [text, displaySegments]
+  )
 
   const draftSegments = useMemo(() => {
     const previewCodings = applyCodingAdjustments(codings, text, draft)
@@ -215,11 +215,16 @@ export function TranscriptPanel(): JSX.Element {
     if (!container || !textEl) return
     const containerTop = container.getBoundingClientRect().top
     const scrollTop = container.scrollTop
+    const anchors = anchorPositions(lineRows)
     const raw = codings
       .map((c) => {
-        const el = textEl.querySelector(
-          `[data-pos="${c.startPos}"]`
-        ) as HTMLElement | null
+        const anchor = resolveAnchorPos(c.startPos, anchors)
+        const el =
+          anchor === null
+            ? null
+            : (textEl.querySelector(
+                `[data-pos="${anchor}"]`
+              ) as HTMLElement | null)
         const code = codeMap.get(c.codeId)
         if (!el || !code) return null
         const top = el.getBoundingClientRect().top - containerTop + scrollTop
@@ -246,7 +251,7 @@ export function TranscriptPanel(): JSX.Element {
     })
     setBars(placed)
     setColumnCount(Math.max(1, colBottoms.length))
-  }, [codings, codeMap])
+  }, [codings, codeMap, lineRows])
 
   useLayoutEffect(() => {
     if (editing) syncScroll()
@@ -438,26 +443,22 @@ export function TranscriptPanel(): JSX.Element {
                 <span className="pr-6 text-muted-foreground">(Documento vazio)</span>
               </div>
             ) : (
-              textLines.map((lineText, lineIdx) => {
-                const lineStart = lineStarts[lineIdx]
-                const lineEnd = lineStart + lineText.length
-                const lineSegs = displaySegments.filter(
-                  (s) => s.end > lineStart && s.start < lineEnd
-                )
+              lineRows.map((row) => {
                 return (
-                  <div key={lineIdx} className="flex">
+                  <div key={row.index} className="flex">
                     <div className="w-12 shrink-0 select-none pr-3 text-right text-xs leading-7 text-muted-foreground/40">
-                      {lineIdx + 1}
+                      {row.index + 1}
                     </div>
                     <div className="flex-1 whitespace-pre-wrap break-words pr-6">
-                      {lineSegs.length === 0 ? (
-                        <span data-pos={lineStart}>{lineText || '\u200b'}</span>
+                      {row.spans.length === 0 ? (
+                        <span data-pos={row.start}>
+                          {text.slice(row.start, row.end) || '\u200b'}
+                        </span>
                       ) : (
-                        lineSegs.map((seg) => {
-                          const segStart = Math.max(seg.start, lineStart)
-                          const segEnd = Math.min(seg.end, lineEnd)
-                          const segText = text.slice(segStart, segEnd)
-                          if (!segText) return null
+                        row.spans.map((seg) => {
+                          const segStart = seg.start
+                          const segEnd = seg.end
+                          const segText = seg.text
                           if (seg.codingIds.length === 0) {
                             return (
                               <span
