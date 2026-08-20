@@ -30,6 +30,7 @@ interface AppState {
   createProject: () => Promise<void>
   openProject: () => Promise<void>
   openRecent: (path: string) => Promise<void>
+  importQdpxAsProject: () => Promise<void>
   closeProject: () => Promise<void>
 
   refreshDocuments: () => Promise<void>
@@ -117,6 +118,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     const result = await window.api.project.openPath(path)
     if (!result) return
     set({ project: result.meta, currentDocument: null, codings: [] })
+    await loadProjectData(set)
+    await get().loadRecents()
+  },
+
+  importQdpxAsProject: async () => {
+    const result = await window.api.qdpx.importAsProject()
+    if (!result) return
+    set({
+      project: result.meta,
+      currentDocument: null,
+      codings: [],
+      documents: [],
+      codes: [],
+      groups: []
+    })
     await loadProjectData(set)
     await get().loadRecents()
   },

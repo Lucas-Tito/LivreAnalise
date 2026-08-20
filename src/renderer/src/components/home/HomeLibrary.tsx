@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { FilePlus2, FolderOpen, Clock, BookText } from 'lucide-react'
+import { FilePlus2, FolderOpen, Clock, BookText, FileInput } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { formatCount } from '@/lib/utils'
@@ -22,6 +22,7 @@ export function HomeLibrary(): JSX.Element {
   const createProject = useAppStore((s) => s.createProject)
   const openProject = useAppStore((s) => s.openProject)
   const openRecent = useAppStore((s) => s.openRecent)
+  const importQdpxAsProject = useAppStore((s) => s.importQdpxAsProject)
 
   useEffect(() => {
     loadRecents()
@@ -43,7 +44,7 @@ export function HomeLibrary(): JSX.Element {
           </div>
         </div>
 
-        <div className="mb-8 grid grid-cols-2 gap-4">
+        <div className="mb-8 grid grid-cols-3 gap-4">
           <button
             onClick={createProject}
             className="flex flex-col items-start gap-2 rounded-lg border bg-card p-5 text-left transition-colors hover:border-primary hover:bg-accent"
@@ -62,6 +63,16 @@ export function HomeLibrary(): JSX.Element {
             <span className="font-medium">Abrir projeto</span>
             <span className="text-xs text-muted-foreground">
               Abre um projeto .liva existente
+            </span>
+          </button>
+          <button
+            onClick={importQdpxAsProject}
+            className="flex flex-col items-start gap-2 rounded-lg border bg-card p-5 text-left transition-colors hover:border-primary hover:bg-accent"
+          >
+            <FileInput className="h-6 w-6 text-primary" />
+            <span className="font-medium">Importar QDPX</span>
+            <span className="text-xs text-muted-foreground">
+              Cria um projeto novo a partir de um arquivo .qdpx
             </span>
           </button>
         </div>

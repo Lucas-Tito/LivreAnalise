@@ -10,7 +10,6 @@ import type {
   DocumentRecord,
   DocumentWithText,
   ExportResult,
-  ImportReport,
   OpenProjectResult,
   ProjectMeta,
   RecentProject,
@@ -61,7 +60,7 @@ export const IPC = {
   },
   qdpx: {
     export: 'qdpx:export',
-    import: 'qdpx:import'
+    importAsProject: 'qdpx:importAsProject'
   }
 } as const
 
@@ -106,6 +105,6 @@ export interface Api {
   }
   qdpx: {
     export: () => Promise<ExportResult | null>
-    import: () => Promise<ImportReport | null>
+    importAsProject: () => Promise<OpenProjectResult | null>
   }
 }

@@ -45,7 +45,7 @@ const api: Api = {
   },
   qdpx: {
     export: () => ipcRenderer.invoke(IPC.qdpx.export),
-    import: () => ipcRenderer.invoke(IPC.qdpx.import)
+    importAsProject: () => ipcRenderer.invoke(IPC.qdpx.importAsProject)
   }
 }
 

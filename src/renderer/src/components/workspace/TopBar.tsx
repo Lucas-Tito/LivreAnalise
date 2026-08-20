@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BookText, Download, Upload, Loader2 } from 'lucide-react'
+import { BookText, Download, Loader2 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -7,13 +7,10 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 export function TopBar(): JSX.Element {
   const project = useAppStore((s) => s.project)
   const closeProject = useAppStore((s) => s.closeProject)
-  const refreshDocuments = useAppStore((s) => s.refreshDocuments)
-  const refreshCodes = useAppStore((s) => s.refreshCodes)
-  const refreshGroups = useAppStore((s) => s.refreshGroups)
-  const [working, setWorking] = useState<string | null>(null)
+  const [working, setWorking] = useState(false)
 
   const handleExport = async (): Promise<void> => {
-    setWorking('export')
+    setWorking(true)
     try {
       const result = await window.api.qdpx.export()
       if (result) {
@@ -24,35 +21,7 @@ export function TopBar(): JSX.Element {
     } catch (e) {
       alert(`Erro ao exportar: ${(e as Error).message}`)
     } finally {
-      setWorking(null)
-    }
-  }
-
-  const handleImport = async (): Promise<void> => {
-    if (
-      !confirm(
-        'Importar um .qdpx adiciona os dados ao projeto atual. Deseja continuar?'
-      )
-    ) {
-      return
-    }
-    setWorking('import')
-    try {
-      const report = await window.api.qdpx.import()
-      if (report) {
-        await Promise.all([refreshDocuments(), refreshCodes(), refreshGroups()])
-        const skipped =
-          report.skipped.length > 0
-            ? `\n\nIgnorado (nao suportado): ${report.skipped.join(', ')}`
-            : ''
-        alert(
-          `Importacao concluida:\n${report.documents} documentos, ${report.codes} codigos, ${report.groups} grupos, ${report.codings} citacoes.${skipped}`
-        )
-      }
-    } catch (e) {
-      alert(`Erro ao importar: ${(e as Error).message}`)
-    } finally {
-      setWorking(null)
+      setWorking(false)
     }
   }
 
@@ -75,23 +44,10 @@ export function TopBar(): JSX.Element {
         <Button
           size="sm"
           variant="outline"
-          onClick={handleImport}
-          disabled={working !== null}
-        >
-          {working === 'import' ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Upload className="h-4 w-4" />
-          )}
-          Importar QDPX
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
           onClick={handleExport}
-          disabled={working !== null}
+          disabled={working}
         >
-          {working === 'export' ? (
+          {working ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <Download className="h-4 w-4" />
