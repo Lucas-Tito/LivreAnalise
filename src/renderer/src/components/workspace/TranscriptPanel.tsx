@@ -8,6 +8,7 @@ import {
   markPendingSelection,
   resolveAnchorPos
 } from '@/lib/segments'
+import { packBarColumns } from '@/lib/barLayout'
 import { applyCodingAdjustments } from '@shared/editAdjust'
 import { contrastText, formatCount } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -67,6 +68,7 @@ export function TranscriptPanel(): JSX.Element {
   const [pending, setPending] = useState<PendingSelection | null>(null)
   const [bars, setBars] = useState<Bar[]>([])
   const [columnCount, setColumnCount] = useState(1)
+  const columnFloorRef = useRef(1)
   const [hoverCoding, setHoverCoding] = useState<number | null>(null)
   const [selectedCodingId, setSelectedCodingId] = useState<number | null>(null)
   const [dragging, setDragging] = useState<{ codingId: number; end: 'start' | 'end' } | null>(null)
@@ -209,6 +211,11 @@ export function TranscriptPanel(): JSX.Element {
     setEditTip(null)
   }
 
+  useEffect(() => {
+    columnFloorRef.current = 1
+    setColumnCount(1)
+  }, [currentDocument?.id])
+
   const measure = useCallback(() => {
     const container = scrollRef.current
     const textEl = textRef.current
@@ -238,19 +245,10 @@ export function TranscriptPanel(): JSX.Element {
       })
       .filter((b): b is Omit<Bar, 'column'> => b !== null)
 
-    raw.sort((a, b) => a.top - b.top)
-    const colBottoms: number[] = []
-    const placed: Bar[] = raw.map((b) => {
-      let column = colBottoms.findIndex((bottom) => bottom <= b.top)
-      if (column === -1) {
-        column = colBottoms.length
-        colBottoms.push(0)
-      }
-      colBottoms[column] = b.top + 24
-      return { ...b, column }
-    })
-    setBars(placed)
-    setColumnCount(Math.max(1, colBottoms.length))
+    const layout = packBarColumns(raw, columnFloorRef.current)
+    columnFloorRef.current = layout.columnCount
+    setBars(layout.bars)
+    setColumnCount(layout.columnCount)
   }, [codings, codeMap, lineRows])
 
   useLayoutEffect(() => {
@@ -260,9 +258,14 @@ export function TranscriptPanel(): JSX.Element {
   useLayoutEffect(() => {
     measure()
     const container = scrollRef.current
-    if (!container) return
+    const textEl = textRef.current
+    if (!container || !textEl) return
     const ro = new ResizeObserver(() => measure())
     ro.observe(container)
+    // A largura da coluna de etiquetas vem de columnCount, que estreita a
+    // coluna de texto e re-quebra as linhas: sem observar o proprio texto, as
+    // posicoes medidas ficam obsoletas e as etiquetas descem junto com o erro.
+    ro.observe(textEl)
     return () => ro.disconnect()
   }, [measure, text])
 
