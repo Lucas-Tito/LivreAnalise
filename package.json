@@ -5,6 +5,11 @@
   "main": "./out/main/index.js",
   "author": "LivreAnalise",
   "license": "MIT",
+  "homepage": "https://github.com/Lucas-Tito/LivreAnalise",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lucas-Tito/LivreAnalise.git"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "predev": "node scripts/ensure-electron-native.mjs",
