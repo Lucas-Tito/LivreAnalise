@@ -48,8 +48,7 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
       .values({
         guid: group.guid || uuid(),
         name: group.name,
-        description: group.description ?? null,
-        parentGroupId: null
+        description: group.description ?? null
       })
       .run()
     const groupId = Number(res.lastInsertRowid)

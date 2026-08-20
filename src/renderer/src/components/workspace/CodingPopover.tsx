@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
+import { applicableCodes } from '@/lib/codeTree'
 import { randomColor } from '@/lib/utils'
 
 interface Props {
@@ -11,7 +12,7 @@ interface Props {
 }
 
 export function CodingPopover({ x, y, onClose, onApply }: Props): JSX.Element {
-  const codes = useAppStore((s) => s.codes)
+  const allCodes = useAppStore((s) => s.codes)
   const createCode = useAppStore((s) => s.createCode)
   const lastUsedCodeId = useAppStore((s) => s.lastUsedCodeId)
   const [filter, setFilter] = useState('')
@@ -27,6 +28,9 @@ export function CodingPopover({ x, y, onClose, onApply }: Props): JSX.Element {
     return () => document.removeEventListener('mousedown', onDocMouseDown)
   }, [onClose])
 
+  // Grupo nao recebe citacao: so o codigo-folha e aplicavel a um trecho.
+  const codes = useMemo(() => applicableCodes(allCodes), [allCodes])
+
   const filtered = codes.filter((c) =>
     c.name.toLowerCase().includes(filter.toLowerCase())
   )
@@ -35,7 +39,7 @@ export function CodingPopover({ x, y, onClose, onApply }: Props): JSX.Element {
   const listCodes = showLastUsed
     ? filtered.filter((c) => c.id !== lastUsedCodeId)
     : filtered
-  const exactMatch = codes.some(
+  const exactMatch = allCodes.some(
     (c) => c.name.toLowerCase() === filter.trim().toLowerCase()
   )
 

@@ -215,8 +215,7 @@ export function createGroup(input: CreateGroupInput): CodeGroup {
     .values({
       guid,
       name: input.name,
-      description: input.description ?? null,
-      parentGroupId: input.parentGroupId ?? null
+      description: input.description ?? null
     })
     .run()
   touchProject()
@@ -228,8 +227,6 @@ export function updateGroup(input: UpdateGroupInput): void {
   const patch: Record<string, unknown> = {}
   if (input.name !== undefined) patch.name = input.name
   if (input.description !== undefined) patch.description = input.description
-  if (input.parentGroupId !== undefined)
-    patch.parentGroupId = input.parentGroupId
   if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder
   if (Object.keys(patch).length === 0) return
   db.update(codeGroups).set(patch).where(eq(codeGroups.id, input.id)).run()

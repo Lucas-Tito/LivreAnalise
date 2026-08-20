@@ -51,7 +51,6 @@ export const codeGroups = sqliteTable('code_groups', {
   guid: text('guid').notNull().unique(),
   name: text('name').notNull(),
   description: text('description'),
-  parentGroupId: integer('parent_group_id'),
   sortOrder: integer('sort_order').notNull().default(0)
 })
 

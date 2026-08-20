@@ -34,11 +34,6 @@ export function buildProjectFromDb(projectName: string): {
   }))
 
   const groups = listGroups()
-  if (groups.some((g) => g.parentGroupId !== null)) {
-    warnings.push(
-      'Grupos aninhados foram achatados em Sets planos no arquivo .qdpx (o aninhamento e mantido apenas no projeto LivreAnalise).'
-    )
-  }
   const qdpxGroups: QdpxGroup[] = groups.map((g) => ({
     guid: g.guid,
     name: g.name,

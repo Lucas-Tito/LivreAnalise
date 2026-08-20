@@ -10,6 +10,7 @@ import {
   List
 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
+import { canReceiveChild } from '@/lib/codeTree'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -133,13 +134,15 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
               <DropdownMenuItem onClick={() => onViewCode(node.code)}>
                 <List className="h-4 w-4" /> Ver trechos
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() =>
-                  setDialogState({ mode: 'child', code: node.code })
-                }
-              >
-                <CornerDownRight className="h-4 w-4" /> Adicionar subcodigo
-              </DropdownMenuItem>
+              {canReceiveChild(node.code) && (
+                <DropdownMenuItem
+                  onClick={() =>
+                    setDialogState({ mode: 'child', code: node.code })
+                  }
+                >
+                  <CornerDownRight className="h-4 w-4" /> Adicionar codigo dentro
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={() => setDialogState({ mode: 'edit', code: node.code })}
               >
@@ -150,7 +153,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                 onClick={() => {
                   if (
                     confirm(
-                      `Excluir o codigo "${node.code.name}"? Subcodigos e citacoes serao removidos.`
+                      `Excluir o codigo "${node.code.name}"? Os codigos dentro dele e as citacoes serao removidos.`
                     )
                   ) {
                     deleteCode(node.code.id)
@@ -199,7 +202,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
           dialogState?.mode === 'edit'
             ? 'Editar codigo'
             : dialogState?.mode === 'child'
-              ? 'Novo subcodigo'
+              ? `Novo codigo em "${dialogState.code?.name}"`
               : 'Novo codigo'
         }
         initial={

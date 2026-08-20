@@ -59,7 +59,6 @@ export interface CodeGroup {
   guid: string
   name: string
   description: string | null
-  parentGroupId: number | null
   sortOrder: number
 }
 
@@ -103,14 +102,12 @@ export interface UpdateCodeInput {
 export interface CreateGroupInput {
   name: string
   description?: string | null
-  parentGroupId?: number | null
 }
 
 export interface UpdateGroupInput {
   id: number
   name?: string
   description?: string | null
-  parentGroupId?: number | null
   sortOrder?: number
 }
 

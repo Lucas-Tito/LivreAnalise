@@ -38,7 +38,6 @@ CREATE TABLE IF NOT EXISTS code_groups (
   guid TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   description TEXT,
-  parent_group_id INTEGER REFERENCES code_groups(id) ON DELETE CASCADE,
   sort_order INTEGER NOT NULL DEFAULT 0
 );
 
@@ -64,5 +63,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS codings_unique_span
 CREATE INDEX IF NOT EXISTS codings_by_document ON codings(document_id);
 CREATE INDEX IF NOT EXISTS codings_by_code ON codings(code_id);
 CREATE INDEX IF NOT EXISTS codes_by_parent ON codes(parent_id);
-CREATE INDEX IF NOT EXISTS groups_by_parent ON code_groups(parent_group_id);
 `
