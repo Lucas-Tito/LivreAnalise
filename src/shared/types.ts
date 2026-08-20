@@ -54,7 +54,7 @@ export interface CodeWithCount extends Code {
   usageCount: number
 }
 
-export interface CodeGroup {
+export interface Collection {
   id: number
   guid: string
   name: string
@@ -62,8 +62,8 @@ export interface CodeGroup {
   sortOrder: number
 }
 
-export interface CodeGroupMember {
-  groupId: number
+export interface CollectionMember {
+  collectionId: number
   codeId: number
 }
 
@@ -99,12 +99,12 @@ export interface UpdateCodeInput {
   sortOrder?: number
 }
 
-export interface CreateGroupInput {
+export interface CreateCollectionInput {
   name: string
   description?: string | null
 }
 
-export interface UpdateGroupInput {
+export interface UpdateCollectionInput {
   id: number
   name?: string
   description?: string | null

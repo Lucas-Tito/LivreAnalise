@@ -46,7 +46,7 @@ export const codes = sqliteTable('codes', {
     .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
 })
 
-export const codeGroups = sqliteTable('code_groups', {
+export const collections = sqliteTable('code_groups', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   guid: text('guid').notNull().unique(),
   name: text('name').notNull(),
@@ -54,18 +54,18 @@ export const codeGroups = sqliteTable('code_groups', {
   sortOrder: integer('sort_order').notNull().default(0)
 })
 
-export const codeGroupMembers = sqliteTable(
+export const collectionMembers = sqliteTable(
   'code_group_members',
   {
-    groupId: integer('group_id')
+    collectionId: integer('group_id')
       .notNull()
-      .references(() => codeGroups.id, { onDelete: 'cascade' }),
+      .references(() => collections.id, { onDelete: 'cascade' }),
     codeId: integer('code_id')
       .notNull()
       .references(() => codes.id, { onDelete: 'cascade' })
   },
   (table) => ({
-    pk: primaryKey({ columns: [table.groupId, table.codeId] })
+    pk: primaryKey({ columns: [table.collectionId, table.codeId] })
   })
 )
 
@@ -99,5 +99,5 @@ export const codings = sqliteTable(
 export type ProjectMetaRow = typeof projectMeta.$inferSelect
 export type DocumentRow = typeof documents.$inferSelect
 export type CodeRow = typeof codes.$inferSelect
-export type CodeGroupRow = typeof codeGroups.$inferSelect
+export type CollectionRow = typeof collections.$inferSelect
 export type CodingRow = typeof codings.$inferSelect

@@ -20,7 +20,7 @@ export interface QdpxDocument {
   selections: QdpxSelection[]
 }
 
-export interface QdpxGroup {
+export interface QdpxSet {
   guid: string
   name: string
   description?: string | null
@@ -36,7 +36,7 @@ export interface QdpxProject {
   name: string
   users: QdpxUser[]
   codes: QdpxCode[]
-  groups: QdpxGroup[]
+  groups: QdpxSet[]
   documents: QdpxDocument[]
 }
 

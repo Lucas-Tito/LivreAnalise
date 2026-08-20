@@ -1,12 +1,11 @@
 import { useState } from 'react'
-import { FileText, Tags, Layers } from 'lucide-react'
+import { FileText, Tags } from 'lucide-react'
 import { DocumentsPanel } from './DocumentsPanel'
 import { CodesPanel } from './CodesPanel'
-import { GroupsPanel } from './GroupsPanel'
 import { cn } from '@/lib/utils'
 import type { CodeWithCount } from '@shared/types'
 
-type Tab = 'documents' | 'codes' | 'groups'
+type Tab = 'documents' | 'codes'
 
 interface Props {
   onViewCode: (code: CodeWithCount) => void
@@ -17,8 +16,7 @@ export function Sidebar({ onViewCode }: Props): JSX.Element {
 
   const tabs: { id: Tab; label: string; icon: JSX.Element }[] = [
     { id: 'documents', label: 'Documentos', icon: <FileText className="h-4 w-4" /> },
-    { id: 'codes', label: 'Codigos', icon: <Tags className="h-4 w-4" /> },
-    { id: 'groups', label: 'Grupos', icon: <Layers className="h-4 w-4" /> }
+    { id: 'codes', label: 'Codigos', icon: <Tags className="h-4 w-4" /> }
   ]
 
   return (
@@ -43,7 +41,6 @@ export function Sidebar({ onViewCode }: Props): JSX.Element {
       <div className="min-h-0 flex-1">
         {tab === 'documents' && <DocumentsPanel />}
         {tab === 'codes' && <CodesPanel onViewCode={onViewCode} />}
-        {tab === 'groups' && <GroupsPanel />}
       </div>
     </div>
   )

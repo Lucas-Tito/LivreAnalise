@@ -5,13 +5,13 @@ import {
   listCodes,
   listCodingsByDocument,
   listDocuments,
-  listGroupMembers,
-  listGroups
+  listCollectionMembers,
+  listCollections
 } from '../db/repositories'
 import type {
   QdpxCode,
   QdpxDocument,
-  QdpxGroup,
+  QdpxSet,
   QdpxProject,
   QdpxSelection
 } from './model'
@@ -33,12 +33,12 @@ export function buildProjectFromDb(projectName: string): {
     parentGuid: c.parentId ? codeGuidById.get(c.parentId) ?? null : null
   }))
 
-  const groups = listGroups()
-  const qdpxGroups: QdpxGroup[] = groups.map((g) => ({
+  const groups = listCollections()
+  const qdpxSets: QdpxSet[] = groups.map((g) => ({
     guid: g.guid,
     name: g.name,
     description: g.description,
-    memberCodeGuids: listGroupMembers(g.id)
+    memberCodeGuids: listCollectionMembers(g.id)
       .map((id) => codeGuidById.get(id))
       .filter((guid): guid is string => Boolean(guid))
   }))
@@ -76,7 +76,7 @@ export function buildProjectFromDb(projectName: string): {
       name: projectName,
       users: [],
       codes: qdpxCodes,
-      groups: qdpxGroups,
+      groups: qdpxSets,
       documents: qdpxDocuments
     },
     warnings

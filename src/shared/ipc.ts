@@ -1,12 +1,13 @@
 import type {
   Code,
-  CodeGroup,
+  Collection,
+  CollectionMember,
   CodeWithCount,
   Coding,
   CodingWithCode,
   CreateCodeInput,
   CreateCodingInput,
-  CreateGroupInput,
+  CreateCollectionInput,
   DocumentRecord,
   DocumentWithText,
   ExportResult,
@@ -16,7 +17,7 @@ import type {
   RecentProjectWithStats,
   UpdateCodingInput,
   UpdateCodeInput,
-  UpdateGroupInput
+  UpdateCollectionInput
 } from './types'
 
 export const IPC = {
@@ -42,14 +43,15 @@ export const IPC = {
     update: 'codes:update',
     delete: 'codes:delete'
   },
-  groups: {
-    list: 'groups:list',
-    create: 'groups:create',
-    update: 'groups:update',
-    delete: 'groups:delete',
-    members: 'groups:members',
-    addMember: 'groups:addMember',
-    removeMember: 'groups:removeMember'
+  collections: {
+    list: 'collections:list',
+    create: 'collections:create',
+    update: 'collections:update',
+    delete: 'collections:delete',
+    members: 'collections:members',
+    allMembers: 'collections:allMembers',
+    addMember: 'collections:addMember',
+    removeMember: 'collections:removeMember'
   },
   codings: {
     listByDocument: 'codings:listByDocument',
@@ -87,14 +89,15 @@ export interface Api {
     update: (input: UpdateCodeInput) => Promise<void>
     delete: (id: number) => Promise<void>
   }
-  groups: {
-    list: () => Promise<CodeGroup[]>
-    create: (input: CreateGroupInput) => Promise<CodeGroup>
-    update: (input: UpdateGroupInput) => Promise<void>
+  collections: {
+    list: () => Promise<Collection[]>
+    create: (input: CreateCollectionInput) => Promise<Collection>
+    update: (input: UpdateCollectionInput) => Promise<void>
     delete: (id: number) => Promise<void>
-    members: (groupId: number) => Promise<number[]>
-    addMember: (groupId: number, codeId: number) => Promise<void>
-    removeMember: (groupId: number, codeId: number) => Promise<void>
+    members: (collectionId: number) => Promise<number[]>
+    allMembers: () => Promise<CollectionMember[]>
+    addMember: (collectionId: number, codeId: number) => Promise<void>
+    removeMember: (collectionId: number, codeId: number) => Promise<void>
   }
   codings: {
     listByDocument: (documentId: number) => Promise<Coding[]>

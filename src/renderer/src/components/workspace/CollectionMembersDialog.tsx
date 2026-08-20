@@ -9,36 +9,36 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/stores/appStore'
-import type { CodeGroup } from '@shared/types'
+import type { Collection } from '@shared/types'
 
 interface Props {
-  group: CodeGroup | null
+  collection: Collection | null
   onOpenChange: (open: boolean) => void
 }
 
-export function GroupMembersDialog({ group, onOpenChange }: Props): JSX.Element {
+export function CollectionMembersDialog({ collection, onOpenChange }: Props): JSX.Element {
   const codes = useAppStore((s) => s.codes)
   const [members, setMembers] = useState<Set<number>>(new Set())
   const [filter, setFilter] = useState('')
 
   useEffect(() => {
-    if (group) {
-      window.api.groups.members(group.id).then((ids) => setMembers(new Set(ids)))
+    if (collection) {
+      window.api.collections.members(collection.id).then((ids) => setMembers(new Set(ids)))
       setFilter('')
     }
-  }, [group])
+  }, [collection])
 
   const toggle = async (codeId: number): Promise<void> => {
-    if (!group) return
+    if (!collection) return
     if (members.has(codeId)) {
-      await window.api.groups.removeMember(group.id, codeId)
+      await window.api.collections.removeMember(collection.id, codeId)
       setMembers((prev) => {
         const next = new Set(prev)
         next.delete(codeId)
         return next
       })
     } else {
-      await window.api.groups.addMember(group.id, codeId)
+      await window.api.collections.addMember(collection.id, codeId)
       setMembers((prev) => new Set(prev).add(codeId))
     }
   }
@@ -48,10 +48,10 @@ export function GroupMembersDialog({ group, onOpenChange }: Props): JSX.Element 
   )
 
   return (
-    <Dialog open={group !== null} onOpenChange={onOpenChange}>
+    <Dialog open={collection !== null} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Codigos no grupo "{group?.name}"</DialogTitle>
+          <DialogTitle>Codigos no grupo "{collection?.name}"</DialogTitle>
         </DialogHeader>
         <Input
           placeholder="Filtrar codigos..."

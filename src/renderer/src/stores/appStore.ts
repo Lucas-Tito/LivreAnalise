@@ -1,17 +1,18 @@
 import { create } from 'zustand'
 import type {
   Code,
-  CodeGroup,
+  Collection,
+  CollectionMember,
   CodeWithCount,
   Coding,
   CreateCodeInput,
-  CreateGroupInput,
+  CreateCollectionInput,
   DocumentRecord,
   DocumentWithText,
   ProjectMeta,
   RecentProjectWithStats,
   UpdateCodeInput,
-  UpdateGroupInput
+  UpdateCollectionInput
 } from '@shared/types'
 
 interface AppState {
@@ -20,7 +21,8 @@ interface AppState {
   documents: DocumentRecord[]
   currentDocument: DocumentWithText | null
   codes: CodeWithCount[]
-  groups: CodeGroup[]
+  collections: Collection[]
+  collectionMembers: CollectionMember[]
   codings: Coding[]
   lastUsedCodeId: number | null
   busy: boolean
@@ -45,10 +47,10 @@ interface AppState {
   updateCode: (input: UpdateCodeInput) => Promise<void>
   deleteCode: (id: number) => Promise<void>
 
-  refreshGroups: () => Promise<void>
-  createGroup: (input: CreateGroupInput) => Promise<CodeGroup>
-  updateGroup: (input: UpdateGroupInput) => Promise<void>
-  deleteGroup: (id: number) => Promise<void>
+  refreshCollections: () => Promise<void>
+  createCollection: (input: CreateCollectionInput) => Promise<Collection>
+  updateCollection: (input: UpdateCollectionInput) => Promise<void>
+  deleteCollection: (id: number) => Promise<void>
 
   refreshCodings: () => Promise<void>
   addCoding: (codeId: number, startPos: number, endPos: number) => Promise<void>
@@ -58,12 +60,13 @@ interface AppState {
 }
 
 async function loadProjectData(set: (partial: Partial<AppState>) => void): Promise<void> {
-  const [documents, codes, groups] = await Promise.all([
+  const [documents, codes, collections, collectionMembers] = await Promise.all([
     window.api.documents.list(),
     window.api.codes.list(),
-    window.api.groups.list()
+    window.api.collections.list(),
+    window.api.collections.allMembers()
   ])
-  set({ documents, codes, groups })
+  set({ documents, codes, collections, collectionMembers })
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -72,7 +75,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   documents: [],
   currentDocument: null,
   codes: [],
-  groups: [],
+  collections: [],
+  collectionMembers: [],
   codings: [],
   lastUsedCodeId: null,
   busy: false,
@@ -100,7 +104,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       codings: [],
       documents: [],
       codes: [],
-      groups: []
+      collections: [],
+      collectionMembers: []
     })
     await loadProjectData(set)
     await get().loadRecents()
@@ -131,7 +136,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       codings: [],
       documents: [],
       codes: [],
-      groups: []
+      collections: [],
+      collectionMembers: []
     })
     await loadProjectData(set)
     await get().loadRecents()
@@ -144,7 +150,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       documents: [],
       currentDocument: null,
       codes: [],
-      groups: [],
+      collections: [],
+      collectionMembers: [],
       codings: []
     })
     await get().loadRecents()
@@ -225,24 +232,28 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().refreshCodings()
   },
 
-  refreshGroups: async () => {
-    set({ groups: await window.api.groups.list() })
+  refreshCollections: async () => {
+    const [collections, collectionMembers] = await Promise.all([
+      window.api.collections.list(),
+      window.api.collections.allMembers()
+    ])
+    set({ collections, collectionMembers })
   },
 
-  createGroup: async (input) => {
-    const group = await window.api.groups.create(input)
-    await get().refreshGroups()
-    return group
+  createCollection: async (input) => {
+    const collection = await window.api.collections.create(input)
+    await get().refreshCollections()
+    return collection
   },
 
-  updateGroup: async (input) => {
-    await window.api.groups.update(input)
-    await get().refreshGroups()
+  updateCollection: async (input) => {
+    await window.api.collections.update(input)
+    await get().refreshCollections()
   },
 
-  deleteGroup: async (id) => {
-    await window.api.groups.delete(id)
-    await get().refreshGroups()
+  deleteCollection: async (id) => {
+    await window.api.collections.delete(id)
+    await get().refreshCollections()
   },
 
   refreshCodings: async () => {

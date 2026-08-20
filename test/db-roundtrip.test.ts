@@ -35,9 +35,9 @@ describe.skipIf(!nativeOk)('DB + QDPX round-trip (integration)', () => {
     })
     const work = repos.createCode({ name: 'Trabalho', color: '#0000ff' })
 
-    const group = repos.createGroup({ name: 'Fase 1' })
-    repos.addGroupMember(group.id, child.id)
-    repos.addGroupMember(group.id, work.id)
+    const group = repos.createCollection({ name: 'Fase 1' })
+    repos.addCollectionMember(group.id, child.id)
+    repos.addCollectionMember(group.id, work.id)
 
     const doc = repos.createDocument({
       name: 'Entrevista 1',

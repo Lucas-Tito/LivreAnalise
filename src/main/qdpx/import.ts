@@ -3,8 +3,8 @@ import { v4 as uuid } from 'uuid'
 import type { ImportReport } from '@shared/types'
 import { getDb } from '../db'
 import {
-  codeGroupMembers,
-  codeGroups,
+  collectionMembers,
+  collections,
   codes,
   codings,
   documents
@@ -42,22 +42,22 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
     report.codes += 1
   }
 
-  for (const group of parsed.project.groups) {
+  for (const set of parsed.project.groups) {
     const res = db
-      .insert(codeGroups)
+      .insert(collections)
       .values({
-        guid: group.guid || uuid(),
-        name: group.name,
-        description: group.description ?? null
+        guid: set.guid || uuid(),
+        name: set.name,
+        description: set.description ?? null
       })
       .run()
-    const groupId = Number(res.lastInsertRowid)
+    const collectionId = Number(res.lastInsertRowid)
     report.groups += 1
-    for (const memberGuid of group.memberCodeGuids) {
+    for (const memberGuid of set.memberCodeGuids) {
       const codeId = codeIdByGuid.get(memberGuid)
       if (codeId) {
-        db.insert(codeGroupMembers)
-          .values({ groupId, codeId })
+        db.insert(collectionMembers)
+          .values({ collectionId, codeId })
           .onConflictDoNothing()
           .run()
       }

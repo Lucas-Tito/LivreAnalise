@@ -2,25 +2,26 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import { v4 as uuid } from 'uuid'
 import type {
   Code,
-  CodeGroup,
+  Collection,
+  CollectionMember,
   CodeWithCount,
   Coding,
   CodingWithCode,
   CreateCodeInput,
   CreateCodingInput,
   UpdateCodingInput,
-  CreateGroupInput,
+  CreateCollectionInput,
   DocumentRecord,
   DocumentWithText,
   UpdateCodeInput,
-  UpdateGroupInput
+  UpdateCollectionInput
 } from '@shared/types'
 import { adjustCodings } from '@shared/editAdjust'
 import { findConnectedCodings } from '../services/codingMerge'
 import { getDb } from './index'
 import {
-  codeGroupMembers,
-  codeGroups,
+  collectionMembers,
+  collections,
   codes,
   codings,
   documents
@@ -189,29 +190,29 @@ export function deleteCode(id: number): void {
 
 // ---------- Groups ----------
 
-export function listGroups(): CodeGroup[] {
+export function listCollections(): Collection[] {
   const db = getDb()
   return db
     .select()
-    .from(codeGroups)
-    .orderBy(asc(codeGroups.sortOrder), asc(codeGroups.name))
-    .all() as CodeGroup[]
+    .from(collections)
+    .orderBy(asc(collections.sortOrder), asc(collections.name))
+    .all() as Collection[]
 }
 
-function getGroup(id: number): CodeGroup {
+function getCollection(id: number): Collection {
   const db = getDb()
   return db
     .select()
-    .from(codeGroups)
-    .where(eq(codeGroups.id, id))
-    .get() as CodeGroup
+    .from(collections)
+    .where(eq(collections.id, id))
+    .get() as Collection
 }
 
-export function createGroup(input: CreateGroupInput): CodeGroup {
+export function createCollection(input: CreateCollectionInput): Collection {
   const db = getDb()
   const guid = uuid()
   const res = db
-    .insert(codeGroups)
+    .insert(collections)
     .values({
       guid,
       name: input.name,
@@ -219,52 +220,63 @@ export function createGroup(input: CreateGroupInput): CodeGroup {
     })
     .run()
   touchProject()
-  return getGroup(Number(res.lastInsertRowid))
+  return getCollection(Number(res.lastInsertRowid))
 }
 
-export function updateGroup(input: UpdateGroupInput): void {
+export function updateCollection(input: UpdateCollectionInput): void {
   const db = getDb()
   const patch: Record<string, unknown> = {}
   if (input.name !== undefined) patch.name = input.name
   if (input.description !== undefined) patch.description = input.description
   if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder
   if (Object.keys(patch).length === 0) return
-  db.update(codeGroups).set(patch).where(eq(codeGroups.id, input.id)).run()
+  db.update(collections).set(patch).where(eq(collections.id, input.id)).run()
   touchProject()
 }
 
-export function deleteGroup(id: number): void {
+export function deleteCollection(id: number): void {
   const db = getDb()
-  db.delete(codeGroups).where(eq(codeGroups.id, id)).run()
+  db.delete(collections).where(eq(collections.id, id)).run()
   touchProject()
 }
 
-export function listGroupMembers(groupId: number): number[] {
+export function listCollectionMembers(collectionId: number): number[] {
   const db = getDb()
   const rows = db
-    .select({ codeId: codeGroupMembers.codeId })
-    .from(codeGroupMembers)
-    .where(eq(codeGroupMembers.groupId, groupId))
+    .select({ codeId: collectionMembers.codeId })
+    .from(collectionMembers)
+    .where(eq(collectionMembers.collectionId, collectionId))
     .all()
   return rows.map((r) => r.codeId)
 }
 
-export function addGroupMember(groupId: number, codeId: number): void {
+export function listAllCollectionMembers(): CollectionMember[] {
   const db = getDb()
-  db.insert(codeGroupMembers)
-    .values({ groupId, codeId })
+  return db
+    .select({
+      collectionId: collectionMembers.collectionId,
+      codeId: collectionMembers.codeId
+    })
+    .from(collectionMembers)
+    .all()
+}
+
+export function addCollectionMember(collectionId: number, codeId: number): void {
+  const db = getDb()
+  db.insert(collectionMembers)
+    .values({ collectionId, codeId })
     .onConflictDoNothing()
     .run()
   touchProject()
 }
 
-export function removeGroupMember(groupId: number, codeId: number): void {
+export function removeCollectionMember(collectionId: number, codeId: number): void {
   const db = getDb()
-  db.delete(codeGroupMembers)
+  db.delete(collectionMembers)
     .where(
       and(
-        eq(codeGroupMembers.groupId, groupId),
-        eq(codeGroupMembers.codeId, codeId)
+        eq(collectionMembers.collectionId, collectionId),
+        eq(collectionMembers.codeId, codeId)
       )
     )
     .run()

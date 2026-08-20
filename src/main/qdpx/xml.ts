@@ -5,7 +5,7 @@ import type {
   ParsedQdpx,
   QdpxCode,
   QdpxDocument,
-  QdpxGroup,
+  QdpxSet,
   QdpxProject,
   QdpxSelection,
   QdpxUser
@@ -173,7 +173,7 @@ export function parseQde(xml: string): ParseResult {
     walkCodes(node, null)
   }
 
-  const groups: QdpxGroup[] = asArray<any>(project.Sets?.Set).map((set) => ({
+  const groups: QdpxSet[] = asArray<any>(project.Sets?.Set).map((set) => ({
     guid: set['@_guid'],
     name: set['@_name'] ?? 'Grupo',
     description: typeof set.Description === 'string' ? set.Description : null,

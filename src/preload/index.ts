@@ -24,16 +24,18 @@ const api: Api = {
     update: (input) => ipcRenderer.invoke(IPC.codes.update, input),
     delete: (id) => ipcRenderer.invoke(IPC.codes.delete, id)
   },
-  groups: {
-    list: () => ipcRenderer.invoke(IPC.groups.list),
-    create: (input) => ipcRenderer.invoke(IPC.groups.create, input),
-    update: (input) => ipcRenderer.invoke(IPC.groups.update, input),
-    delete: (id) => ipcRenderer.invoke(IPC.groups.delete, id),
-    members: (groupId) => ipcRenderer.invoke(IPC.groups.members, groupId),
-    addMember: (groupId, codeId) =>
-      ipcRenderer.invoke(IPC.groups.addMember, groupId, codeId),
-    removeMember: (groupId, codeId) =>
-      ipcRenderer.invoke(IPC.groups.removeMember, groupId, codeId)
+  collections: {
+    list: () => ipcRenderer.invoke(IPC.collections.list),
+    create: (input) => ipcRenderer.invoke(IPC.collections.create, input),
+    update: (input) => ipcRenderer.invoke(IPC.collections.update, input),
+    delete: (id) => ipcRenderer.invoke(IPC.collections.delete, id),
+    members: (collectionId) =>
+      ipcRenderer.invoke(IPC.collections.members, collectionId),
+    allMembers: () => ipcRenderer.invoke(IPC.collections.allMembers),
+    addMember: (collectionId, codeId) =>
+      ipcRenderer.invoke(IPC.collections.addMember, collectionId, codeId),
+    removeMember: (collectionId, codeId) =>
+      ipcRenderer.invoke(IPC.collections.removeMember, collectionId, codeId)
   },
   codings: {
     listByDocument: (documentId) =>
