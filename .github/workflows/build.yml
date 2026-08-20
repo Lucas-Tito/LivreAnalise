@@ -58,3 +58,37 @@ jobs:
             dist/*.deb
             dist/*.exe
           if-no-files-found: error
+
+  # Todo push na master publica os instaladores numa release. O nome vem da
+  # versao do package.json: bumpar a versao cria uma release nova, e pushes com
+  # a mesma versao atualizam os arquivos da release existente.
+  release:
+    needs: package
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Baixar os instaladores
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      # gh ja vem instalado no runner: um action de terceiro a menos na cadeia
+      - name: Publicar ou atualizar a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag existe: atualizando os instaladores"
+            gh release upload "$tag" artifacts/* --clobber
+          else
+            echo "Criando a release $tag"
+            gh release create "$tag" artifacts/* --generate-notes --title "$tag"
+          fi
