@@ -15,6 +15,7 @@ import type {
   ProjectMeta,
   RecentProject,
   RecentProjectWithStats,
+  RenameProjectResult,
   TranscriptionEnv,
   TranscriptionEvent,
   TranscriptionModel,
@@ -31,7 +32,9 @@ export const IPC = {
     openPath: 'project:openPath',
     current: 'project:current',
     close: 'project:close',
-    recents: 'project:recents'
+    recents: 'project:recents',
+    rename: 'project:rename',
+    trash: 'project:trash'
   },
   documents: {
     list: 'documents:list',
@@ -89,6 +92,8 @@ export interface Api {
     current: () => Promise<ProjectMeta | null>
     close: () => Promise<void>
     recents: () => Promise<RecentProjectWithStats[]>
+    rename: (path: string, name: string) => Promise<RenameProjectResult>
+    trash: (path: string) => Promise<void>
   }
   documents: {
     list: () => Promise<DocumentRecord[]>

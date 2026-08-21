@@ -2,7 +2,11 @@ import { app, dialog, ipcMain } from 'electron'
 import { basename } from 'path'
 import { v4 as uuid } from 'uuid'
 import { IPC } from '@shared/ipc'
-import type { OpenProjectResult, ProjectMeta } from '@shared/types'
+import type {
+  OpenProjectResult,
+  ProjectMeta,
+  RenameProjectResult
+} from '@shared/types'
 import {
   closeDatabase,
   getActivePath,
@@ -12,6 +16,7 @@ import {
 } from '../db'
 import { projectMeta } from '../db/schema'
 import { pushRecent, readRecents } from '../services/recents'
+import { renameProject, trashProject } from '../services/projectFile'
 import { readProjectStats } from '../db/projectStats'
 
 const PROJECT_EXT = 'liva'
@@ -80,6 +85,16 @@ export function registerProjectHandlers(): void {
 
   ipcMain.handle(IPC.project.close, async (): Promise<void> => {
     closeDatabase()
+  })
+
+  ipcMain.handle(
+    IPC.project.rename,
+    async (_e, path: string, name: string): Promise<RenameProjectResult> =>
+      renameProject(path, name)
+  )
+
+  ipcMain.handle(IPC.project.trash, async (_e, path: string): Promise<void> => {
+    await trashProject(path)
   })
 
   ipcMain.handle(IPC.project.recents, async () => {

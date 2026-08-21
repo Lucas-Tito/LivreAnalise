@@ -181,3 +181,10 @@ export type TranscriptionEvent =
       receivedBytes: number
       totalBytes: number
     }
+
+export interface RenameProjectResult {
+  name: string
+  path: string
+  fileRenamed: boolean
+  warning: string | null
+}
