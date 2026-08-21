@@ -41,3 +41,19 @@ export function randomColor(): string {
 export function formatCount(n: number, singular: string, plural: string): string {
   return `${n.toLocaleString('pt-BR')} ${n === 1 ? singular : plural}`
 }
+
+export function formatBytes(bytes: number): string {
+  if (!(bytes > 0)) return '0 MB'
+  const mb = bytes / 1048576
+  if (mb < 1024) return `${Math.round(mb)} MB`
+  return `${(mb / 1024).toFixed(1)} GB`
+}
+
+export function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
+}

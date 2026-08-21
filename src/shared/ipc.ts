@@ -15,6 +15,10 @@ import type {
   ProjectMeta,
   RecentProject,
   RecentProjectWithStats,
+  TranscriptionEnv,
+  TranscriptionEvent,
+  TranscriptionModel,
+  TranscriptionStartInput,
   UpdateCodingInput,
   UpdateCodeInput,
   UpdateCollectionInput
@@ -59,6 +63,17 @@ export const IPC = {
     create: 'codings:create',
     update: 'codings:update',
     delete: 'codings:delete'
+  },
+  transcription: {
+    env: 'transcription:env',
+    models: 'transcription:models',
+    modelSize: 'transcription:modelSize',
+    pickMedia: 'transcription:pickMedia',
+    downloadModel: 'transcription:downloadModel',
+    downloadBinary: 'transcription:downloadBinary',
+    start: 'transcription:start',
+    cancel: 'transcription:cancel',
+    event: 'transcription:event'
   },
   qdpx: {
     export: 'qdpx:export',
@@ -105,6 +120,17 @@ export interface Api {
     create: (input: CreateCodingInput) => Promise<Coding>
     update: (input: UpdateCodingInput) => Promise<Coding>
     delete: (id: number) => Promise<void>
+  }
+  transcription: {
+    env: () => Promise<TranscriptionEnv>
+    models: () => Promise<TranscriptionModel[]>
+    modelSize: (modelId: string) => Promise<number>
+    pickMedia: () => Promise<string | null>
+    downloadModel: (modelId: string) => Promise<boolean>
+    downloadBinary: () => Promise<string>
+    start: (input: TranscriptionStartInput) => Promise<void>
+    cancel: () => Promise<void>
+    onEvent: (listener: (event: TranscriptionEvent) => void) => () => void
   }
   qdpx: {
     export: () => Promise<ExportResult | null>

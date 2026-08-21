@@ -141,3 +141,43 @@ export interface ExportResult {
   path: string
   warnings: string[]
 }
+
+export interface TranscriptionEnv {
+  ffmpeg: boolean
+  binaryPath: string | null
+  canDownloadBinary: boolean
+  defaultModelId: string
+}
+
+export interface TranscriptionModel {
+  id: string
+  label: string
+  approxBytes: number
+  ready: boolean
+}
+
+export interface TranscriptionStartInput {
+  mediaPath: string
+  modelId: string
+  language: string | null
+  binaryPath?: string | null
+}
+
+export interface TranscriptionSegment {
+  start: number
+  end: number
+  text: string
+}
+
+export type TranscriptionEvent =
+  | { kind: 'phase'; phase: 'preparando' | 'transcrevendo'; detail?: string }
+  | { kind: 'segment'; segment: TranscriptionSegment; progress: number }
+  | { kind: 'done'; outputPath: string; segments: number }
+  | { kind: 'error'; message: string }
+  | { kind: 'canceled' }
+  | {
+      kind: 'download'
+      what: 'modelo' | 'programa'
+      receivedBytes: number
+      totalBytes: number
+    }

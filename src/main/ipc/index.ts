@@ -4,6 +4,7 @@ import { registerDocumentHandlers } from './documents'
 import { registerCollectionHandlers } from './collections'
 import { registerProjectHandlers } from './project'
 import { registerQdpxHandlers } from './qdpx'
+import { registerTranscriptionHandlers } from './transcription'
 
 export function registerIpcHandlers(): void {
   registerProjectHandlers()
@@ -12,4 +13,5 @@ export function registerIpcHandlers(): void {
   registerCollectionHandlers()
   registerCodingHandlers()
   registerQdpxHandlers()
+  registerTranscriptionHandlers()
 }

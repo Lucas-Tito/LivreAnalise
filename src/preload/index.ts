@@ -45,6 +45,25 @@ const api: Api = {
     update: (input) => ipcRenderer.invoke(IPC.codings.update, input),
     delete: (id) => ipcRenderer.invoke(IPC.codings.delete, id)
   },
+  transcription: {
+    env: () => ipcRenderer.invoke(IPC.transcription.env),
+    models: () => ipcRenderer.invoke(IPC.transcription.models),
+    modelSize: (modelId) => ipcRenderer.invoke(IPC.transcription.modelSize, modelId),
+    pickMedia: () => ipcRenderer.invoke(IPC.transcription.pickMedia),
+    downloadModel: (modelId) =>
+      ipcRenderer.invoke(IPC.transcription.downloadModel, modelId),
+    downloadBinary: () => ipcRenderer.invoke(IPC.transcription.downloadBinary),
+    start: (input) => ipcRenderer.invoke(IPC.transcription.start, input),
+    cancel: () => ipcRenderer.invoke(IPC.transcription.cancel),
+    // primeiro canal de evento empurrado do main para o renderer: progresso
+    // continuo nao cabe em invoke/handle
+    onEvent: (listener) => {
+      const handler = (_e: unknown, event: Parameters<typeof listener>[0]): void =>
+        listener(event)
+      ipcRenderer.on(IPC.transcription.event, handler)
+      return () => ipcRenderer.removeListener(IPC.transcription.event, handler)
+    }
+  },
   qdpx: {
     export: () => ipcRenderer.invoke(IPC.qdpx.export),
     importAsProject: () => ipcRenderer.invoke(IPC.qdpx.importAsProject)
