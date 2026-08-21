@@ -167,7 +167,8 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
 
       {env && !env.ffmpeg && (
         <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
-          ffmpeg nao encontrado no sistema. Instale o ffmpeg para converter o audio.
+          O ffmpeg embutido nao foi localizado e nao existe ffmpeg no sistema. Sem ele
+          nao e possivel extrair o audio.
         </p>
       )}
 

@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'child_process'
+import { spawn } from 'child_process'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
@@ -9,6 +9,7 @@ import {
   transcriptPathFor,
   type TranscriptSegment
 } from './transcript'
+import { probeDuration, resolveFfmpeg, toWav } from './ffmpeg'
 import { modelById, modelUrl } from './whisperModels'
 import { modelIsReady, modelPath, resolveWhisperBinary } from './whisperBinary'
 
@@ -29,35 +30,7 @@ export type TranscriptionEvent =
 type Emit = (event: TranscriptionEvent) => void
 
 export function ffmpegAvailable(): boolean {
-  return spawnSync('ffmpeg', ['-version'], { encoding: 'utf-8' }).status === 0
-}
-
-// Duracao em segundos, necessaria para o progresso ser uma fracao real.
-function probeDuration(mediaPath: string): number {
-  const res = spawnSync(
-    'ffprobe',
-    [
-      '-v', 'error',
-      '-show_entries', 'format=duration',
-      '-of', 'default=noprint_wrappers=1:nokey=1',
-      mediaPath
-    ],
-    { encoding: 'utf-8' }
-  )
-  const value = Number((res.stdout ?? '').trim())
-  return Number.isFinite(value) ? value : 0
-}
-
-// O whisper.cpp so aceita WAV PCM 16 bits, 16 kHz, mono.
-function toWav(mediaPath: string, wavPath: string): void {
-  const res = spawnSync(
-    'ffmpeg',
-    ['-y', '-i', mediaPath, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wavPath],
-    { encoding: 'utf-8' }
-  )
-  if (res.status !== 0) {
-    throw new Error(`ffmpeg falhou ao converter o audio: ${(res.stderr ?? '').slice(-400)}`)
-  }
+  return resolveFfmpeg() !== null
 }
 
 // Garante que o binario ache as bibliotecas que vieram junto com ele.
@@ -87,8 +60,11 @@ export class TranscriptionRun {
       if (!existsSync(options.mediaPath)) {
         throw new Error('Arquivo de audio nao encontrado')
       }
-      if (!ffmpegAvailable()) {
-        throw new Error('ffmpeg nao encontrado no sistema. Instale o ffmpeg para transcrever.')
+      const ffmpeg = resolveFfmpeg()
+      if (!ffmpeg) {
+        throw new Error(
+          'ffmpeg nao encontrado. O binario embutido nao foi localizado e nao ha ffmpeg no sistema.'
+        )
       }
       const model = modelById(options.modelId)
       if (!modelIsReady(model.file)) {
@@ -104,10 +80,10 @@ export class TranscriptionRun {
       emit({ kind: 'phase', phase: 'preparando', detail: 'convertendo o audio' })
       this.workDir = mkdtempSync(join(tmpdir(), 'livreanalise-transcricao-'))
       const wav = join(this.workDir, 'audio.wav')
-      toWav(options.mediaPath, wav)
+      toWav(ffmpeg, options.mediaPath, wav)
       if (this.canceled) return emit({ kind: 'canceled' })
 
-      const duration = probeDuration(options.mediaPath)
+      const duration = probeDuration(ffmpeg, options.mediaPath)
       emit({ kind: 'phase', phase: 'transcrevendo' })
 
       // As flags booleanas do whisper-cli nao levam valor: passar

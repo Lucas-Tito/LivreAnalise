@@ -13,6 +13,8 @@ files:
 asarUnpack:
   - resources/**
   - '**/*.node'
+  # binario dentro do asar nao pode ser executado
+  - '**/node_modules/ffmpeg-static/**'
 win:
   target:
     - nsis

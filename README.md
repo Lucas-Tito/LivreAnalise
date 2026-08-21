@@ -101,9 +101,10 @@ Em **Avançado** dá para escolher o modelo, o idioma e o caminho do executável
 - **macOS precisa do executável instalado à parte.** O whisper.cpp não publica binário de
   CLI para macOS, então o app baixa automaticamente só no Linux e no Windows. No Mac,
   instale (por exemplo `brew install whisper-cpp`) e informe o caminho em Avançado.
-- **Vídeo exige ffmpeg no sistema.** Áudio em `wav`, `mp3`, `ogg` e `flac` é lido
-  diretamente. Para `mp4`, `mkv`, `mov` e `m4a` é preciso ter o `ffmpeg` instalado, que é
-  quem extrai a trilha de áudio.
+- **O ffmpeg vem embutido**, então não é preciso instalar nada para transcrever vídeo.
+  Ele é usado para extrair a trilha de áudio e para descobrir a duração, que é o
+  denominador da barra de progresso. O binário embutido é uma build **GPLv3** do ffmpeg —
+  veja a seção de licença.
 - **Uma transcrição por vez**, e o processamento é em CPU: uma hora de áudio leva
   bastante tempo. Cancelar descarta tudo — não fica arquivo parcial.
 - **Não identifica quem falou.** Separar locutores (diarização) não é função do Whisper e
@@ -159,3 +160,10 @@ O projeto se declara MIT no `package.json`, mas o arquivo `LICENSE` ainda não e
 repositório — veja a
 [issue #27](https://github.com/Lucas-Tito/LivreAnalise/issues/27). Enquanto isso não for
 resolvido, considere os direitos como reservados.
+
+Os instaladores incluem um binário do **ffmpeg** compilado com `--enable-gpl
+--enable-version3`, ou seja **GPLv3**. Isso não altera a licença do código deste
+repositório, que roda em processo separado, mas cria obrigações de distribuição para o
+binário em si (disponibilizar o fonte correspondente e o texto da licença). A alternativa
+é trocar por uma build LGPL, que é suficiente para o que o app faz — nenhum componente GPL
+(x264, x265) é usado aqui. Isso também está registrado na issue #27.

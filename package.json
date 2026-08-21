@@ -32,9 +32,10 @@
   "dependencies": {
     "better-sqlite3": "^12.2.0",
     "drizzle-orm": "^0.38.4",
-    "mammoth": "^1.9.0",
-    "jszip": "^3.10.1",
     "fast-xml-parser": "^4.5.1",
+    "ffmpeg-static": "^5.2.0",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.9.0",
     "uuid": "^11.0.5"
   },
   "devDependencies": {
