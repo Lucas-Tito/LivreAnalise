@@ -10,6 +10,10 @@ material analisado é entrevista com participante identificável.
 
 [![CI](https://github.com/Lucas-Tito/LivreAnalise/actions/workflows/ci.yml/badge.svg)](https://github.com/Lucas-Tito/LivreAnalise/actions/workflows/ci.yml)
 
+<!-- imagem: codificacao de um documento -- a arvore de colecoes, grupos e
+     codigos a esquerda e as etiquetas alinhadas na margem direita.
+     Arraste o print aqui ao editar o README pelo GitHub. -->
+
 ## Download
 
 Os instaladores de cada versão ficam na
@@ -20,6 +24,8 @@ Os instaladores de cada versão ficam na
 | Linux | `LivreAnalise-<versão>.AppImage` ou `.deb` |
 | Windows | `LivreAnalise-<versão>-setup.exe` |
 | macOS | `LivreAnalise-<versão>-<arch>.dmg` |
+
+<!-- imagem: tela inicial -- pontos de entrada e projetos recentes -->
 
 Os binários **não são assinados**. No Windows o SmartScreen avisa que o aplicativo não é
 reconhecido na primeira execução; no macOS é preciso abrir pelo menu de contexto
@@ -87,6 +93,8 @@ O resultado é salvo como `<arquivo>_transcricao.txt`, no formato
 `[HH:MM:SS.mmm -> HH:MM:SS.mmm] texto`, para você importar como documento no projeto.
 
 Em **Avançado** dá para escolher o modelo, o idioma e o caminho do executável.
+
+<!-- imagem: tela de transcricao com as opcoes avancadas abertas -->
 
 #### Pontos de atenção
 
