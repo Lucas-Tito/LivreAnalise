@@ -25,6 +25,14 @@ jobs:
           - os: windows-latest
             target: --win
             artifact: windows
+          # dois runners em vez de cross-compilar: cada um constroi o
+          # better-sqlite3 para a sua propria arquitetura
+          - os: macos-latest
+            target: --mac
+            artifact: mac-arm64
+          - os: macos-13
+            target: --mac
+            artifact: mac-x64
 
     runs-on: ${{ matrix.os }}
 
@@ -57,6 +65,7 @@ jobs:
             dist/*.AppImage
             dist/*.deb
             dist/*.exe
+            dist/*.dmg
           if-no-files-found: error
 
   # Todo push na master publica os instaladores numa release. O nome vem da
