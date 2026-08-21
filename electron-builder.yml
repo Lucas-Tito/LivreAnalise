@@ -13,6 +13,8 @@ files:
 asarUnpack:
   - resources/**
   - '**/*.node'
+  # binario dentro do asar nao pode ser executado
+  - '**/node_modules/ffmpeg-static/**'
 win:
   target:
     - nsis
@@ -20,6 +22,17 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+mac:
+  target:
+    - dmg
+  category: public.app-category.education
+  # o arch entra no nome porque arm64 e x64 saem de runners diferentes e os
+  # dois arquivos acabam juntos na mesma release
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  # sem certificado da Apple: build nao assinado nem notarizado. O Gatekeeper
+  # exige abrir pelo menu de contexto na primeira execucao.
+  identity: null
+  notarize: false
 linux:
   target:
     - AppImage

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { FilePlus2, FolderOpen, Clock, BookText, FileInput } from 'lucide-react'
+import { FilePlus2, FolderOpen, Clock, BookText, FileInput, AudioLines } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { formatCount } from '@/lib/utils'
@@ -16,7 +16,11 @@ function formatProjectStats(stats: {
   ].join(' · ')
 }
 
-export function HomeLibrary(): JSX.Element {
+interface Props {
+  onTranscribe: () => void
+}
+
+export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
   const recents = useAppStore((s) => s.recents)
   const loadRecents = useAppStore((s) => s.loadRecents)
   const createProject = useAppStore((s) => s.createProject)
@@ -44,7 +48,7 @@ export function HomeLibrary(): JSX.Element {
           </div>
         </div>
 
-        <div className="mb-8 grid grid-cols-3 gap-4">
+        <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
           <button
             onClick={createProject}
             className="flex flex-col items-start gap-2 rounded-lg border bg-card p-5 text-left transition-colors hover:border-primary hover:bg-accent"
@@ -63,6 +67,16 @@ export function HomeLibrary(): JSX.Element {
             <span className="font-medium">Abrir projeto</span>
             <span className="text-xs text-muted-foreground">
               Abre um projeto .liva existente
+            </span>
+          </button>
+          <button
+            onClick={onTranscribe}
+            className="flex flex-col items-start gap-2 rounded-lg border bg-card p-5 text-left transition-colors hover:border-primary hover:bg-accent"
+          >
+            <AudioLines className="h-6 w-6 text-primary" />
+            <span className="font-medium">Transcrever</span>
+            <span className="text-xs text-muted-foreground">
+              Gera a transcricao de um audio ou video no seu computador
             </span>
           </button>
           <button
