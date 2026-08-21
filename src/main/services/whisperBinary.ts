@@ -22,6 +22,8 @@ const ASSETS: Record<string, BinaryAsset> = {
   'win32-x64': { url: `${RELEASE}/whisper-bin-x64.zip`, archive: 'zip' }
 }
 
+// Ordem de preferencia, nao ordem do diretorio: nos releases atuais o `main`
+// e apenas um stub que imprime aviso de depreciacao e sai com erro.
 const EXECUTABLES = ['whisper-cli', 'whisper-cli.exe', 'main', 'main.exe']
 
 export function binaryDir(): string {
@@ -34,14 +36,21 @@ export function assetForPlatform(): BinaryAsset | null {
 
 function findExecutable(root: string): string | null {
   if (!existsSync(root)) return null
+  const found = new Map<string, string>()
   const stack = [root]
   while (stack.length > 0) {
     const dir = stack.pop() as string
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name)
       if (entry.isDirectory()) stack.push(full)
-      else if (EXECUTABLES.includes(entry.name)) return full
+      else if (EXECUTABLES.includes(entry.name) && !found.has(entry.name)) {
+        found.set(entry.name, full)
+      }
     }
+  }
+  for (const name of EXECUTABLES) {
+    const path = found.get(name)
+    if (path) return path
   }
   return null
 }

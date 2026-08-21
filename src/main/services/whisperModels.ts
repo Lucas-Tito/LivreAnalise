@@ -1,8 +1,4 @@
-import { createWriteStream, existsSync, mkdirSync, renameSync, statSync } from 'fs'
-import { unlink } from 'fs/promises'
-import { Readable } from 'stream'
-import { pipeline } from 'stream/promises'
-import { dirname } from 'path'
+import { downloadFile, fetchRemoteInfo, type DownloadProgress } from './download'
 
 export interface WhisperModelOption {
   id: string
@@ -61,66 +57,18 @@ export function modelUrl(model: WhisperModelOption): string {
   return `${BASE_URL}/${model.file}`
 }
 
-export interface DownloadProgress {
-  receivedBytes: number
-  totalBytes: number
-}
-
 // O tamanho exato vem do servidor, entao a UI nunca mostra estimativa chutada.
 export async function fetchModelSize(url: string): Promise<number | null> {
-  try {
-    const res = await fetch(url, { method: 'HEAD', redirect: 'follow' })
-    const length = res.headers.get('content-length')
-    return length ? Number(length) : null
-  } catch {
-    return null
-  }
+  return (await fetchRemoteInfo(url)).bytes
 }
 
-// Baixa para <dest>.part e so renomeia no fim: um download interrompido nunca
-// e confundido com um modelo completo. Se o .part existir, retoma por Range.
 export async function downloadModel(
   url: string,
   dest: string,
   onProgress: (progress: DownloadProgress) => void,
   signal: AbortSignal
 ): Promise<void> {
-  mkdirSync(dirname(dest), { recursive: true })
-  const partial = `${dest}.part`
-  const already = existsSync(partial) ? statSync(partial).size : 0
-
-  const res = await fetch(url, {
-    signal,
-    redirect: 'follow',
-    headers: already > 0 ? { Range: `bytes=${already}-` } : {}
-  })
-  if (!res.ok && res.status !== 206) {
-    throw new Error(`Falha ao baixar o modelo (HTTP ${res.status})`)
-  }
-  if (!res.body) throw new Error('Resposta sem corpo ao baixar o modelo')
-
-  const resuming = res.status === 206
-  const remaining = Number(res.headers.get('content-length') ?? 0)
-  const totalBytes = resuming ? already + remaining : remaining
-  let receivedBytes = resuming ? already : 0
-
-  if (!resuming && already > 0) await unlink(partial).catch(() => undefined)
-
-  const file = createWriteStream(partial, { flags: resuming ? 'a' : 'w' })
-  const body = Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0])
-  body.on('data', (chunk: Buffer) => {
-    receivedBytes += chunk.length
-    onProgress({ receivedBytes, totalBytes })
-  })
-  await pipeline(body, file)
-
-  // um download truncado gera um modelo corrompido que falha de forma
-  // esquisita muito depois; melhor recusar aqui
-  const finalSize = statSync(partial).size
-  if (totalBytes > 0 && finalSize !== totalBytes) {
-    throw new Error(
-      `Download incompleto: ${finalSize} de ${totalBytes} bytes. Tente novamente.`
-    )
-  }
-  renameSync(partial, dest)
+  return downloadFile(url, dest, onProgress, signal)
 }
+
+export type { DownloadProgress }
