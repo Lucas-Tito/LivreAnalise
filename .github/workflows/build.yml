@@ -28,10 +28,12 @@ jobs:
           # dois runners em vez de cross-compilar: cada um constroi o
           # better-sqlite3 para a sua propria arquitetura
           - os: macos-latest
-            target: --mac
+            target: --mac --arm64
             artifact: mac-arm64
-          - os: macos-13
-            target: --mac
+          # o runner macos-13 (Intel) fica horas na fila; o Intel sai por
+          # cross-compilacao no proprio runner arm64
+          - os: macos-latest
+            target: --mac --x64
             artifact: mac-x64
 
     runs-on: ${{ matrix.os }}
