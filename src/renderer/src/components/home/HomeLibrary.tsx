@@ -1,8 +1,27 @@
-import { useEffect } from 'react'
-import { FilePlus2, FolderOpen, Clock, BookText, FileInput, AudioLines } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import {
+  FilePlus2,
+  FolderOpen,
+  Clock,
+  BookText,
+  FileInput,
+  AudioLines,
+  FolderOpen as OpenIcon,
+  Pencil,
+  Trash2
+} from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { formatCount } from '@/lib/utils'
+import type { RecentProjectWithStats } from '@shared/types'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from '@/components/ui/context-menu'
+import { SimplePromptDialog } from '@/components/workspace/SimplePromptDialog'
 
 function formatProjectStats(stats: {
   documents: number
@@ -27,6 +46,9 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
   const openProject = useAppStore((s) => s.openProject)
   const openRecent = useAppStore((s) => s.openRecent)
   const importQdpxAsProject = useAppStore((s) => s.importQdpxAsProject)
+  const renameProject = useAppStore((s) => s.renameProject)
+  const trashProject = useAppStore((s) => s.trashProject)
+  const [renaming, setRenaming] = useState<RecentProjectWithStats | null>(null)
 
   useEffect(() => {
     loadRecents()
@@ -103,6 +125,8 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
             <ul className="divide-y rounded-md border">
               {recents.map((r) => (
                 <li key={r.path}>
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
                   <button
                     onClick={() => openRecent(r.path)}
                     className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-accent"
@@ -122,12 +146,51 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
                       {new Date(r.lastOpenedAt).toLocaleDateString()}
                     </span>
                   </button>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem onClick={() => openRecent(r.path)}>
+                      <OpenIcon className="h-4 w-4" /> Abrir
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={() => setRenaming(r)}>
+                      <Pencil className="h-4 w-4" /> Renomear
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => {
+                        if (
+                          confirm(
+                            `Mover "${r.name}" para a lixeira?\n\n${r.path}\n\nO arquivo sai do lugar mas pode ser recuperado na lixeira do sistema.`
+                          )
+                        ) {
+                          trashProject(r.path)
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" /> Apagar o arquivo
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
                 </li>
               ))}
             </ul>
           )}
         </div>
       </div>
+
+      <SimplePromptDialog
+        open={renaming !== null}
+        onOpenChange={(o) => !o && setRenaming(null)}
+        title="Renomear projeto"
+        label="Nome do projeto"
+        initialValue={renaming?.name ?? ''}
+        onSubmit={async (name) => {
+          if (!renaming) return
+          const result = await renameProject(renaming.path, name)
+          // o nome do projeto sempre muda; o arquivo pode nao ter acompanhado
+          if (result.warning) alert(result.warning)
+        }}
+      />
     </div>
   )
 }

@@ -11,6 +11,7 @@ import type {
   DocumentWithText,
   ProjectMeta,
   RecentProjectWithStats,
+  RenameProjectResult,
   UpdateCodeInput,
   UpdateCollectionInput
 } from '@shared/types'
@@ -28,6 +29,8 @@ interface AppState {
   busy: boolean
 
   loadRecents: () => Promise<void>
+  renameProject: (path: string, name: string) => Promise<RenameProjectResult>
+  trashProject: (path: string) => Promise<void>
   bootstrap: () => Promise<void>
   createProject: () => Promise<void>
   openProject: () => Promise<void>
@@ -92,6 +95,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ project })
       await loadProjectData(set)
     }
+    await get().loadRecents()
+  },
+
+  renameProject: async (path, name) => {
+    const result = await window.api.project.rename(path, name)
+    await get().loadRecents()
+    return result
+  },
+
+  trashProject: async (path) => {
+    await window.api.project.trash(path)
     await get().loadRecents()
   },
 

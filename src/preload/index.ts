@@ -8,7 +8,9 @@ const api: Api = {
     openPath: (path) => ipcRenderer.invoke(IPC.project.openPath, path),
     current: () => ipcRenderer.invoke(IPC.project.current),
     close: () => ipcRenderer.invoke(IPC.project.close),
-    recents: () => ipcRenderer.invoke(IPC.project.recents)
+    recents: () => ipcRenderer.invoke(IPC.project.recents),
+    rename: (path, name) => ipcRenderer.invoke(IPC.project.rename, path, name),
+    trash: (path) => ipcRenderer.invoke(IPC.project.trash, path)
   },
   documents: {
     list: () => ipcRenderer.invoke(IPC.documents.list),
