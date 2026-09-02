@@ -40,4 +40,8 @@ linux:
   maintainer: LivreAnalise
   category: Science
   artifactName: ${productName}-${version}.${ext}
+deb:
+  # o postinst do template decide o modo do chrome-sandbox chutando em tempo de
+  # instalacao; este aplica o SUID sempre
+  afterInstall: build/deb-postinst.sh
 npmRebuild: true
