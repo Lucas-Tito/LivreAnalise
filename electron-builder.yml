@@ -41,7 +41,10 @@ linux:
   category: Science
   artifactName: ${productName}-${version}.${ext}
 deb:
-  # o postinst do template decide o modo do chrome-sandbox chutando em tempo de
-  # instalacao; este aplica o SUID sempre
+  # NAO REMOVA. Sem este postinst proprio o app instalado pelo .deb nao abre no
+  # Ubuntu: aborta com "The SUID sandbox helper binary was found, but is not
+  # configured correctly ... mode 4755". O postinst que o electron-builder gera
+  # decide o modo do chrome-sandbox chutando em tempo de instalacao; o nosso
+  # aplica o SUID sempre. Historico completo na issue #32.
   afterInstall: build/deb-postinst.sh
 npmRebuild: true

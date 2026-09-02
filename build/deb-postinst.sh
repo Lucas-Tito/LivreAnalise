@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# ATENCAO: o deb.afterInstall SUBSTITUI o postinst do template, nao complementa.
+# Tudo que o template fazia precisa continuar aqui -- em especial o bloco
+# update-alternatives abaixo, que cria o /usr/bin/livreanalise. Remover aquele
+# bloco faz o comando de terminal desaparecer sem nenhum erro aparecer.
+#
 # Este postinst substitui o gerado pelo electron-builder. O template dele decide
 # o modo do chrome-sandbox em tempo de instalacao, testando user namespaces como
 # root:
@@ -27,6 +32,8 @@ else
     ln -sf '/opt/LivreAnalise/livreanalise' '/usr/bin/livreanalise'
 fi
 
+# Estas duas linhas sao o motivo deste arquivo existir: sem elas o app nao abre
+# no Ubuntu. Ver issue #32.
 chown root:root '/opt/LivreAnalise/chrome-sandbox' || true
 chmod 4755 '/opt/LivreAnalise/chrome-sandbox' || true
 
