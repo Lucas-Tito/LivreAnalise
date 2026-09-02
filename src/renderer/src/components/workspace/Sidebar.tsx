@@ -27,7 +27,7 @@ export function Sidebar({ onViewCode }: Props): JSX.Element {
 
   const tabs: { id: Tab; label: string; icon: JSX.Element }[] = [
     { id: 'documents', label: 'Documentos', icon: <FileText className="h-4 w-4" /> },
-    { id: 'codes', label: 'Codigos', icon: <Tags className="h-4 w-4" /> }
+    { id: 'codes', label: 'Códigos', icon: <Tags className="h-4 w-4" /> }
   ]
 
   const onMouseMove = useCallback((e: MouseEvent) => {

@@ -193,7 +193,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                     setDialogState({ mode: 'child', code: node.code })
                   }
                 >
-                  <CornerDownRight className="h-4 w-4" /> Adicionar codigo
+                  <CornerDownRight className="h-4 w-4" /> Adicionar código
                   dentro
                 </DropdownMenuItem>
               )}
@@ -203,7 +203,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                     setPrompt({ kind: 'collectionFromGroup', code: node.code })
                   }
                 >
-                  <Layers className="h-4 w-4" /> Criar colecao com este grupo
+                  <Layers className="h-4 w-4" /> Criar coleção com este grupo
                 </DropdownMenuItem>
               )}
               {!hasChildren && node.code.parentId == null && (
@@ -212,7 +212,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                     setPrompt({ kind: 'groupFromCode', code: node.code })
                   }
                 >
-                  <Tags className="h-4 w-4" /> Criar grupo com este codigo
+                  <Tags className="h-4 w-4" /> Criar grupo com este código
                 </DropdownMenuItem>
               )}
               {node.code.parentId != null && (
@@ -228,7 +228,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                 <DropdownMenuItem
                   onClick={() => removeFromCollection(collectionId, node.code.id)}
                 >
-                  <FolderMinus className="h-4 w-4" /> Remover da colecao
+                  <FolderMinus className="h-4 w-4" /> Remover da coleção
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem
@@ -241,7 +241,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                 onClick={() => {
                   if (
                     confirm(
-                      `Excluir o codigo "${node.code.name}"? Os codigos dentro dele e as citacoes serao removidos.`
+                      `Excluir o código "${node.code.name}"? Os códigos dentro dele e as citações serão removidos.`
                     )
                   ) {
                     deleteCode(node.code.id)
@@ -273,13 +273,13 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
           className="w-full"
           onClick={() => setDialogState({ mode: 'create' })}
         >
-          <Plus className="h-4 w-4" /> Novo codigo
+          <Plus className="h-4 w-4" /> Novo código
         </Button>
       </div>
       <div className="flex-1 overflow-auto p-1">
         {isEmpty ? (
           <p className="p-4 text-center text-xs text-muted-foreground">
-            Nenhum codigo ainda. Crie codigos ou selecione um trecho do
+            Nenhum código ainda. Crie códigos ou selecione um trecho do
             documento.
           </p>
         ) : (
@@ -317,7 +317,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                         <DropdownMenuItem
                           onClick={() => setMembersCollection(node.collection)}
                         >
-                          <Users className="h-4 w-4" /> Gerenciar codigos
+                          <Users className="h-4 w-4" /> Gerenciar códigos
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() =>
@@ -334,7 +334,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                           onClick={() => {
                             if (
                               confirm(
-                                `Excluir a colecao "${node.collection.name}"? Os codigos permanecem.`
+                                `Excluir a coleção "${node.collection.name}"? Os códigos permanecem.`
                               )
                             ) {
                               deleteCollection(node.collection.id)
@@ -361,7 +361,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
               <li>
                 {tree.collections.length > 0 && (
                   <p className="px-2 pb-1 pt-3 text-xs uppercase tracking-wide text-muted-foreground/60">
-                    Sem colecao
+                    Sem coleção
                   </p>
                 )}
                 <ul>
@@ -378,10 +378,10 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         onOpenChange={(o) => !o && setDialogState(null)}
         title={
           dialogState?.mode === 'edit'
-            ? 'Editar codigo'
+            ? 'Editar código'
             : dialogState?.mode === 'child'
-              ? `Novo codigo em "${dialogState.code?.name}"`
-              : 'Novo codigo'
+              ? `Novo código em "${dialogState.code?.name}"`
+              : 'Novo código'
         }
         initial={
           dialogState?.mode === 'edit'
@@ -400,17 +400,17 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         onOpenChange={(o) => !o && setPrompt(null)}
         title={
           prompt?.kind === 'renameCollection'
-            ? 'Renomear colecao'
+            ? 'Renomear coleção'
             : prompt?.kind === 'groupFromCode'
               ? `Novo grupo com "${prompt.code.name}"`
               : prompt?.kind === 'collectionFromGroup'
-                ? `Nova colecao com "${prompt.code.name}"`
+                ? `Nova coleção com "${prompt.code.name}"`
                 : ''
         }
         label={
           prompt?.kind === 'groupFromCode'
             ? 'Nome do grupo'
-            : 'Nome da colecao'
+            : 'Nome da coleção'
         }
         initialValue={
           prompt?.kind === 'renameCollection' ? prompt.collection.name : ''

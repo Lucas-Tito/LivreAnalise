@@ -8,10 +8,14 @@ import {
   AudioLines,
   FolderOpen as OpenIcon,
   Pencil,
-  Trash2
+  Trash2,
+  Info,
+  Linkedin,
+  Github
 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { Button } from '@/components/ui/button'
 import { formatCount } from '@/lib/utils'
 import type { RecentProjectWithStats } from '@shared/types'
 import {
@@ -22,6 +26,11 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
 import { SimplePromptDialog } from '@/components/workspace/SimplePromptDialog'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from '@/components/ui/popover'
 
 function formatProjectStats(stats: {
   documents: number
@@ -62,11 +71,46 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
           <div>
             <h1 className="text-2xl font-semibold">LivreAnalise</h1>
             <p className="text-sm text-muted-foreground">
-              Codificacao qualitativa de documentos
+              Codificação qualitativa de documentos
             </p>
           </div>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1">
             <ThemeToggle />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" className="gap-1.5 px-3 text-muted-foreground">
+                  <Info className="h-4 w-4" />
+                  Créditos
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-64">
+                <p className="text-xs text-muted-foreground">Feito por</p>
+                <p className="mt-0.5 font-medium">Lucas Tito</p>
+                {/* o setWindowOpenHandler do main manda target=_blank para o
+                    navegador do sistema; sem isso a janela do app navegaria
+                    para o LinkedIn e não teria como voltar */}
+                <div className="mt-3 space-y-1.5">
+                  <a
+                    href="https://www.linkedin.com/in/lucas-tito-530997211/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm transition-colors hover:border-primary hover:bg-accent"
+                  >
+                    <Linkedin className="h-4 w-4 shrink-0 text-primary" />
+                    <span>Meu LinkedIn</span>
+                  </a>
+                  <a
+                    href="https://github.com/Lucas-Tito/LivreAnalise"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm transition-colors hover:border-primary hover:bg-accent"
+                  >
+                    <Github className="h-4 w-4 shrink-0 text-primary" />
+                    <span>Repositório do projeto</span>
+                  </a>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
 
@@ -98,7 +142,7 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
             <AudioLines className="h-6 w-6 text-primary" />
             <span className="font-medium">Transcrever</span>
             <span className="text-xs text-muted-foreground">
-              Gera a transcricao de um audio ou video no seu computador
+              Gera a transcrição de um áudio ou vídeo no seu computador
             </span>
           </button>
           <button

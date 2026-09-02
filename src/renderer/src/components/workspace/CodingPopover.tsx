@@ -75,7 +75,7 @@ export function CodingPopover({ x, y, onClose, onApply }: Props): JSX.Element {
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Buscar ou criar codigo..."
+        placeholder="Buscar ou criar código..."
         className="mb-2 h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
       {showLastUsed && (
@@ -111,12 +111,12 @@ export function CodingPopover({ x, y, onClose, onApply }: Props): JSX.Element {
             className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-primary hover:bg-accent"
           >
             <Plus className="h-4 w-4" />
-            Criar codigo "{filter.trim()}"
+            Criar código "{filter.trim()}"
           </button>
         )}
         {listCodes.length === 0 && !filter.trim() && !showLastUsed && (
           <p className="px-2 py-3 text-center text-xs text-muted-foreground">
-            Digite para buscar ou criar um codigo
+            Digite para buscar ou criar um código
           </p>
         )}
       </div>

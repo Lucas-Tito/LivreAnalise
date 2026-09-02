@@ -51,17 +51,17 @@ export function CollectionMembersDialog({ collection, onOpenChange }: Props): JS
     <Dialog open={collection !== null} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Codigos no grupo "{collection?.name}"</DialogTitle>
+          <DialogTitle>Códigos no grupo "{collection?.name}"</DialogTitle>
         </DialogHeader>
         <Input
-          placeholder="Filtrar codigos..."
+          placeholder="Filtrar códigos..."
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
         <div className="max-h-72 overflow-auto rounded-md border">
           {filtered.length === 0 ? (
             <p className="p-4 text-center text-xs text-muted-foreground">
-              Nenhum codigo encontrado.
+              Nenhum código encontrado.
             </p>
           ) : (
             <ul className="divide-y">

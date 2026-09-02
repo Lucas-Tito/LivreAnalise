@@ -25,7 +25,7 @@ export function renameProject(path: string, name: string): RenameProjectResult {
       name: applied,
       path,
       fileRenamed: false,
-      warning: `Ja existe um arquivo chamado "${target}". O nome do projeto foi alterado, mas o arquivo continua como estava.`
+      warning: `Já existe um arquivo chamado "${target}". O nome do projeto foi alterado, mas o arquivo continua como estava.`
     }
   }
 
@@ -36,7 +36,7 @@ export function renameProject(path: string, name: string): RenameProjectResult {
       path,
       fileRenamed: false,
       warning:
-        'O projeto esta aberto: o nome foi alterado, mas o arquivo so pode ser renomeado com ele fechado.'
+        'O projeto esta aberto: o nome foi alterado, mas o arquivo só pode ser renomeado com ele fechado.'
     }
   }
 
@@ -54,7 +54,7 @@ export function renameProject(path: string, name: string): RenameProjectResult {
       name: applied,
       path,
       fileRenamed: false,
-      warning: `O nome do projeto foi alterado, mas o arquivo nao pudo ser renomeado: ${(error as Error).message}`
+      warning: `O nome do projeto foi alterado, mas o arquivo não pôde ser renomeado: ${(error as Error).message}`
     }
   }
 }

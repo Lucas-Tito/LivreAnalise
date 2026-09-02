@@ -49,7 +49,7 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
         <div className="max-h-[60vh] space-y-2 overflow-auto">
           {quotes.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              Este codigo ainda nao foi aplicado a nenhum trecho.
+              Este código ainda não foi aplicado a nenhum trecho.
             </p>
           ) : (
             quotes.map((q) => (

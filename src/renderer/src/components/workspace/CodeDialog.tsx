@@ -66,7 +66,7 @@ export function CodeDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && submit()}
-              placeholder="Nome do codigo"
+              placeholder="Nome do código"
             />
           </div>
           <div className="space-y-1.5">
@@ -86,11 +86,11 @@ export function CodeDialog({
             </div>
           </div>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Descricao</label>
+            <label className="text-sm font-medium">Descrição</label>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Descricao opcional do codigo"
+              placeholder="Descrição opcional do código"
             />
           </div>
         </div>

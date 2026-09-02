@@ -102,7 +102,7 @@ export async function downloadFile(
     const actual = await hashFile(partial)
     if (actual !== expectedSha) {
       await unlink(partial).catch(() => undefined)
-      throw new Error('Arquivo baixado esta corrompido (sha256 nao confere). Tente novamente.')
+      throw new Error('Arquivo baixado está corrompido (sha256 não confere). Tente novamente.')
     }
   }
 
