@@ -58,26 +58,26 @@ export class TranscriptionRun {
   async start(options: TranscriptionOptions, emit: Emit): Promise<void> {
     try {
       if (!existsSync(options.mediaPath)) {
-        throw new Error('Arquivo de audio nao encontrado')
+        throw new Error('Arquivo de áudio não encontrado')
       }
       const ffmpeg = resolveFfmpeg()
       if (!ffmpeg) {
         throw new Error(
-          'ffmpeg nao encontrado. O binario embutido nao foi localizado e nao ha ffmpeg no sistema.'
+          'ffmpeg não encontrado. O binário embutido não foi localizado e não há ffmpeg no sistema.'
         )
       }
       const model = modelById(options.modelId)
       if (!modelIsReady(model.file)) {
-        throw new Error(`O modelo ${model.label} ainda nao foi baixado`)
+        throw new Error(`O modelo ${model.label} ainda não foi baixado`)
       }
       const binary = resolveWhisperBinary(options.binaryPath)
       if (!binary) {
         throw new Error(
-          'Executavel do whisper.cpp nao encontrado. Baixe pelo botao ou informe o caminho em Avancado.'
+          'Executável do whisper.cpp não encontrado. Baixe pelo botão ou informe o caminho em Avançado.'
         )
       }
 
-      emit({ kind: 'phase', phase: 'preparando', detail: 'convertendo o audio' })
+      emit({ kind: 'phase', phase: 'preparando', detail: 'convertendo o áudio' })
       this.workDir = mkdtempSync(join(tmpdir(), 'livreanalise-transcricao-'))
       const wav = join(this.workDir, 'audio.wav')
       toWav(ffmpeg, options.mediaPath, wav)
@@ -130,7 +130,7 @@ export class TranscriptionRun {
         child.on('close', (code) => {
           if (this.canceled) return resolve()
           if (code !== 0) {
-            reject(new Error(`whisper terminou com codigo ${code}: ${stderr.slice(-400)}`))
+            reject(new Error(`whisper terminou com código ${code}: ${stderr.slice(-400)}`))
             return
           }
           resolve()

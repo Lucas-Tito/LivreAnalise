@@ -25,5 +25,5 @@ export async function extractText(filePath: string): Promise<ExtractedText> {
     const raw = await readFile(filePath, 'utf-8')
     return { format: 'txt', text: normalizeText(raw) }
   }
-  throw new Error(`Formato nao suportado: ${ext}`)
+  throw new Error(`Formato não suportado: ${ext}`)
 }

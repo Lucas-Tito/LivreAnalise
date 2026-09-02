@@ -63,11 +63,11 @@ export function registerTranscriptionHandlers(): void {
 
   ipcMain.handle(IPC.transcription.pickMedia, async (): Promise<string | null> => {
     const result = await dialog.showOpenDialog({
-      title: 'Selecionar audio ou video',
+      title: 'Selecionar áudio ou vídeo',
       properties: ['openFile'],
       filters: [
         {
-          name: 'Audio e video',
+          name: 'Áudio e vídeo',
           extensions: [
             'mp4', 'mp3', 'wav', 'm4a', 'aac', 'ogg',
             'opus', 'flac', 'mkv', 'mov', 'avi', 'webm'
@@ -118,7 +118,7 @@ export function registerTranscriptionHandlers(): void {
   ipcMain.handle(
     IPC.transcription.start,
     async (_e, input: TranscriptionStartInput): Promise<void> => {
-      if (currentRun) throw new Error('Ja existe uma transcricao em andamento')
+      if (currentRun) throw new Error('Já existe uma transcrição em andamento')
       const run = new TranscriptionRun()
       currentRun = run
       try {

@@ -7,8 +7,8 @@ import { projectMeta } from './schema'
 // pode ser testado fora do app.
 export function writeProjectName(path: string, name: string): string {
   const trimmed = name.trim()
-  if (!trimmed) throw new Error('O nome do projeto nao pode ficar vazio')
-  if (!existsSync(path)) throw new Error('Arquivo de projeto nao encontrado')
+  if (!trimmed) throw new Error('O nome do projeto não pode ficar vazio')
+  if (!existsSync(path)) throw new Error('Arquivo de projeto não encontrado')
 
   if (hasActiveProject() && getActivePath() === path) {
     getDb().update(projectMeta).set({ name: trimmed }).run()

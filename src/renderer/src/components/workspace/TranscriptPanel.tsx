@@ -321,7 +321,7 @@ export function TranscriptPanel(): JSX.Element {
       <div className="flex h-full flex-1 flex-col items-center justify-center text-muted-foreground">
         <FileText className="mb-3 h-10 w-10" />
         <p className="text-sm">
-          Selecione um documento na barra lateral para comecar a codificar.
+          Selecione um documento na barra lateral para começar a codificar.
         </p>
       </div>
     )
@@ -361,7 +361,7 @@ export function TranscriptPanel(): JSX.Element {
           {codings.length > 0 && (
             <p className="mb-2 text-xs text-amber-500">
               Os trechos citados aparecem realcados. Editar o texto pode
-              reposicionar ou remover citacoes automaticamente conforme o
+              reposicionar ou remover citações automaticamente conforme o
               trecho alterado.
             </p>
           )}
@@ -580,7 +580,7 @@ export function TranscriptPanel(): JSX.Element {
                 <span className="truncate">{bar.name}</span>
                 <button
                   className="ml-auto opacity-0 group-hover:opacity-100"
-                  title="Remover citacao"
+                  title="Remover citação"
                   onClick={() => removeCoding(bar.codingId)}
                 >
                   <Trash2 className="h-3 w-3" />

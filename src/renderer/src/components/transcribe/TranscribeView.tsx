@@ -20,8 +20,8 @@ import type {
 } from '@shared/types'
 
 const LANGUAGES = [
-  { id: 'pt', label: 'Portugues' },
-  { id: 'en', label: 'Ingles' },
+  { id: 'pt', label: 'Português' },
+  { id: 'en', label: 'Inglês' },
   { id: 'es', label: 'Espanhol' },
   { id: '', label: 'Detectar automaticamente' }
 ]
@@ -167,15 +167,15 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
 
       {env && !env.ffmpeg && (
         <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
-          O ffmpeg embutido nao foi localizado e nao existe ffmpeg no sistema. Sem ele
-          nao e possivel extrair o audio.
+          O ffmpeg embutido não foi localizado e não existe ffmpeg no sistema. Sem ele
+          não e possível extrair o áudio.
         </p>
       )}
 
       {env && !env.binaryPath && (
         <div className="rounded-md border bg-card p-3 text-sm">
           <p className="mb-2">
-            O programa de transcricao (whisper.cpp) nao foi encontrado.
+            O programa de transcrição (whisper.cpp) não foi encontrado.
           </p>
           {env.canDownloadBinary ? (
             <Button size="sm" variant="secondary" onClick={downloadBinary} disabled={busy}>
@@ -183,8 +183,8 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
             </Button>
           ) : (
             <p className="text-muted-foreground">
-              Neste sistema nao ha download pronto. Instale o whisper-cli e informe o
-              caminho em Avancado.
+              Neste sistema não há download pronto. Instale o whisper-cli e informe o
+              caminho em Avançado.
             </p>
           )}
         </div>
@@ -196,7 +196,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
             <FileAudio className="h-4 w-4" /> Escolher arquivo
           </Button>
           <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-            {mediaPath ?? 'Nenhum audio ou video selecionado'}
+            {mediaPath ?? 'Nenhum áudio ou vídeo selecionado'}
           </span>
         </div>
 
@@ -209,7 +209,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
           ) : (
             <ChevronRight className="h-3.5 w-3.5" />
           )}
-          Avancado
+          Avançado
         </button>
 
         {advanced && (
@@ -263,7 +263,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
       {stage.kind === 'confirm' && (
         <div className="rounded-lg border bg-card p-4">
           <p className="text-sm">
-            O modelo <strong>{selectedModel?.label}</strong> ainda nao esta no seu
+            O modelo <strong>{selectedModel?.label}</strong> ainda não esta no seu
             computador. Baixar agora? Sao <strong>{formatBytes(stage.bytes)}</strong>,
             uma vez so — depois ele fica salvo.
           </p>
@@ -290,7 +290,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
       {stage.kind === 'preparing' && (
         <ProgressCard
           title="Preparando"
-          detail={stage.detail ?? 'convertendo o audio'}
+          detail={stage.detail ?? 'convertendo o áudio'}
           fraction={null}
           onCancel={() => window.api.transcription.cancel()}
         />
@@ -301,7 +301,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
           title="Transcrevendo"
           detail={
             lastSegment
-              ? `${formatDuration(lastSegment.end)} de audio processado`
+              ? `${formatDuration(lastSegment.end)} de áudio processado`
               : 'iniciando'
           }
           fraction={stage.progress}
@@ -311,7 +311,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
 
       {stage.kind === 'done' && (
         <div className="rounded-lg border border-primary/40 bg-primary/5 p-4 text-sm">
-          <p className="font-medium">Transcricao concluida</p>
+          <p className="font-medium">Transcrição concluida</p>
           <p className="mt-1 text-muted-foreground">
             {stage.segments} trechos salvos em <code>{stage.outputPath}</code>
           </p>

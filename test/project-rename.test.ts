@@ -88,7 +88,7 @@ describe.skipIf(!nativeOk)('writeProjectName', () => {
 
   it('refuses a path that does not exist', () => {
     const missing = join(tempDir, 'nao-existe.liva')
-    expect(() => writeProjectName(missing, 'qualquer')).toThrow(/nao encontrado/)
+    expect(() => writeProjectName(missing, 'qualquer')).toThrow(/não encontrado/)
     expect(existsSync(missing)).toBe(false)
   })
 })

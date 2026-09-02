@@ -98,7 +98,7 @@ describe('recentsStore', () => {
   })
 
   it('survives a corrupt recents file', () => {
-    writeFileSync(file, 'isso nao e json')
+    writeFileSync(file, 'isso não é json')
     expect(readStoredRecents(file)).toEqual([])
   })
 

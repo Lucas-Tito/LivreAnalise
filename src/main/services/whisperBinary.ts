@@ -104,7 +104,7 @@ export async function downloadWhisperBinary(
   const asset = assetForPlatform()
   if (!asset) {
     throw new Error(
-      'Nao ha binario pronto do whisper.cpp para este sistema. Instale o whisper-cli e informe o caminho em Avancado.'
+      'Não há binário pronto do whisper.cpp para este sistema. Instale o whisper-cli e informe o caminho em Avançado.'
     )
   }
   const dir = binaryDir()
@@ -113,7 +113,7 @@ export async function downloadWhisperBinary(
   await extract(archive, asset.archive, dir)
 
   const executable = findExecutable(dir)
-  if (!executable) throw new Error('O arquivo baixado nao contem o executavel do whisper')
+  if (!executable) throw new Error('O arquivo baixado não contém o executável do whisper')
   if (process.platform !== 'win32') chmodSync(executable, 0o755)
   return executable
 }

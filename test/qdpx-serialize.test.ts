@@ -8,14 +8,14 @@ function project(): QdpxProject {
     name: 'Round Trip',
     users: [],
     codes: [
-      { guid: 'c1', name: 'Codigo 1', color: '#123456', description: null, parentGuid: null }
+      { guid: 'c1', name: 'Código 1', color: '#123456', description: null, parentGuid: null }
     ],
     groups: [],
     documents: [
       {
         guid: 'doc-1',
         name: 'Entrevista',
-        plainText: 'Era uma vez\numa transcricao com varias linhas.\nFim.',
+        plainText: 'Era uma vez\numa transcrição com varias linhas.\nFim.',
         selections: [
           { guid: 's1', startPosition: 0, endPosition: 11, codeGuids: ['c1'] }
         ]
@@ -37,7 +37,7 @@ describe('serializeQdpx / deserializeQdpx', () => {
     const { project: parsed } = await deserializeQdpx(buffer)
     expect(parsed.documents).toHaveLength(1)
     expect(parsed.documents[0].plainText).toBe(
-      'Era uma vez\numa transcricao com varias linhas.\nFim.'
+      'Era uma vez\numa transcrição com varias linhas.\nFim.'
     )
   })
 
