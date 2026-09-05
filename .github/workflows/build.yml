@@ -56,8 +56,25 @@ jobs:
 
       # npmRebuild: true no electron-builder.yml recompila o better-sqlite3
       # para o ABI do Electron durante o empacotamento.
+      #
+      # O electron-builder baixa ferramentas externas a cada execucao (binario do
+      # Electron, runtime do AppImage, fpm). Um reset do CDN do GitHub derruba o
+      # job inteiro sem que nada esteja errado com o codigo -- ja aconteceu. Tres
+      # tentativas, com espera crescente entre elas.
       - name: Package
-        run: npx electron-builder ${{ matrix.target }} --publish never
+        shell: bash
+        run: |
+          for tentativa in 1 2 3; do
+            if npx electron-builder ${{ matrix.target }} --publish never; then
+              exit 0
+            fi
+            if [ "$tentativa" -lt 3 ]; then
+              echo "::warning::empacotamento falhou na tentativa $tentativa; repetindo em $((tentativa * 20))s"
+              sleep $((tentativa * 20))
+            fi
+          done
+          echo "::error::empacotamento falhou nas tres tentativas"
+          exit 1
 
       - name: Upload installers
         uses: actions/upload-artifact@v4
