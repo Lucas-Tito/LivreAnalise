@@ -1,13 +1,15 @@
 import { useState } from 'react'
-import { BookText, Download, Loader2 } from 'lucide-react'
+import { BookText, Download, Loader2, Sparkles } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { AiExportDialog } from './AiExportDialog'
 
 export function TopBar(): JSX.Element {
   const project = useAppStore((s) => s.project)
   const closeProject = useAppStore((s) => s.closeProject)
   const [working, setWorking] = useState(false)
+  const [exportarIa, setExportarIa] = useState(false)
 
   const handleExport = async (): Promise<void> => {
     setWorking(true)
@@ -41,6 +43,10 @@ export function TopBar(): JSX.Element {
         <span className="text-sm">{project?.name}</span>
       </div>
       <div className="flex items-center gap-2">
+        <Button size="sm" variant="outline" onClick={() => setExportarIa(true)}>
+          <Sparkles className="h-4 w-4" />
+          Exportar para IA
+        </Button>
         <Button
           size="sm"
           variant="outline"
@@ -56,6 +62,7 @@ export function TopBar(): JSX.Element {
         </Button>
         <ThemeToggle />
       </div>
+      <AiExportDialog open={exportarIa} onOpenChange={setExportarIa} />
     </div>
   )
 }

@@ -285,6 +285,11 @@ export function removeCollectionMember(collectionId: number, codeId: number): vo
 
 // ---------- Codings ----------
 
+export function listAllCodings(): Coding[] {
+  const db = getDb()
+  return db.select().from(codings).all() as Coding[]
+}
+
 export function listCodingsByDocument(documentId: number): Coding[] {
   const db = getDb()
   return db

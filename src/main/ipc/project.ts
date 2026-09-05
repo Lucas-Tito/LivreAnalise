@@ -36,6 +36,10 @@ function readMeta(): ProjectMeta | null {
   }
 }
 
+export function currentProjectName(): string {
+  return readMeta()?.name ?? 'projeto'
+}
+
 export function ensureMeta(name: string): ProjectMeta {
   const db = getDb()
   const existing = db.select().from(projectMeta).get()

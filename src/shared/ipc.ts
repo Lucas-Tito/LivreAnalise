@@ -1,3 +1,4 @@
+import type { AiExportScope } from './aiExport'
 import type {
   Code,
   Collection,
@@ -78,6 +79,10 @@ export const IPC = {
     cancel: 'transcription:cancel',
     event: 'transcription:event'
   },
+  aiExport: {
+    export: 'aiExport:export',
+    cliInstructions: 'aiExport:cliInstructions'
+  },
   qdpx: {
     export: 'qdpx:export',
     importAsProject: 'qdpx:importAsProject'
@@ -136,6 +141,13 @@ export interface Api {
     start: (input: TranscriptionStartInput) => Promise<void>
     cancel: () => Promise<void>
     onEvent: (listener: (event: TranscriptionEvent) => void) => () => void
+  }
+  aiExport: {
+    export: (
+      scope: AiExportScope,
+      documentId: number | null
+    ) => Promise<ExportResult | null>
+    cliInstructions: () => Promise<string>
   }
   qdpx: {
     export: () => Promise<ExportResult | null>

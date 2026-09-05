@@ -5,7 +5,7 @@ import {
   computeSegments,
   markPendingSelection,
   resolveAnchorPos
-} from '../src/renderer/src/lib/segments'
+} from '../src/shared/segments'
 import type { Coding } from '../src/shared/types'
 
 function coding(id: number, startPos: number, endPos: number): Coding {
