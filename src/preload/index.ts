@@ -66,6 +66,11 @@ const api: Api = {
       return () => ipcRenderer.removeListener(IPC.transcription.event, handler)
     }
   },
+  aiExport: {
+    export: (scope, documentId) =>
+      ipcRenderer.invoke(IPC.aiExport.export, scope, documentId),
+    cliInstructions: () => ipcRenderer.invoke(IPC.aiExport.cliInstructions)
+  },
   qdpx: {
     export: () => ipcRenderer.invoke(IPC.qdpx.export),
     importAsProject: () => ipcRenderer.invoke(IPC.qdpx.importAsProject)
