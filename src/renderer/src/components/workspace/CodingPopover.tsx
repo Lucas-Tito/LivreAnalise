@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
-import { applicableCodes } from '@/lib/codeTree'
+import { applicableCodes } from '@shared/codeTree'
 import { randomColor } from '@/lib/utils'
 
 interface Props {

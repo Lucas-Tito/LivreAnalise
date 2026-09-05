@@ -19,7 +19,7 @@ import {
   buildLibraryTree,
   canReceiveChild,
   type CodeNode
-} from '@/lib/codeTree'
+} from '@shared/codeTree'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,

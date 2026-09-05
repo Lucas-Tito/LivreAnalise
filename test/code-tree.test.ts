@@ -4,7 +4,7 @@ import {
   buildLibraryTree,
   canReceiveChild,
   groupIds
-} from '../src/renderer/src/lib/codeTree'
+} from '../src/shared/codeTree'
 import type { Code, Collection, CollectionMember } from '../src/shared/types'
 
 function code(id: number, parentId: number | null = null): Code {

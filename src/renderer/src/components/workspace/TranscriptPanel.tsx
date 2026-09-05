@@ -7,7 +7,7 @@ import {
   computeSegments,
   markPendingSelection,
   resolveAnchorPos
-} from '@/lib/segments'
+} from '@shared/segments'
 import { packBarColumns } from '@/lib/barLayout'
 import { applyCodingAdjustments } from '@shared/editAdjust'
 import { contrastText, formatCount } from '@/lib/utils'
