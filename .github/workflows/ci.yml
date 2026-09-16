@@ -33,3 +33,36 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  # A tag da release sai da versao do package.json. PR que nao incrementa faz o
+  # merge sobrescrever os instaladores da release anterior em vez de publicar uma
+  # nova -- foi o que aconteceu com a v0.1.0 durante meses (#43).
+  versao:
+    if: github.event_name == 'pull_request' && github.base_ref == 'master'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Conferir se a versao foi incrementada
+        run: |
+          nova=$(node -p "require('./package.json').version")
+          git fetch --quiet origin master
+          antiga=$(git show origin/master:package.json \
+            | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
+
+          if [ "$nova" = "$antiga" ]; then
+            echo "::error::A versao continua $nova. Todo PR para a master precisa incrementar a versao do package.json, senao o merge sobrescreve os instaladores da release v$antiga em vez de publicar uma nova."
+            exit 1
+          fi
+
+          maior=$(printf '%s\n%s\n' "$antiga" "$nova" | sort -V | tail -1)
+          if [ "$maior" != "$nova" ]; then
+            echo "::error::A versao regrediu: $antiga -> $nova."
+            exit 1
+          fi
+
+          echo "Versao: $antiga -> $nova"
