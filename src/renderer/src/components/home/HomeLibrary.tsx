@@ -31,6 +31,7 @@ import {
   PopoverContent,
   PopoverTrigger
 } from '@/components/ui/popover'
+import { APP_VERSION } from '@shared/version'
 
 function formatProjectStats(stats: {
   documents: number
@@ -109,6 +110,11 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
                     <span>Repositório do projeto</span>
                   </a>
                 </div>
+                {/* a versão precisa estar visível em algum lugar para alguém
+                    conseguir dizer qual versão está usando ao relatar um bug */}
+                <p className="mt-3 border-t pt-2 text-xs text-muted-foreground">
+                  Versão {APP_VERSION}
+                </p>
               </PopoverContent>
             </Popover>
           </div>
