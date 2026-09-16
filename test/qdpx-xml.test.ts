@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildQde, parseQde } from '../src/main/qdpx/xml'
 import type { QdpxProject } from '../src/main/qdpx/model'
+import { version } from '../package.json'
 
 function sampleProject(): QdpxProject {
   return {
@@ -63,6 +64,16 @@ function sampleProject(): QdpxProject {
 
 const byGuid = <T extends { guid: string }>(arr: T[]): T[] =>
   [...arr].sort((a, b) => a.guid.localeCompare(b.guid))
+
+// O APP_ORIGIN ficou anos escrito a mao como 'LivreAnalise 0.1.0' e carimbava
+// essa versao em todo projeto exportado, muito depois de a versao ter mudado.
+// Este teste falha se alguem voltar a escrever o numero literal.
+describe('origin do projeto exportado', () => {
+  it('carimba a versao real do package.json', () => {
+    const xml = buildQde(sampleProject())
+    expect(xml).toContain(`origin="LivreAnalise ${version}"`)
+  })
+})
 
 describe('buildQde / parseQde round-trip', () => {
   it('produces valid xml with the REFI-QDA namespace', () => {

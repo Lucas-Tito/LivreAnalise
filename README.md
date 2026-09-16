@@ -31,6 +31,21 @@ Os binários **não são assinados**. No Windows o SmartScreen avisa que o aplic
 reconhecido na primeira execução; no macOS é preciso abrir pelo menu de contexto
 (botão direito → Abrir) na primeira vez.
 
+### Instalar e atualizar no Ubuntu
+
+Um comando só, que baixa a versão mais recente e instala por cima da anterior:
+
+```bash
+cd /tmp && curl -fL -o LivreAnalise.deb "$(curl -fsSL https://api.github.com/repos/Lucas-Tito/LivreAnalise/releases/latest | grep -o 'https://[^"]*\.deb')" && sudo apt install -y ./LivreAnalise.deb
+```
+
+Ele pergunta a URL do `.deb` para a API do GitHub em vez de trazer o nome do arquivo
+fixo, então continua funcionando quando a versão mudar. Seus projetos `.liva` não são
+tocados pela instalação.
+
+Feche o aplicativo antes de rodar: instalar por cima de um binário em execução funciona,
+mas a janela aberta segue na versão antiga até você reiniciar.
+
 ## Funcionalidades
 
 ### Documentos
@@ -150,6 +165,40 @@ erro de ABI. Use `npm test`. Para o modo watch, rode `npm run rebuild:node` ante
 
 Testes e empacotamento ficam em jobs separados de propósito: o `pretest` recompila o
 módulo nativo para o ABI do Node e quebraria o binário empacotado.
+
+### Versionamento
+
+A versão mora **só no `package.json`**. É ela que nomeia a tag da release, os
+arquivos dos instaladores e o que aparece em Créditos. Quem precisa da versão
+dentro do código importa de `@shared/version` — nunca escreve o número à mão,
+porque uma cópia literal sai de sincronia sem ninguém perceber (foi o que
+aconteceu com o `APP_ORIGIN` do QDPX, que carimbou `0.1.0` em todo projeto
+exportado muito depois de a versão ter mudado).
+
+**Todo PR para a `master` incrementa a versão.** Não é etiqueta, é consequência:
+a tag da release vem daí, então um PR que não incrementa faz o merge
+*sobrescrever* os instaladores da release anterior em vez de publicar uma nova.
+A CI recusa o PR que esquecer.
+
+Como escolher o incremento:
+
+| Mudança | Incrementa | Exemplo |
+| --- | --- | --- |
+| Correção de bug, ajuste pequeno, campo novo (`fix:`) | o último número | `0.2.0` → `0.2.1` |
+| Funcionalidade nova ou mudança maior (`feat:`) | o do meio, zerando o último | `0.2.1` → `0.3.0` |
+| Quebra de compatibilidade ou virada de produto | o primeiro, zerando os outros | `0.3.0` → `1.0.0` |
+
+O primeiro número muda pouco. Ele serve para avisar que **algo com que a pessoa
+contava deixou de valer**: um projeto antigo que não abre mais, uma exportação
+que muda de formato, uma funcionalidade removida, ou uma reescrita que faz o app
+ser outro produto. Também é o número que marca o `1.0.0`, quando o projeto
+deixar de ser experimental.
+
+A régua é o susto: se a pessoa atualizar e precisar reaprender ou refazer
+alguma coisa, é o primeiro número.
+
+Quando o PR junta várias mudanças, vale a maior: um `feat:` no meio de três
+`fix:` faz o incremento ser do número do meio.
 
 ### Convenção de commits
 
