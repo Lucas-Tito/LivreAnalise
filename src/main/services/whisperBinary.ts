@@ -9,14 +9,19 @@ import { downloadModel, type DownloadProgress } from './whisperModels'
 // Releases do whisper.cpp trazem binario pronto para Linux e Windows. Para
 // macOS nao existe asset de CLI publicado: nesses casos o usuario informa o
 // caminho (por exemplo o `whisper-cli` do `brew install whisper-cpp`).
+//
+// A URL e fixada numa release com assets publicados (v1.9.2): a `latest`
+// atual (v1.9.4) nao publica binario nenhum, entao `latest/download` devolve
+// 404 e o botao "Baixar o programa" quebra. Revisitar quando o upstream
+// voltar a anexar os zips/tarballs na latest.
 interface BinaryAsset {
   url: string
   archive: 'tar.gz' | 'zip'
 }
 
-const RELEASE = 'https://github.com/ggml-org/whisper.cpp/releases/latest/download'
+const RELEASE = 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2'
 
-const ASSETS: Record<string, BinaryAsset> = {
+export const BINARY_ASSETS: Record<string, BinaryAsset> = {
   'linux-x64': { url: `${RELEASE}/whisper-bin-ubuntu-x64.tar.gz`, archive: 'tar.gz' },
   'linux-arm64': { url: `${RELEASE}/whisper-bin-ubuntu-arm64.tar.gz`, archive: 'tar.gz' },
   'win32-x64': { url: `${RELEASE}/whisper-bin-x64.zip`, archive: 'zip' }
@@ -31,7 +36,7 @@ export function binaryDir(): string {
 }
 
 export function assetForPlatform(): BinaryAsset | null {
-  return ASSETS[`${process.platform}-${process.arch}`] ?? null
+  return BINARY_ASSETS[`${process.platform}-${process.arch}`] ?? null
 }
 
 function findExecutable(root: string): string | null {
