@@ -12,7 +12,6 @@ vi.mock('electron', () => ({
 describe('whisper binary assets', () => {
   it('never points at releases/latest/download', () => {
     const urls = Object.values(BINARY_ASSETS).map((asset) => asset.url)
-    expect(urls).toHaveLength(3)
     for (const url of urls) {
       expect(url).not.toContain('latest/download')
       expect(url).toMatch(

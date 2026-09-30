@@ -113,8 +113,12 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
 
   // O Electron prefixa o erro do main com "Error invoking remote method
   // 'transcription:...'": esse detalhe de IPC nao ajuda ninguem na tela.
+  // O main serializa com toString(), entao sobra ainda o "Error:" original.
   const showFailure = (e: unknown): void => {
-    const message = (e as Error).message.replace(/^Error invoking remote method '[^']+':\s*/, '')
+    const message = (e as Error).message.replace(
+      /^Error invoking remote method '[^']+':\s*(?:\w*Error:\s*)?/,
+      ''
+    )
     setStage({ kind: 'error', message })
   }
 

@@ -5,7 +5,7 @@ import { registerIpcHandlers } from './ipc'
 
 // A saida padrao pode estar com o pipe fechado (AppImage aberto pelo menu,
 // terminal que ja fechou, saida redirecionada). O proprio Electron faz um
-// console.warn ao responder um IPC com erro, e esse write com EPIPE virava
+// console.error ao responder um IPC com erro, e esse write com EPIPE virava
 // "Uncaught Exception: write EPIPE" com o dialogo "A JavaScript error
 // occurred in the main process". Sem listener de 'error' o stream lanca;
 // com ele, o EPIPE e ignorado e o resto segue o comportamento padrao.
