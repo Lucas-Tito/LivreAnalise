@@ -5,6 +5,7 @@ import {
   anchorPositions,
   buildLineRows,
   computeSegments,
+  markNoteAnchors,
   markPendingSelection,
   resolveAnchorPos
 } from '@shared/segments'
@@ -164,21 +165,6 @@ export function TranscriptPanel(): JSX.Element {
     [documentNotes]
   )
 
-  const noteHit = useCallback(
-    (start: number, end: number): { hasNote: boolean; isFlash: boolean } => {
-      let hasNote = false
-      let isFlash = false
-      for (const a of noteAnchors) {
-        if (a.start < end && a.end > start) {
-          hasNote = true
-          if (a.id === flashNoteId) isFlash = true
-        }
-      }
-      return { hasNote, isFlash }
-    },
-    [noteAnchors, flashNoteId]
-  )
-
   useEffect(() => {
     if (navigateNoteId == null) return
     const note = documentNotes.find((n) => n.id === navigateNoteId)
@@ -229,14 +215,20 @@ export function TranscriptPanel(): JSX.Element {
     () => markPendingSelection(dragging ? previewSegments : segments, pending),
     [dragging, previewSegments, segments, pending]
   )
+  // Divide os segmentos nas fronteiras das notas para que o sublinhado
+  // cubra exatamente a seleção anotada, não o parágrafo inteiro.
+  const noteSegments = useMemo(
+    () => markNoteAnchors(displaySegments, noteAnchors),
+    [displaySegments, noteAnchors]
+  )
   const quoteCount = codings.length
   const codesUsedInDoc = useMemo(
     () => new Set(codings.map((c) => c.codeId)).size,
     [codings]
   )
   const lineRows = useMemo(
-    () => buildLineRows(text, displaySegments),
-    [text, displaySegments]
+    () => buildLineRows(text, noteSegments),
+    [text, noteSegments]
   )
 
   const draftSegments = useMemo(() => {
@@ -537,7 +529,9 @@ export function TranscriptPanel(): JSX.Element {
                           const segEnd = seg.end
                           const segText = seg.text
                           if (seg.codingIds.length === 0) {
-                            const { hasNote, isFlash } = noteHit(segStart, segEnd)
+                            const hasNote = seg.noteIds.length > 0
+                            const isFlash =
+                              flashNoteId != null && seg.noteIds.includes(flashNoteId)
                             return (
                               <span
                                 key={`${segStart}-${seg.isPending}`}
@@ -568,7 +562,9 @@ export function TranscriptPanel(): JSX.Element {
                             : '#888'
                           const isHover = seg.codingIds.includes(hoverCoding ?? -1)
                           const isSelected = seg.codingIds.includes(selectedCodingId ?? -1)
-                          const { hasNote, isFlash } = noteHit(segStart, segEnd)
+                          const hasNote = seg.noteIds.length > 0
+                          const isFlash =
+                            flashNoteId != null && seg.noteIds.includes(flashNoteId)
                           const selCoding = isSelected
                             ? codings.find((c) => c.id === selectedCodingId)
                             : null
