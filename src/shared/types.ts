@@ -124,6 +124,40 @@ export interface UpdateCodingInput {
   endPos: number
 }
 
+export type NoteScope = 'project' | 'document' | 'excerpt'
+
+export type NoteAnchorStatus = 'attached' | 'detached'
+
+export interface Note {
+  id: number
+  guid: string
+  title: string | null
+  body: string
+  scope: NoteScope
+  documentId: number | null
+  startPos: number | null
+  endPos: number | null
+  anchorStatus: NoteAnchorStatus
+  anchorText: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateNoteInput {
+  title?: string | null
+  body?: string
+  scope: NoteScope
+  documentId?: number | null
+  startPos?: number | null
+  endPos?: number | null
+}
+
+export interface UpdateNoteInput {
+  id: number
+  title?: string | null
+  body?: string
+}
+
 export interface OpenProjectResult {
   meta: ProjectMeta
   path: string

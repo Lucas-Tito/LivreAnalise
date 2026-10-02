@@ -47,6 +47,14 @@ const api: Api = {
     update: (input) => ipcRenderer.invoke(IPC.codings.update, input),
     delete: (id) => ipcRenderer.invoke(IPC.codings.delete, id)
   },
+  notes: {
+    listByDocument: (documentId) =>
+      ipcRenderer.invoke(IPC.notes.listByDocument, documentId),
+    listProject: () => ipcRenderer.invoke(IPC.notes.listProject),
+    create: (input) => ipcRenderer.invoke(IPC.notes.create, input),
+    update: (input) => ipcRenderer.invoke(IPC.notes.update, input),
+    delete: (id) => ipcRenderer.invoke(IPC.notes.delete, id)
+  },
   transcription: {
     env: () => ipcRenderer.invoke(IPC.transcription.env),
     models: () => ipcRenderer.invoke(IPC.transcription.models),
