@@ -64,7 +64,7 @@ export function createDocument(input: {
   name: string
   plainText: string
   originalFormat: string
-  sourceFilename: string | null
+  sourceFilename?: string | null
 }): DocumentRecord {
   const db = getDb()
   const guid = uuid()
@@ -75,7 +75,7 @@ export function createDocument(input: {
       name: input.name,
       plainText: input.plainText,
       originalFormat: input.originalFormat,
-      sourceFilename: input.sourceFilename,
+      sourceFilename: input.sourceFilename ?? null,
       charCount: input.plainText.length
     })
     .run()
