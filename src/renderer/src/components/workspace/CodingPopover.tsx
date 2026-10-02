@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { Plus, StickyNote } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { applicableCodes } from '@shared/codeTree'
 import { randomColor } from '@/lib/utils'
@@ -9,9 +9,10 @@ interface Props {
   y: number
   onClose: () => void
   onApply: (codeId: number) => void
+  onAddNote?: () => void
 }
 
-export function CodingPopover({ x, y, onClose, onApply }: Props): JSX.Element {
+export function CodingPopover({ x, y, onClose, onApply, onAddNote }: Props): JSX.Element {
   const allCodes = useAppStore((s) => s.codes)
   const createCode = useAppStore((s) => s.createCode)
   const lastUsedCodeId = useAppStore((s) => s.lastUsedCodeId)
@@ -78,6 +79,15 @@ export function CodingPopover({ x, y, onClose, onApply }: Props): JSX.Element {
         placeholder="Buscar ou criar código..."
         className="mb-2 h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
+      {onAddNote && (
+        <button
+          onClick={onAddNote}
+          className="mb-1 flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <StickyNote className="h-4 w-4" />
+          Adicionar nota ao trecho
+        </button>
+      )}
       {showLastUsed && (
         <button
           onClick={() => onApply(lastUsed.id)}
