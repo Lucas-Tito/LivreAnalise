@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import { SCHEMA_DDL } from './ddl'
+import { NOTES_DDL, SCHEMA_DDL } from './ddl'
 
 /**
  * Versão do schema do banco, independente da versão do aplicativo
@@ -7,7 +7,7 @@ import { SCHEMA_DDL } from './ddl'
  * versionamento, não têm carimbo (`user_version = 0`) e correspondem à
  * versão 1.
  */
-export const CURRENT_SCHEMA_VERSION = 1
+export const CURRENT_SCHEMA_VERSION = 2
 
 export interface Migration {
   version: number
@@ -22,10 +22,18 @@ export interface Migration {
 }
 
 /**
- * Registro ordenado das migrações. Futuras mudanças de schema entram aqui
- * com a próxima versão (ex. as notas da #49 serão a versão 2).
+ * Registro ordenado das migrações. Mudanças futuras de schema entram aqui
+ * com a próxima versão.
  */
-export const MIGRATIONS: Migration[] = []
+export const MIGRATIONS: Migration[] = [
+  {
+    version: 2,
+    description: 'cria a tabela de notas (memos de projeto, documento e trecho)',
+    up: (raw) => {
+      raw.exec(NOTES_DDL)
+    }
+  }
+]
 
 export function getSchemaVersion(raw: Database.Database): number {
   const row = raw.prepare('PRAGMA user_version').get() as { user_version: number }

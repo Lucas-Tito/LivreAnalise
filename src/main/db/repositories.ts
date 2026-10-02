@@ -9,12 +9,15 @@ import type {
   CodingWithCode,
   CreateCodeInput,
   CreateCodingInput,
+  CreateNoteInput,
   UpdateCodingInput,
   CreateCollectionInput,
   DocumentRecord,
   DocumentWithText,
+  Note,
   UpdateCodeInput,
-  UpdateCollectionInput
+  UpdateCollectionInput,
+  UpdateNoteInput
 } from '@shared/types'
 import { adjustCodings } from '@shared/editAdjust'
 import { findConnectedCodings } from '../services/codingMerge'
@@ -24,7 +27,8 @@ import {
   collections,
   codes,
   codings,
-  documents
+  documents,
+  notes
 } from './schema'
 
 function touchProject(): void {
@@ -96,6 +100,25 @@ export function updateDocumentText(id: number, newText: string): void {
   const codingsList = listCodingsByDocument(id)
   const { updates, removeIds } = adjustCodings(codingsList, current.plainText, newText)
 
+  // As notas de trecho passam pelo mesmo pipeline de ajuste das citações.
+  // A diferença: âncora invalidada não apaga a nota, só a desvincula,
+  // preservando o conteúdo e o trecho original como referência.
+  const anchoredNotes = listNotesByDocument(id).filter(
+    (n): n is Note & { startPos: number; endPos: number } =>
+      n.scope === 'excerpt' &&
+      n.anchorStatus === 'attached' &&
+      n.startPos != null &&
+      n.endPos != null
+  )
+  const noteAdjust = adjustCodings(anchoredNotes, current.plainText, newText)
+  const detachedSnapshots = new Map<number, string>()
+  for (const noteId of noteAdjust.removeIds) {
+    const note = anchoredNotes.find((n) => n.id === noteId)
+    if (note) {
+      detachedSnapshots.set(noteId, current.plainText.slice(note.startPos, note.endPos))
+    }
+  }
+
   db.transaction((tx) => {
     tx.update(documents)
       .set({ plainText: newText, charCount: newText.length })
@@ -108,6 +131,21 @@ export function updateDocumentText(id: number, newText: string): void {
       tx.update(codings)
         .set({ startPos: u.startPos, endPos: u.endPos })
         .where(eq(codings.id, u.id))
+        .run()
+    }
+    for (const u of noteAdjust.updates) {
+      tx.update(notes)
+        .set({ startPos: u.startPos, endPos: u.endPos })
+        .where(eq(notes.id, u.id))
+        .run()
+    }
+    for (const noteId of noteAdjust.removeIds) {
+      tx.update(notes)
+        .set({
+          anchorStatus: 'detached',
+          anchorText: detachedSnapshots.get(noteId) ?? null
+        })
+        .where(eq(notes.id, noteId))
         .run()
     }
   })
@@ -416,5 +454,128 @@ export function updateCoding(input: UpdateCodingInput): Coding {
 export function deleteCoding(id: number): void {
   const db = getDb()
   db.delete(codings).where(eq(codings.id, id)).run()
+  touchProject()
+}
+
+// ---------- Notes ----------
+
+function rowToNote(row: typeof notes.$inferSelect): Note {
+  return {
+    id: row.id,
+    guid: row.guid,
+    title: row.title,
+    body: row.body,
+    scope: row.scope as Note['scope'],
+    documentId: row.documentId,
+    startPos: row.startPos,
+    endPos: row.endPos,
+    anchorStatus: (row.anchorStatus ?? 'attached') as Note['anchorStatus'],
+    anchorText: row.anchorText,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  }
+}
+
+export function listNotesByDocument(documentId: number): Note[] {
+  const db = getDb()
+  const rows = db
+    .select()
+    .from(notes)
+    .where(
+      and(eq(notes.documentId, documentId), sql`${notes.scope} != 'project'`)
+    )
+    .orderBy(asc(notes.createdAt))
+    .all()
+  return rows.map(rowToNote)
+}
+
+export function listProjectNotes(): Note[] {
+  const db = getDb()
+  const rows = db
+    .select()
+    .from(notes)
+    .where(eq(notes.scope, 'project'))
+    .orderBy(asc(notes.createdAt))
+    .all()
+  return rows.map(rowToNote)
+}
+
+function getNote(id: number): Note {
+  const db = getDb()
+  return rowToNote(
+    db.select().from(notes).where(eq(notes.id, id)).get() as typeof notes.$inferSelect
+  )
+}
+
+export function createNote(input: CreateNoteInput): Note {
+  const db = getDb()
+  const scope = input.scope
+
+  let documentId: number | null = null
+  let startPos: number | null = null
+  let endPos: number | null = null
+
+  if (scope === 'document' || scope === 'excerpt') {
+    if (input.documentId == null) {
+      throw new Error('A nota precisa de um documento.')
+    }
+    const doc = getDocument(input.documentId)
+    if (!doc) {
+      throw new Error('Documento não encontrado para a nota.')
+    }
+    documentId = doc.id
+  }
+
+  if (scope === 'excerpt') {
+    if (input.startPos == null || input.endPos == null) {
+      throw new Error('A nota de trecho precisa de um intervalo no texto.')
+    }
+    if (
+      !Number.isInteger(input.startPos) ||
+      !Number.isInteger(input.endPos) ||
+      input.startPos < 0 ||
+      input.endPos <= input.startPos ||
+      input.endPos > (getDocument(documentId!)?.plainText.length ?? 0)
+    ) {
+      throw new Error('O trecho da nota é inválido para este documento.')
+    }
+    startPos = input.startPos
+    endPos = input.endPos
+  }
+
+  const guid = uuid()
+  const res = db
+    .insert(notes)
+    .values({
+      guid,
+      title: input.title ?? null,
+      body: input.body ?? '',
+      scope,
+      documentId,
+      startPos,
+      endPos,
+      anchorStatus: 'attached',
+      anchorText: null
+    })
+    .run()
+  touchProject()
+  return getNote(Number(res.lastInsertRowid))
+}
+
+export function updateNote(input: UpdateNoteInput): Note {
+  const db = getDb()
+  const patch: { title?: string | null; body?: string; updatedAt: string } = {
+    updatedAt: new Date().toISOString()
+  }
+  if (input.title !== undefined) patch.title = input.title
+  if (input.body !== undefined) patch.body = input.body
+  db.update(notes).set(patch).where(eq(notes.id, input.id)).run()
+  touchProject()
+  return getNote(input.id)
+}
+
+export function deleteNote(id: number): void {
+  const db = getDb()
+  db.delete(notes).where(eq(notes.id, id)).run()
   touchProject()
 }

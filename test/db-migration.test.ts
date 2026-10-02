@@ -102,25 +102,25 @@ describe.skipIf(!nativeOk)('migrações do schema', () => {
         migrations: [
           {
             version: 2,
-            description: 'cria tabela de notas',
+            description: 'cria tabela de rascunhos',
             up: (r) => {
               ordem.push(2)
-              r.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)')
+              r.exec('CREATE TABLE scratch_pads (id INTEGER PRIMARY KEY, body TEXT NOT NULL)')
             }
           },
           {
             version: 3,
-            description: 'índice das notas',
+            description: 'índice dos rascunhos',
             up: (r) => {
               ordem.push(3)
-              r.exec('CREATE INDEX notes_body_idx ON notes(body)')
+              r.exec('CREATE INDEX scratch_pads_body_idx ON scratch_pads(body)')
             }
           }
         ]
       })
       expect(ordem).toEqual([2, 3])
       expect(migrate.getSchemaVersion(raw)).toBe(3)
-      raw.prepare('INSERT INTO notes (body) VALUES (?)').run('lembrete')
+      raw.prepare('INSERT INTO scratch_pads (body) VALUES (?)').run('lembrete')
     } finally {
       raw.close()
     }
@@ -137,9 +137,9 @@ describe.skipIf(!nativeOk)('migrações do schema', () => {
           migrations: [
             {
               version: 2,
-              description: 'cria tabela de notas',
+              description: 'cria tabela de rascunhos',
               up: (r) => {
-                r.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY)')
+                r.exec('CREATE TABLE scratch_pads (id INTEGER PRIMARY KEY)')
               }
             },
             {
@@ -156,7 +156,7 @@ describe.skipIf(!nativeOk)('migrações do schema', () => {
       expect(
         raw
           .prepare(
-            "SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'notes'"
+            "SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'scratch_pads'"
           )
           .get() as { n: number }
       ).toEqual({ n: 0 })
