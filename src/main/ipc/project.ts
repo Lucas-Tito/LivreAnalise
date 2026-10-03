@@ -19,6 +19,7 @@ import { pushRecent, readRecents } from '../services/recents'
 import { renameProject, trashProject } from '../services/projectFile'
 import { readProjectStats } from '../db/projectStats'
 import { clearHistoryFor } from '../history/stack'
+import { createVersionSnapshot } from '../services/projectVersions'
 
 const PROJECT_EXT = 'liva'
 
@@ -117,5 +118,8 @@ function openProjectPath(path: string): OpenProjectResult | null {
   const name = basename(path).replace(/\.liva$/i, '')
   const meta = ensureMeta(name)
   pushRecent(getActivePath() as string, meta.name)
+  // 1 checkpoint automático por abertura (retenção poda os antigos).
+  // Melhor esforço: nunca bloqueia a abertura.
+  createVersionSnapshot(path, { kind: 'auto', label: null }).catch(() => null)
   return { meta, path }
 }

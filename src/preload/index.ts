@@ -90,6 +90,12 @@ const api: Api = {
     undo: () => ipcRenderer.invoke(IPC.history.undo),
     redo: () => ipcRenderer.invoke(IPC.history.redo)
   },
+  versions: {
+    list: () => ipcRenderer.invoke(IPC.versions.list),
+    create: (label) => ipcRenderer.invoke(IPC.versions.create, label),
+    prune: () => ipcRenderer.invoke(IPC.versions.prune),
+    restore: (id) => ipcRenderer.invoke(IPC.versions.restore, id)
+  },
   view: {
     onAction: (listener) => {
       const handler = (_e: unknown, action: string): void => listener(action)

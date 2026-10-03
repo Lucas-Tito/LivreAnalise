@@ -20,6 +20,7 @@ import type {
   UpdateNoteInput
 } from '@shared/types'
 import type { HistoryState } from '@shared/ipc'
+import type { ProjectVersion } from '@shared/projectVersions'
 
 interface AppState {
   project: ProjectMeta | null
@@ -61,6 +62,11 @@ interface AppState {
   refreshHistory: () => Promise<void>
   undo: () => Promise<string | null>
   redo: () => Promise<string | null>
+
+  versions: ProjectVersion[]
+  refreshVersions: () => Promise<void>
+  createVersion: (label: string | null) => Promise<void>
+  restoreVersion: (id: string) => Promise<void>
 
   refreshCollections: () => Promise<void>
   createCollection: (input: CreateCollectionInput) => Promise<Collection>
@@ -129,6 +135,11 @@ async function loadProjectData(set: (partial: Partial<AppState>) => void): Promi
   } catch {
     // sem projeto aberto o histórico não existe
   }
+  try {
+    set({ versions: await window.api.versions.list() })
+  } catch {
+    set({ versions: [] })
+  }
 }
 
 function resetNotesState(): Partial<AppState> {
@@ -158,6 +169,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   editorNoteId: null,
   notesFlush: null,
   history: { canUndo: false, canRedo: false, undoLabel: null, redoLabel: null },
+  versions: [],
 
   loadRecents: async () => {
     const recents = await window.api.project.recents()
@@ -372,6 +384,43 @@ export const useAppStore = create<AppState>((set, get) => ({
     const label = await window.api.history.redo()
     await refreshAfterHistory(get, set)
     return label
+  },
+
+  refreshVersions: async () => {
+    try {
+      set({ versions: await window.api.versions.list() })
+    } catch {
+      set({ versions: [] })
+    }
+  },
+
+  createVersion: async (label) => {
+    await get().notesFlush?.()
+    await window.api.versions.create(label)
+    await get().refreshVersions()
+  },
+
+  restoreVersion: async (id) => {
+    await get().notesFlush?.()
+    const result = await window.api.versions.restore(id)
+    if (!result) return
+    set({
+      project: result.meta,
+      currentDocument: null,
+      codings: [],
+      documents: [],
+      codes: [],
+      collections: [],
+      collectionMembers: [],
+      documentNotes: [],
+      projectNotes: [],
+      navigateNoteId: null,
+      editorNoteId: null,
+      versions: []
+    })
+    await loadProjectData(set)
+    await get().refreshVersions()
+    await get().loadRecents()
   },
 
   refreshCollections: async () => {

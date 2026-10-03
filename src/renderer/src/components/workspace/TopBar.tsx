@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { BookText, Download, Loader2, Redo2, Sparkles, StickyNote, Undo2 } from 'lucide-react'
+import { BookText, Download, History, Loader2, Redo2, Sparkles, StickyNote, Undo2 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { useZoomStore } from '@/stores/zoomStore'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { AiExportDialog } from './AiExportDialog'
+import { VersionsDialog } from './VersionsDialog'
 
 export function TopBar(): JSX.Element {
   const project = useAppStore((s) => s.project)
@@ -15,6 +16,7 @@ export function TopBar(): JSX.Element {
   const projectNotes = useAppStore((s) => s.projectNotes)
   const [working, setWorking] = useState(false)
   const [exportarIa, setExportarIa] = useState(false)
+  const [versoes, setVersoes] = useState(false)
   const noteCount = documentNotes.length + projectNotes.length
   const zoom = useZoomStore((s) => s.zoom)
   const font = useZoomStore((s) => s.font)
@@ -120,6 +122,10 @@ export function TopBar(): JSX.Element {
           <Sparkles className="h-4 w-4" />
           Exportar para IA
         </Button>
+        <Button size="sm" variant="outline" onClick={() => setVersoes(true)} title="Checkpoints do projeto (restaurar abre uma cópia)">
+          <History className="h-4 w-4" />
+          Versões
+        </Button>
         <Button
           size="sm"
           variant="outline"
@@ -136,6 +142,7 @@ export function TopBar(): JSX.Element {
         <ThemeToggle />
       </div>
       <AiExportDialog open={exportarIa} onOpenChange={setExportarIa} />
+      <VersionsDialog open={versoes} onOpenChange={setVersoes} />
     </div>
   )
 }

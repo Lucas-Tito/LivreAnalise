@@ -1,4 +1,5 @@
 import type { AiExportScope } from './aiExport'
+import type { ProjectVersion } from './projectVersions'
 import type {
   Code,
   Collection,
@@ -106,6 +107,12 @@ export const IPC = {
     undo: 'history:undo',
     redo: 'history:redo'
   },
+  versions: {
+    list: 'versions:list',
+    create: 'versions:create',
+    prune: 'versions:prune',
+    restore: 'versions:restore'
+  },
   view: {
     zoomIn: 'view:zoom-in',
     zoomOut: 'view:zoom-out',
@@ -195,6 +202,12 @@ export interface Api {
     state: () => Promise<HistoryState>
     undo: () => Promise<string | null>
     redo: () => Promise<string | null>
+  }
+  versions: {
+    list: () => Promise<ProjectVersion[]>
+    create: (label: string | null) => Promise<ProjectVersion>
+    prune: () => Promise<ProjectVersion[]>
+    restore: (id: string) => Promise<OpenProjectResult | null>
   }
 }
 
