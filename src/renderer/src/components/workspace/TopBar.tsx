@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BookText, Download, Loader2, Sparkles, StickyNote } from 'lucide-react'
+import { BookText, Download, Loader2, Redo2, Sparkles, StickyNote, Undo2 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { useZoomStore } from '@/stores/zoomStore'
 import { Button } from '@/components/ui/button'
@@ -22,6 +22,9 @@ export function TopBar(): JSX.Element {
   const zoomOut = useZoomStore((s) => s.zoomOut)
   const resetZoom = useZoomStore((s) => s.resetZoom)
   const setFont = useZoomStore((s) => s.setFont)
+  const history = useAppStore((s) => s.history)
+  const undo = useAppStore((s) => s.undo)
+  const redo = useAppStore((s) => s.redo)
 
   const handleExport = async (): Promise<void> => {
     setWorking(true)
@@ -55,6 +58,26 @@ export function TopBar(): JSX.Element {
         <span className="text-sm">{project?.name}</span>
       </div>
       <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void undo()}
+            disabled={!history.canUndo}
+            title={history.undoLabel ? `Desfazer: ${history.undoLabel} (Ctrl+Z)` : 'Desfazer (Ctrl+Z)'}
+          >
+            <Undo2 className="h-4 w-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void redo()}
+            disabled={!history.canRedo}
+            title={history.redoLabel ? `Refazer: ${history.redoLabel} (Ctrl+Shift+Z)` : 'Refazer (Ctrl+Shift+Z)'}
+          >
+            <Redo2 className="h-4 w-4" />
+          </Button>
+        </div>
         <div className="flex items-center gap-1 rounded-md border px-1" title="Zoom do documento (Ctrl++/−/0)">
           <Button size="sm" variant="ghost" onClick={zoomOut} title="Reduzir (Ctrl+-)">
             A-

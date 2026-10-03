@@ -9,6 +9,7 @@ import type {
   CreateCodeInput,
   CreateCodingInput,
   CreateCollectionInput,
+  CreateGroupInput,
   CreateNoteInput,
   DocumentRecord,
   DocumentWithText,
@@ -52,6 +53,7 @@ export const IPC = {
   codes: {
     list: 'codes:list',
     create: 'codes:create',
+    createGroup: 'codes:createGroup',
     update: 'codes:update',
     delete: 'codes:delete',
     moveMany: 'codes:moveMany'
@@ -99,6 +101,11 @@ export const IPC = {
     export: 'qdpx:export',
     importAsProject: 'qdpx:importAsProject'
   },
+  history: {
+    state: 'history:state',
+    undo: 'history:undo',
+    redo: 'history:redo'
+  },
   view: {
     zoomIn: 'view:zoom-in',
     zoomOut: 'view:zoom-out',
@@ -130,6 +137,7 @@ export interface Api {
   codes: {
     list: () => Promise<CodeWithCount[]>
     create: (input: CreateCodeInput) => Promise<Code>
+    createGroup: (input: CreateGroupInput) => Promise<Code>
     update: (input: UpdateCodeInput) => Promise<void>
     delete: (id: number) => Promise<void>
     moveMany: (input: MoveCodesInput) => Promise<void>
@@ -183,4 +191,16 @@ export interface Api {
   view: {
     onAction: (listener: (action: string) => void) => () => void
   }
+  history: {
+    state: () => Promise<HistoryState>
+    undo: () => Promise<string | null>
+    redo: () => Promise<string | null>
+  }
+}
+
+export interface HistoryState {
+  canUndo: boolean
+  canRedo: boolean
+  undoLabel: string | null
+  redoLabel: string | null
 }

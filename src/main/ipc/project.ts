@@ -18,6 +18,7 @@ import { projectMeta } from '../db/schema'
 import { pushRecent, readRecents } from '../services/recents'
 import { renameProject, trashProject } from '../services/projectFile'
 import { readProjectStats } from '../db/projectStats'
+import { clearHistoryFor } from '../history/stack'
 
 const PROJECT_EXT = 'liva'
 
@@ -88,7 +89,9 @@ export function registerProjectHandlers(): void {
   })
 
   ipcMain.handle(IPC.project.close, async (): Promise<void> => {
+    const path = getActivePath()
     closeDatabase()
+    if (path) clearHistoryFor(path)
   })
 
   ipcMain.handle(

@@ -55,6 +55,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const collections = useAppStore((s) => s.collections)
   const collectionMembers = useAppStore((s) => s.collectionMembers)
   const createCode = useAppStore((s) => s.createCode)
+  const createGroup = useAppStore((s) => s.createGroup)
   const updateCode = useAppStore((s) => s.updateCode)
   const deleteCode = useAppStore((s) => s.deleteCode)
   const moveCodes = useAppStore((s) => s.moveCodes)
@@ -133,12 +134,11 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     if (prompt.kind === 'renameCollection') {
       await updateCollection({ id: prompt.collection.id, name })
     } else if (prompt.kind === 'groupFromCode') {
-      const group = await createCode({
+      await createGroup({
         name,
         color: prompt.code.color,
-        parentId: null
+        codeId: prompt.code.id
       })
-      await moveCodes([prompt.code.id], group.id)
     } else {
       const collection = await createCollection({ name })
       await window.api.collections.addMember(collection.id, prompt.code.id)

@@ -7,6 +7,7 @@ import type {
   Coding,
   CreateCodeInput,
   CreateCollectionInput,
+  CreateGroupInput,
   CreateNoteInput,
   DocumentRecord,
   DocumentWithText,
@@ -18,6 +19,7 @@ import type {
   UpdateCollectionInput,
   UpdateNoteInput
 } from '@shared/types'
+import type { HistoryState } from '@shared/ipc'
 
 interface AppState {
   project: ProjectMeta | null
@@ -50,9 +52,15 @@ interface AppState {
 
   refreshCodes: () => Promise<void>
   createCode: (input: CreateCodeInput) => Promise<Code>
+  createGroup: (input: CreateGroupInput) => Promise<Code>
   updateCode: (input: UpdateCodeInput) => Promise<void>
   deleteCode: (id: number) => Promise<void>
   moveCodes: (ids: number[], parentId: number | null) => Promise<void>
+
+  history: HistoryState
+  refreshHistory: () => Promise<void>
+  undo: () => Promise<string | null>
+  redo: () => Promise<string | null>
 
   refreshCollections: () => Promise<void>
   createCollection: (input: CreateCollectionInput) => Promise<Collection>
@@ -82,6 +90,30 @@ interface AppState {
   registerNotesFlush: (fn: (() => Promise<void>) | null) => void
 }
 
+async function refreshAfterHistory(
+  get: () => AppState,
+  set: (partial: Partial<AppState>) => void
+): Promise<void> {
+  await get().refreshDocuments()
+  await get().refreshCodes()
+  await get().refreshCollections()
+  const current = get().currentDocument
+  if (current) {
+    // Recarrega texto + citações + notas do documento aberto.
+    try {
+      const doc = await window.api.documents.get(current.id)
+      set({ currentDocument: doc })
+    } catch {
+      set({ currentDocument: null, codings: [] })
+    }
+    await get().refreshCodings()
+  } else {
+    set({ codings: [] })
+  }
+  await get().refreshNotes()
+  await get().refreshHistory()
+}
+
 async function loadProjectData(set: (partial: Partial<AppState>) => void): Promise<void> {
   const [documents, codes, collections, collectionMembers, projectNotes] =
     await Promise.all([
@@ -92,6 +124,11 @@ async function loadProjectData(set: (partial: Partial<AppState>) => void): Promi
       window.api.notes.listProject()
     ])
   set({ documents, codes, collections, collectionMembers, projectNotes })
+  try {
+    set({ history: await window.api.history.state() })
+  } catch {
+    // sem projeto aberto o histórico não existe
+  }
 }
 
 function resetNotesState(): Partial<AppState> {
@@ -120,6 +157,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   navigateNoteId: null,
   editorNoteId: null,
   notesFlush: null,
+  history: { canUndo: false, canRedo: false, undoLabel: null, redoLabel: null },
 
   loadRecents: async () => {
     const recents = await window.api.project.recents()
@@ -263,6 +301,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().selectDocument(id)
     }
     await get().refreshCodes()
+    await get().refreshHistory()
   },
 
   deleteDocument: async (id) => {
@@ -273,6 +312,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     await get().refreshDocuments()
     await get().refreshCodes()
+    await get().refreshHistory()
   },
 
   refreshCodes: async () => {
@@ -282,23 +322,56 @@ export const useAppStore = create<AppState>((set, get) => ({
   createCode: async (input) => {
     const code = await window.api.codes.create(input)
     await get().refreshCodes()
+    await get().refreshHistory()
     return code
+  },
+
+  createGroup: async (input) => {
+    const group = await window.api.codes.createGroup(input)
+    await get().refreshCodes()
+    await get().refreshHistory()
+    return group
   },
 
   updateCode: async (input) => {
     await window.api.codes.update(input)
     await get().refreshCodes()
+    await get().refreshHistory()
   },
 
   deleteCode: async (id) => {
     await window.api.codes.delete(id)
     await get().refreshCodes()
     await get().refreshCodings()
+    await get().refreshHistory()
   },
 
   moveCodes: async (ids, parentId) => {
     await window.api.codes.moveMany({ ids, parentId })
     await get().refreshCodes()
+    await get().refreshHistory()
+  },
+
+  refreshHistory: async () => {
+    try {
+      set({ history: await window.api.history.state() })
+    } catch {
+      set({ history: { canUndo: false, canRedo: false, undoLabel: null, redoLabel: null } })
+    }
+  },
+
+  undo: async () => {
+    await get().notesFlush?.()
+    const label = await window.api.history.undo()
+    await refreshAfterHistory(get, set)
+    return label
+  },
+
+  redo: async () => {
+    await get().notesFlush?.()
+    const label = await window.api.history.redo()
+    await refreshAfterHistory(get, set)
+    return label
   },
 
   refreshCollections: async () => {
@@ -312,17 +385,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   createCollection: async (input) => {
     const collection = await window.api.collections.create(input)
     await get().refreshCollections()
+    await get().refreshHistory()
     return collection
   },
 
   updateCollection: async (input) => {
     await window.api.collections.update(input)
     await get().refreshCollections()
+    await get().refreshHistory()
   },
 
   deleteCollection: async (id) => {
     await window.api.collections.delete(id)
     await get().refreshCollections()
+    await get().refreshHistory()
   },
 
   refreshCodings: async () => {
@@ -341,17 +417,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ lastUsedCodeId: codeId })
     await get().refreshCodings()
     await get().refreshCodes()
+    await get().refreshHistory()
   },
 
   updateCoding: async (id, startPos, endPos) => {
     await window.api.codings.update({ id, startPos, endPos })
     await get().refreshCodings()
+    await get().refreshHistory()
   },
 
   removeCoding: async (id) => {
     await window.api.codings.delete(id)
     await get().refreshCodings()
     await get().refreshCodes()
+    await get().refreshHistory()
   },
 
   setLastUsedCode: (id) => set({ lastUsedCodeId: id }),
@@ -376,6 +455,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   createNote: async (input) => {
     const note = await window.api.notes.create(input)
     await get().refreshNotes()
+    await get().refreshHistory()
     return note
   },
 
@@ -387,6 +467,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       documentNotes: patch(get().documentNotes),
       projectNotes: patch(get().projectNotes)
     })
+    await get().refreshHistory()
     return note
   },
 
@@ -396,6 +477,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       documentNotes: get().documentNotes.filter((n) => n.id !== id),
       projectNotes: get().projectNotes.filter((n) => n.id !== id)
     })
+    await get().refreshHistory()
   },
 
   registerNotesFlush: (fn) => set({ notesFlush: fn })

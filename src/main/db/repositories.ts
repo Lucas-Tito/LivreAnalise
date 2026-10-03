@@ -21,6 +21,7 @@ import type {
 } from '@shared/types'
 import { adjustCodings } from '@shared/editAdjust'
 import { validateParentChange } from '@shared/codeTree'
+import { pushHistory } from '../history/stack'
 import type { MoveCodesInput } from '@shared/types'
 import { findConnectedCodings } from '../services/codingMerge'
 import { getDb } from './index'
@@ -38,6 +39,27 @@ function touchProject(): void {
   db.run(
     sql`UPDATE project_meta SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = 1`
   )
+}
+
+function reinsertCodes(rows: Array<typeof codes.$inferSelect>): void {
+  const db = getDb()
+  for (const r of rows) {
+    db.insert(codes).values(r).onConflictDoNothing().run()
+  }
+}
+
+function reinsertCodings(rows: Array<typeof codings.$inferSelect>): void {
+  const db = getDb()
+  for (const r of rows) {
+    db.insert(codings).values(r).onConflictDoNothing().run()
+  }
+}
+
+function reinsertNotes(rows: Array<typeof notes.$inferSelect>): void {
+  const db = getDb()
+  for (const r of rows) {
+    db.insert(notes).values(r).onConflictDoNothing().run()
+  }
 }
 
 // ---------- Documents ----------
@@ -85,20 +107,49 @@ export function createDocument(input: {
       charCount: input.plainText.length
     })
     .run()
+  const created = getDocument(Number(res.lastInsertRowid)) as DocumentWithText
   touchProject()
-  return getDocument(Number(res.lastInsertRowid)) as DocumentRecord
+  const snapshot = { ...created }
+  pushHistory({
+    label: `importar "${created.name}"`,
+    undo: () => {
+      getDb().delete(documents).where(eq(documents.id, snapshot.id)).run()
+      touchProject()
+    },
+    redo: () => {
+      getDb().insert(documents).values(snapshot).onConflictDoNothing().run()
+      touchProject()
+    }
+  })
+  return created as DocumentRecord
 }
 
 export function renameDocument(id: number, name: string): void {
   const db = getDb()
+  const before = getDocument(id)
   db.update(documents).set({ name }).where(eq(documents.id, id)).run()
   touchProject()
+  const oldName = before?.name ?? ''
+  pushHistory({
+    label: `renomear documento`,
+    undo: () => {
+      getDb().update(documents).set({ name: oldName }).where(eq(documents.id, id)).run()
+      touchProject()
+    },
+    redo: () => {
+      getDb().update(documents).set({ name }).where(eq(documents.id, id)).run()
+      touchProject()
+    }
+  })
 }
 
 export function updateDocumentText(id: number, newText: string): void {
   const db = getDb()
   const current = getDocument(id)
   if (!current) return
+  const oldText = current.plainText
+  const beforeCodings = (db.select().from(codings).where(eq(codings.documentId, id)).all() as Array<typeof codings.$inferSelect>)
+  const beforeNotes = (db.select().from(notes).where(eq(notes.documentId, id)).all() as Array<typeof notes.$inferSelect>)
   const codingsList = listCodingsByDocument(id)
   const { updates, removeIds } = adjustCodings(codingsList, current.plainText, newText)
 
@@ -152,12 +203,61 @@ export function updateDocumentText(id: number, newText: string): void {
     }
   })
   touchProject()
+  const afterCodings = (getDb().select().from(codings).where(eq(codings.documentId, id)).all() as Array<typeof codings.$inferSelect>)
+  const afterNotes = (getDb().select().from(notes).where(eq(notes.documentId, id)).all() as Array<typeof notes.$inferSelect>)
+  const docName = current.name
+  pushHistory({
+    label: `editar texto de "${docName}"`,
+    undo: () => {
+      const db2 = getDb()
+      db2.transaction((tx) => {
+        tx.update(documents).set({ plainText: oldText, charCount: oldText.length }).where(eq(documents.id, id)).run()
+        tx.delete(codings).where(eq(codings.documentId, id)).run()
+        for (const r of beforeCodings) tx.insert(codings).values(r).onConflictDoNothing().run()
+        tx.delete(notes).where(eq(notes.documentId, id)).run()
+        for (const r of beforeNotes) tx.insert(notes).values(r).onConflictDoNothing().run()
+      })
+      touchProject()
+    },
+    redo: () => {
+      const db2 = getDb()
+      db2.transaction((tx) => {
+        tx.update(documents).set({ plainText: newText, charCount: newText.length }).where(eq(documents.id, id)).run()
+        tx.delete(codings).where(eq(codings.documentId, id)).run()
+        for (const r of afterCodings) tx.insert(codings).values(r).onConflictDoNothing().run()
+        tx.delete(notes).where(eq(notes.documentId, id)).run()
+        for (const r of afterNotes) tx.insert(notes).values(r).onConflictDoNothing().run()
+      })
+      touchProject()
+    }
+  })
 }
 
 export function deleteDocument(id: number): void {
   const db = getDb()
+  const snapshot = getDocument(id)
+  const snapshotCodings = (db.select().from(codings).where(eq(codings.documentId, id)).all() as Array<typeof codings.$inferSelect>)
+  const snapshotNotes = (db.select().from(notes).where(eq(notes.documentId, id)).all() as Array<typeof notes.$inferSelect>)
   db.delete(documents).where(eq(documents.id, id)).run()
   touchProject()
+  if (!snapshot) return
+  const docName = snapshot.name
+  pushHistory({
+    label: `excluir "${docName}"`,
+    undo: () => {
+      const db2 = getDb()
+      db2.transaction((tx) => {
+        tx.insert(documents).values(snapshot).onConflictDoNothing().run()
+        for (const r of snapshotCodings) tx.insert(codings).values(r).onConflictDoNothing().run()
+        for (const r of snapshotNotes) tx.insert(notes).values(r).onConflictDoNothing().run()
+      })
+      touchProject()
+    },
+    redo: () => {
+      getDb().delete(documents).where(eq(documents.id, id)).run()
+      touchProject()
+    }
+  })
 }
 
 // ---------- Codes ----------
@@ -215,7 +315,19 @@ export function createCode(input: CreateCodeInput): Code {
     })
     .run()
   touchProject()
-  return getCode(Number(res.lastInsertRowid))
+  const created = getCode(Number(res.lastInsertRowid))
+  pushHistory({
+    label: `criar código "${created.name}"`,
+    undo: () => {
+      getDb().delete(codes).where(eq(codes.id, created.id)).run()
+      touchProject()
+    },
+    redo: () => {
+      getDb().insert(codes).values(created).onConflictDoNothing().run()
+      touchProject()
+    }
+  })
+  return created
 }
 
 export function updateCode(input: UpdateCodeInput): void {
@@ -224,6 +336,7 @@ export function updateCode(input: UpdateCodeInput): void {
     const all = db.select().from(codes).all() as Code[]
     validateParentChange(all, input.id, input.parentId)
   }
+  const before = getCode(input.id)
   const patch: Record<string, unknown> = {}
   if (input.name !== undefined) patch.name = input.name
   if (input.color !== undefined) patch.color = input.color
@@ -233,6 +346,37 @@ export function updateCode(input: UpdateCodeInput): void {
   if (Object.keys(patch).length === 0) return
   db.update(codes).set(patch).where(eq(codes.id, input.id)).run()
   touchProject()
+  const after = getCode(input.id)
+  const beforeSnap = { ...before }
+  const afterSnap = { ...after }
+  const isMove = input.parentId !== undefined && Object.keys(patch).length === 1
+  pushHistory({
+    label: isMove
+      ? input.parentId == null
+        ? `remover "${after.name}" do grupo`
+        : `mover "${after.name}"`
+      : `editar código "${after.name}"`,
+    undo: () => {
+      getDb().update(codes).set({
+        name: beforeSnap.name,
+        color: beforeSnap.color,
+        description: beforeSnap.description,
+        parentId: beforeSnap.parentId,
+        sortOrder: beforeSnap.sortOrder
+      }).where(eq(codes.id, beforeSnap.id)).run()
+      touchProject()
+    },
+    redo: () => {
+      getDb().update(codes).set({
+        name: afterSnap.name,
+        color: afterSnap.color,
+        description: afterSnap.description,
+        parentId: afterSnap.parentId,
+        sortOrder: afterSnap.sortOrder
+      }).where(eq(codes.id, afterSnap.id)).run()
+      touchProject()
+    }
+  })
 }
 
 // Movimentação atômica de N códigos: valida tudo antes, aplica em transação.
@@ -245,18 +389,122 @@ export function moveCodes(input: MoveCodesInput): void {
   for (const id of unique) {
     validateParentChange(all, id, input.parentId)
   }
+  const beforeParents = new Map<number, number | null>()
+  for (const id of unique) {
+    beforeParents.set(id, all.find((c) => c.id === id)?.parentId ?? null)
+  }
   db.transaction((tx) => {
     for (const id of unique) {
       tx.update(codes).set({ parentId: input.parentId }).where(eq(codes.id, id)).run()
     }
   })
   touchProject()
+  const afterParent = input.parentId
+  const count = unique.length
+  pushHistory({
+    label: afterParent == null ? `remover ${count} do grupo` : `mover ${count} código${count > 1 ? 's' : ''}`,
+    undo: () => {
+      const db2 = getDb()
+      db2.transaction((tx) => {
+        for (const id of unique) {
+          tx.update(codes).set({ parentId: beforeParents.get(id) ?? null }).where(eq(codes.id, id)).run()
+        }
+      })
+      touchProject()
+    },
+    redo: () => {
+      const db2 = getDb()
+      db2.transaction((tx) => {
+        for (const id of unique) {
+          tx.update(codes).set({ parentId: afterParent }).where(eq(codes.id, id)).run()
+        }
+      })
+      touchProject()
+    }
+  })
+}
+
+// Ação composta atômica: criar grupo + reparentar o código de origem.
+// Um único comando no histórico (desfazer remove o grupo e restaura o pai).
+export function createGroupCode(name: string, color: string, codeId: number): Code {
+  const db = getDb()
+  const all = db.select().from(codes).all() as Code[]
+  const origin = all.find((c) => c.id === codeId)
+  if (!origin) throw new Error('Código de origem não encontrado.')
+  if (origin.parentId != null || all.some((c) => c.parentId === codeId)) {
+    throw new Error('Só um código solto sem filhos pode virar grupo.')
+  }
+  const guid = uuid()
+  let group!: Code
+  db.transaction((tx) => {
+    const res = tx.insert(codes).values({ guid, name, color, description: null, parentId: null }).run()
+    group = tx.select().from(codes).where(eq(codes.id, Number(res.lastInsertRowid))).get() as Code
+    tx.update(codes).set({ parentId: group.id }).where(eq(codes.id, codeId)).run()
+  })
+  touchProject()
+  const groupSnap = { ...group }
+  const oldParent = origin.parentId
+  pushHistory({
+    label: `criar grupo "${name}"`,
+    undo: () => {
+      const db2 = getDb()
+      db2.transaction((tx) => {
+        tx.update(codes).set({ parentId: oldParent }).where(eq(codes.id, codeId)).run()
+        tx.delete(codes).where(eq(codes.id, groupSnap.id)).run()
+      })
+      touchProject()
+    },
+    redo: () => {
+      const db2 = getDb()
+      db2.transaction((tx) => {
+        tx.insert(codes).values(groupSnap).onConflictDoNothing().run()
+        tx.update(codes).set({ parentId: groupSnap.id }).where(eq(codes.id, codeId)).run()
+      })
+      touchProject()
+    }
+  })
+  return group
 }
 
 export function deleteCode(id: number): void {
   const db = getDb()
+  const all = db.select().from(codes).all() as Code[]
+  // Subárvore por BFS (o CASCADE do banco apagaria o resto sem snapshot).
+  const doomed = new Set<number>([id])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const c of all) {
+      if (c.parentId != null && doomed.has(c.parentId) && !doomed.has(c.id)) {
+        doomed.add(c.id)
+        grew = true
+      }
+    }
+  }
+  const codeRows = all.filter((c) => doomed.has(c.id))
+  const codingRows = (db.select().from(codings).all() as Array<typeof codings.$inferSelect>).filter((r) => doomed.has(r.codeId))
+  const memberRows = (db.select().from(collectionMembers).all() as Array<typeof collectionMembers.$inferSelect>).filter((r) => doomed.has(r.codeId))
+  const deletedName = all.find((c) => c.id === id)?.name ?? ''
   db.delete(codes).where(eq(codes.id, id)).run()
   touchProject()
+  pushHistory({
+    label: `excluir código "${deletedName}"`,
+    undo: () => {
+      const db2 = getDb()
+      db2.transaction((tx) => {
+        // Restaura pais antes dos filhos.
+        const ordered = [...codeRows].sort((a, b) => (a.parentId == null ? -1 : 0) - (b.parentId == null ? -1 : 0))
+        for (const r of ordered) tx.insert(codes).values(r).onConflictDoNothing().run()
+        for (const r of codingRows) tx.insert(codings).values(r).onConflictDoNothing().run()
+        for (const r of memberRows) tx.insert(collectionMembers).values(r).onConflictDoNothing().run()
+      })
+      touchProject()
+    },
+    redo: () => {
+      getDb().delete(codes).where(eq(codes.id, id)).run()
+      touchProject()
+    }
+  })
 }
 
 // ---------- Groups ----------
@@ -290,12 +538,25 @@ export function createCollection(input: CreateCollectionInput): Collection {
       description: input.description ?? null
     })
     .run()
+  const created = getCollection(Number(res.lastInsertRowid))
   touchProject()
-  return getCollection(Number(res.lastInsertRowid))
+  pushHistory({
+    label: `criar coleção "${created.name}"`,
+    undo: () => {
+      getDb().delete(collections).where(eq(collections.id, created.id)).run()
+      touchProject()
+    },
+    redo: () => {
+      getDb().insert(collections).values(created).onConflictDoNothing().run()
+      touchProject()
+    }
+  })
+  return created
 }
 
 export function updateCollection(input: UpdateCollectionInput): void {
   const db = getDb()
+  const before = getCollection(input.id)
   const patch: Record<string, unknown> = {}
   if (input.name !== undefined) patch.name = input.name
   if (input.description !== undefined) patch.description = input.description
@@ -303,12 +564,45 @@ export function updateCollection(input: UpdateCollectionInput): void {
   if (Object.keys(patch).length === 0) return
   db.update(collections).set(patch).where(eq(collections.id, input.id)).run()
   touchProject()
+  const after = getCollection(input.id)
+  const b = { ...before }
+  const a = { ...after }
+  pushHistory({
+    label: `editar coleção "${a.name}"`,
+    undo: () => {
+      getDb().update(collections).set({ name: b.name, description: b.description, sortOrder: b.sortOrder }).where(eq(collections.id, b.id)).run()
+      touchProject()
+    },
+    redo: () => {
+      getDb().update(collections).set({ name: a.name, description: a.description, sortOrder: a.sortOrder }).where(eq(collections.id, a.id)).run()
+      touchProject()
+    }
+  })
 }
 
 export function deleteCollection(id: number): void {
   const db = getDb()
+  const snapshot = getCollection(id)
+  const snapshotMembers = (db.select().from(collectionMembers).where(eq(collectionMembers.collectionId, id)).all() as Array<typeof collectionMembers.$inferSelect>)
   db.delete(collections).where(eq(collections.id, id)).run()
   touchProject()
+  if (!snapshot) return
+  const snap = { ...snapshot }
+  pushHistory({
+    label: `excluir coleção "${snap.name}"`,
+    undo: () => {
+      const db2 = getDb()
+      db2.transaction((tx) => {
+        tx.insert(collections).values(snap).onConflictDoNothing().run()
+        for (const r of snapshotMembers) tx.insert(collectionMembers).values(r).onConflictDoNothing().run()
+      })
+      touchProject()
+    },
+    redo: () => {
+      getDb().delete(collections).where(eq(collections.id, id)).run()
+      touchProject()
+    }
+  })
 }
 
 export function listCollectionMembers(collectionId: number): number[] {
@@ -334,15 +628,32 @@ export function listAllCollectionMembers(): CollectionMember[] {
 
 export function addCollectionMember(collectionId: number, codeId: number): void {
   const db = getDb()
-  db.insert(collectionMembers)
+  const res = db.insert(collectionMembers)
     .values({ collectionId, codeId })
     .onConflictDoNothing()
     .run()
   touchProject()
+  if (res.changes === 0) return
+  pushHistory({
+    label: `adicionar à coleção`,
+    undo: () => {
+      getDb().delete(collectionMembers).where(
+        and(eq(collectionMembers.collectionId, collectionId), eq(collectionMembers.codeId, codeId))
+      ).run()
+      touchProject()
+    },
+    redo: () => {
+      getDb().insert(collectionMembers).values({ collectionId, codeId }).onConflictDoNothing().run()
+      touchProject()
+    }
+  })
 }
 
 export function removeCollectionMember(collectionId: number, codeId: number): void {
   const db = getDb()
+  const existed = db.select().from(collectionMembers).where(
+    and(eq(collectionMembers.collectionId, collectionId), eq(collectionMembers.codeId, codeId))
+  ).get()
   db.delete(collectionMembers)
     .where(
       and(
@@ -352,6 +663,20 @@ export function removeCollectionMember(collectionId: number, codeId: number): vo
     )
     .run()
   touchProject()
+  if (!existed) return
+  pushHistory({
+    label: `remover da coleção`,
+    undo: () => {
+      getDb().insert(collectionMembers).values({ collectionId, codeId }).onConflictDoNothing().run()
+      touchProject()
+    },
+    redo: () => {
+      getDb().delete(collectionMembers).where(
+        and(eq(collectionMembers.collectionId, collectionId), eq(collectionMembers.codeId, codeId))
+      ).run()
+      touchProject()
+    }
+  })
 }
 
 // ---------- Codings ----------
@@ -402,8 +727,11 @@ function getCoding(id: number): Coding {
 
 export function createCoding(input: CreateCodingInput): Coding {
   const db = getDb()
+  const beforeRows = (db.select().from(codings).where(
+    and(eq(codings.documentId, input.documentId), eq(codings.codeId, input.codeId))
+  ).all() as Array<typeof codings.$inferSelect>)
 
-  return db.transaction(() => {
+  const result = db.transaction(() => {
     const existing = db
       .select()
       .from(codings)
@@ -472,22 +800,78 @@ export function createCoding(input: CreateCodingInput): Coding {
     }
     return getCoding(Number(res.lastInsertRowid))
   })
+  const afterRows = (getDb().select().from(codings).where(
+    and(eq(codings.documentId, input.documentId), eq(codings.codeId, input.codeId))
+  ).all() as Array<typeof codings.$inferSelect>)
+  const beforeSnap = beforeRows.map((r) => ({ ...r }))
+  const afterSnap = afterRows.map((r) => ({ ...r }))
+  // Sem mudança (duplicata exata): não empilha.
+  if (beforeSnap.length !== afterSnap.length || afterSnap.some((r) => !beforeSnap.some((b) => b.id === r.id && b.startPos === r.startPos && b.endPos === r.endPos))) {
+    pushHistory({
+      label: `aplicar código`,
+      undo: () => {
+        const db2 = getDb()
+        db2.transaction((tx) => {
+          tx.delete(codings).where(and(eq(codings.documentId, input.documentId), eq(codings.codeId, input.codeId))).run()
+          for (const r of beforeSnap) tx.insert(codings).values(r).onConflictDoNothing().run()
+        })
+        touchProject()
+      },
+      redo: () => {
+        const db2 = getDb()
+        db2.transaction((tx) => {
+          tx.delete(codings).where(and(eq(codings.documentId, input.documentId), eq(codings.codeId, input.codeId))).run()
+          for (const r of afterSnap) tx.insert(codings).values(r).onConflictDoNothing().run()
+        })
+        touchProject()
+      }
+    })
+  }
+  return result
 }
 
 export function updateCoding(input: UpdateCodingInput): Coding {
   const db = getDb()
+  const before = getCoding(input.id)
   db.update(codings)
     .set({ startPos: input.startPos, endPos: input.endPos })
     .where(eq(codings.id, input.id))
     .run()
   touchProject()
-  return getCoding(input.id)
+  const after = getCoding(input.id)
+  const b = { ...before }
+  pushHistory({
+    label: `ajustar citação`,
+    undo: () => {
+      getDb().update(codings).set({ startPos: b.startPos, endPos: b.endPos }).where(eq(codings.id, b.id)).run()
+      touchProject()
+    },
+    redo: () => {
+      getDb().update(codings).set({ startPos: input.startPos, endPos: input.endPos }).where(eq(codings.id, input.id)).run()
+      touchProject()
+    }
+  })
+  return after
 }
 
 export function deleteCoding(id: number): void {
   const db = getDb()
+  const snapshot = db.select().from(codings).where(eq(codings.id, id)).get() as typeof codings.$inferSelect | undefined
   db.delete(codings).where(eq(codings.id, id)).run()
   touchProject()
+  if (!snapshot) return
+  const snap = { ...snapshot }
+  pushHistory({
+    label: `remover citação`,
+    undo: () => {
+      reinsertCodings([snap])
+      touchProject()
+    },
+    redo: () => {
+      getDb().delete(codings).where(eq(codings.id, id)).run()
+      touchProject()
+    }
+  })
 }
 
 // ---------- Notes ----------
@@ -592,11 +976,26 @@ export function createNote(input: CreateNoteInput): Note {
     })
     .run()
   touchProject()
-  return getNote(Number(res.lastInsertRowid))
+  const created = getNote(Number(res.lastInsertRowid))
+  const createdRow = (getDb().select().from(notes).where(eq(notes.id, created.id)).get() as typeof notes.$inferSelect)
+  const snap = { ...createdRow }
+  pushHistory({
+    label: `criar nota`,
+    undo: () => {
+      getDb().delete(notes).where(eq(notes.id, snap.id)).run()
+      touchProject()
+    },
+    redo: () => {
+      reinsertNotes([snap])
+      touchProject()
+    }
+  })
+  return created
 }
 
 export function updateNote(input: UpdateNoteInput): Note {
   const db = getDb()
+  const beforeRow = (db.select().from(notes).where(eq(notes.id, input.id)).get() as typeof notes.$inferSelect)
   const patch: { title?: string | null; body?: string; updatedAt: string } = {
     updatedAt: new Date().toISOString()
   }
@@ -604,11 +1003,42 @@ export function updateNote(input: UpdateNoteInput): Note {
   if (input.body !== undefined) patch.body = input.body
   db.update(notes).set(patch).where(eq(notes.id, input.id)).run()
   touchProject()
-  return getNote(input.id)
+  const after = getNote(input.id)
+  const b = beforeRow ? { ...beforeRow } : null
+  const afterRow = (getDb().select().from(notes).where(eq(notes.id, input.id)).get() as typeof notes.$inferSelect)
+  const a = { ...afterRow }
+  if (b) {
+    pushHistory({
+      label: `editar nota`,
+      undo: () => {
+        getDb().update(notes).set({ title: b.title, body: b.body, updatedAt: b.updatedAt }).where(eq(notes.id, b.id)).run()
+        touchProject()
+      },
+      redo: () => {
+        getDb().update(notes).set({ title: a.title, body: a.body, updatedAt: a.updatedAt }).where(eq(notes.id, a.id)).run()
+        touchProject()
+      }
+    })
+  }
+  return after
 }
 
 export function deleteNote(id: number): void {
   const db = getDb()
+  const snapshot = (db.select().from(notes).where(eq(notes.id, id)).get() as typeof notes.$inferSelect | undefined)
   db.delete(notes).where(eq(notes.id, id)).run()
   touchProject()
+  if (!snapshot) return
+  const snap = { ...snapshot }
+  pushHistory({
+    label: `excluir nota`,
+    undo: () => {
+      reinsertNotes([snap])
+      touchProject()
+    },
+    redo: () => {
+      getDb().delete(notes).where(eq(notes.id, id)).run()
+      touchProject()
+    }
+  })
 }

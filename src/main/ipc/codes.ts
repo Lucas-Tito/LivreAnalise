@@ -1,8 +1,9 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { CreateCodeInput, MoveCodesInput, UpdateCodeInput } from '@shared/types'
+import type { CreateCodeInput, CreateGroupInput, MoveCodesInput, UpdateCodeInput } from '@shared/types'
 import {
   createCode,
+  createGroupCode,
   deleteCode,
   listCodes,
   moveCodes,
@@ -13,6 +14,9 @@ export function registerCodeHandlers(): void {
   ipcMain.handle(IPC.codes.list, async () => listCodes())
   ipcMain.handle(IPC.codes.create, async (_e, input: CreateCodeInput) =>
     createCode(input)
+  )
+  ipcMain.handle(IPC.codes.createGroup, async (_e, input: CreateGroupInput) =>
+    createGroupCode(input.name, input.color, input.codeId)
   )
   ipcMain.handle(IPC.codes.update, async (_e, input: UpdateCodeInput) =>
     updateCode(input)

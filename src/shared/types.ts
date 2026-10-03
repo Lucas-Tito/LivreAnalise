@@ -104,6 +104,12 @@ export interface MoveCodesInput {
   parentId: number | null
 }
 
+export interface CreateGroupInput {
+  name: string
+  color: string
+  codeId: number
+}
+
 export interface CreateCollectionInput {
   name: string
   description?: string | null

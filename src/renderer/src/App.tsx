@@ -30,11 +30,21 @@ function App(): JSX.Element {
       else if (action === IPC.view.fontSerif) s.setFont('serif')
     })
     const onKey = (e: KeyboardEvent): void => {
-      const tag = (e.target as HTMLElement | null)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      const el = e.target as HTMLElement | null
+      const tag = el?.tagName
+      const editable = el?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA'
+      // Dentro de campo de texto vale o desfazer nativo da digitação,
+      // e Ctrl++/−/0 não sequestra a digitação.
+      if (editable) return
       if (!(e.ctrlKey || e.metaKey)) return
       const s = useZoomStore.getState()
-      if (e.key === '+' || e.key === '=') {
+      if ((e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+        e.preventDefault()
+        void useAppStore.getState().undo()
+      } else if ((e.key === 'y' || e.key === 'Y') || ((e.key === 'z' || e.key === 'Z') && e.shiftKey)) {
+        e.preventDefault()
+        void useAppStore.getState().redo()
+      } else if (e.key === '+' || e.key === '=') {
         e.preventDefault()
         s.zoomIn()
       } else if (e.key === '-') {

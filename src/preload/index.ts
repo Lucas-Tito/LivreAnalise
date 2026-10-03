@@ -23,6 +23,7 @@ const api: Api = {
   codes: {
     list: () => ipcRenderer.invoke(IPC.codes.list),
     create: (input) => ipcRenderer.invoke(IPC.codes.create, input),
+    createGroup: (input) => ipcRenderer.invoke(IPC.codes.createGroup, input),
     update: (input) => ipcRenderer.invoke(IPC.codes.update, input),
     delete: (id) => ipcRenderer.invoke(IPC.codes.delete, id),
     moveMany: (input) => ipcRenderer.invoke(IPC.codes.moveMany, input)
@@ -83,6 +84,11 @@ const api: Api = {
   qdpx: {
     export: () => ipcRenderer.invoke(IPC.qdpx.export),
     importAsProject: () => ipcRenderer.invoke(IPC.qdpx.importAsProject)
+  },
+  history: {
+    state: () => ipcRenderer.invoke(IPC.history.state),
+    undo: () => ipcRenderer.invoke(IPC.history.undo),
+    redo: () => ipcRenderer.invoke(IPC.history.redo)
   },
   view: {
     onAction: (listener) => {
