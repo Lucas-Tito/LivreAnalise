@@ -15,6 +15,7 @@ import type {
   DocumentRecord,
   DocumentWithText,
   ExportResult,
+  ImportReport,
   MoveCodesInput,
   Note,
   OpenProjectResult,
@@ -187,13 +188,14 @@ export interface Api {
   aiExport: {
     export: (
       scope: AiExportScope,
-      documentId: number | null
+      documentId: number | null,
+      includeNotes?: boolean
     ) => Promise<ExportResult | null>
     cliInstructions: () => Promise<string>
   }
   qdpx: {
     export: () => Promise<ExportResult | null>
-    importAsProject: () => Promise<OpenProjectResult | null>
+    importAsProject: () => Promise<(OpenProjectResult & { report: ImportReport }) | null>
   }
   view: {
     onAction: (listener: (action: string) => void) => () => void

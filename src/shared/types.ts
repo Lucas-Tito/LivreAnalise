@@ -179,6 +179,7 @@ export interface ImportReport {
   groups: number
   documents: number
   codings: number
+  notes: number
   skipped: string[]
 }
 

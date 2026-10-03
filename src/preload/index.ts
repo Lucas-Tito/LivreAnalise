@@ -77,8 +77,8 @@ const api: Api = {
     }
   },
   aiExport: {
-    export: (scope, documentId) =>
-      ipcRenderer.invoke(IPC.aiExport.export, scope, documentId),
+    export: (scope, documentId, includeNotes) =>
+      ipcRenderer.invoke(IPC.aiExport.export, scope, documentId, includeNotes),
     cliInstructions: () => ipcRenderer.invoke(IPC.aiExport.cliInstructions)
   },
   qdpx: {

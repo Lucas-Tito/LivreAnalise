@@ -36,5 +36,18 @@ export async function deserializeQdpx(buffer: Buffer): Promise<ParsedQdpx> {
     if (entry) doc.plainText = await entry.async('string')
   }
 
+  for (const note of project.notes) {
+    if (note.plainText) continue
+    const path = sourcePaths.get(`note:${note.guid}`)
+    if (!path) continue
+    const rel = path.replace(/^internal:\/\//, '')
+    const entry =
+      zip.file(`${SOURCES_DIR}/${rel}`) ??
+      zip.file(
+        new RegExp(`${rel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)
+      )[0]
+    if (entry) note.plainText = await entry.async('string')
+  }
+
   return { project, skipped }
 }

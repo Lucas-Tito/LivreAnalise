@@ -7,7 +7,8 @@ import {
   collections,
   codes,
   codings,
-  documents
+  documents,
+  notes
 } from '../db/schema'
 import { normalizeText } from '../services/textExtract'
 import { deserializeQdpx } from './serialize'
@@ -20,6 +21,7 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
     groups: 0,
     documents: 0,
     codings: 0,
+    notes: 0,
     skipped: [...parsed.skipped]
   }
 
@@ -64,6 +66,7 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
     }
   }
 
+  const docGuidToId = new Map<string, number>()
   for (const doc of parsed.project.documents) {
     const content = normalizeText(doc.plainText)
     const res = db
@@ -99,6 +102,95 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
           .run()
         report.codings += 1
       }
+    }
+    docGuidToId.set(doc.guid, documentId)
+  }
+
+  // Notas: resolve targetGUID → nota; âncora inválida vira detached com o
+  // texto original preservado, nunca falha o import.
+  const noteBodyByGuid = new Map(parsed.project.notes.map((n) => [n.guid, n]))
+  const insertNote = (
+    guid: string,
+    scope: 'project' | 'document' | 'excerpt',
+    documentId: number | null,
+    start: number | null,
+    end: number | null,
+    docLen: number
+  ): void => {
+    const found = noteBodyByGuid.get(guid)
+    if (!found) {
+      report.skipped.push(`NoteRef sem Note: ${guid}`)
+      return
+    }
+    let status: 'attached' | 'detached' = 'attached'
+    let s = start
+    let e = end
+    if (scope === 'excerpt') {
+      if (s == null || e == null || !Number.isInteger(s) || !Number.isInteger(e) || s < 0 || e <= s || e > docLen) {
+        status = 'detached'
+        s = null
+        e = null
+      }
+    }
+    const anchorText = status === 'detached' ? (found.description ?? null) : null
+    db.insert(notes)
+      .values({
+        guid: found.guid || uuid(),
+        title: found.name,
+        body: found.plainText ?? '',
+        scope,
+        documentId,
+        startPos: status === 'attached' ? s : null,
+        endPos: status === 'attached' ? e : null,
+        anchorStatus: status,
+        anchorText
+      })
+      .onConflictDoNothing()
+      .run()
+    report.notes += 1
+  }
+
+  const docIdByGuid = docGuidToId
+  for (const guid of parsed.project.projectNoteGuids) {
+    insertNote(guid, 'project', null, null, null, 0)
+  }
+  for (const doc of parsed.project.documents) {
+    const documentId = docIdByGuid.get(doc.guid)
+    if (documentId == null) continue
+    const docLen = normalizeText(doc.plainText).length
+    for (const guid of doc.noteGuids) {
+      insertNote(guid, 'document', documentId, null, null, docLen)
+    }
+    for (const sel of doc.selections) {
+      for (const guid of sel.noteGuids) {
+        insertNote(guid, 'excerpt', documentId, sel.startPosition, sel.endPosition, docLen)
+      }
+    }
+  }
+  // Notas em Notes sem nenhum NoteRef: preserva como nota de projeto + aviso.
+  const referenced = new Set<string>([
+    ...parsed.project.projectNoteGuids,
+    ...parsed.project.documents.flatMap((d) => d.noteGuids),
+    ...parsed.project.documents.flatMap((d) => d.selections.flatMap((s) => s.noteGuids))
+  ])
+  for (const note of parsed.project.notes) {
+    if (!referenced.has(note.guid)) {
+      db.insert(notes)
+        .values({
+          guid: note.guid || uuid(),
+          title: note.name,
+          body: note.plainText ?? '',
+          scope: 'project',
+          documentId: null,
+          startPos: null,
+          endPos: null,
+          anchorStatus: 'attached',
+          anchorText: note.description
+        })
+        .onConflictDoNothing()
+        .run()
+      report.notes += 1
+      report.skipped.push(`Nota órfã importada como projeto: ${note.name ?? note.guid}`)
     }
   }
 

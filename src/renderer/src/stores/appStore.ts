@@ -248,6 +248,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
     await loadProjectData(set)
     await get().loadRecents()
+    const skipped = result.report.skipped
+    if (skipped.length > 0) {
+      alert(`Importado com ${result.report.codes} códigos, ${result.report.documents} documentos, ${result.report.codings} citações e ${result.report.notes} notas.\n\nIgnorado:\n- ${skipped.join('\n- ')}`)
+    }
   },
 
   closeProject: async () => {

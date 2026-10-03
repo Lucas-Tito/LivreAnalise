@@ -59,6 +59,7 @@ const ESCOPOS: {
 export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
   const currentDocument = useAppStore((s) => s.currentDocument)
   const [scope, setScope] = useState<AiExportScope>('structure')
+  const [includeNotes, setIncludeNotes] = useState(false)
   const [exportando, setExportando] = useState(false)
   const [salvoEm, setSalvoEm] = useState<string | null>(null)
   const [instrucoes, setInstrucoes] = useState('')
@@ -72,6 +73,9 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
       setCopiado(false)
       setMostrarCli(false)
       setMostrarArquivo(true)
+    } else {
+      // Opt-in explícito: ligado em documento/completo, desligado em estrutura.
+      setIncludeNotes(scope !== 'structure')
     }
   }, [open])
 
@@ -87,7 +91,8 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
     try {
       const resultado = await window.api.aiExport.export(
         scope,
-        currentDocument?.id ?? null
+        currentDocument?.id ?? null,
+        includeNotes
       )
       if (resultado) setSalvoEm(resultado.path)
     } catch (e) {
@@ -182,6 +187,23 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
             )}
             Exportar
           </Button>
+
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent/50">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={includeNotes}
+              onChange={(e) => setIncludeNotes(e.target.checked)}
+            />
+            <span>
+              Incluir notas como comentário do pesquisador
+              {scope === 'structure' && (
+                <span className="block text-xs text-muted-foreground">
+                  No escopo só-estrutura, só títulos/contagem — nunca o corpo.
+                </span>
+              )}
+            </span>
+          </label>
 
           {salvoEm && (
             <p className="text-xs text-muted-foreground">

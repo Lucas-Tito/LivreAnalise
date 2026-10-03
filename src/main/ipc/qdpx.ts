@@ -1,7 +1,7 @@
 import { dialog, ipcMain } from 'electron'
 import { basename } from 'path'
 import { IPC } from '@shared/ipc'
-import type { ExportResult, OpenProjectResult } from '@shared/types'
+import type { ExportResult, ImportReport, OpenProjectResult } from '@shared/types'
 import { getDb, hasActiveProject, openDatabase } from '../db'
 import { projectMeta } from '../db/schema'
 import { pushRecent } from '../services/recents'
@@ -26,7 +26,7 @@ export function registerQdpxHandlers(): void {
     return exportQdpx(result.filePath, projectName)
   })
 
-  ipcMain.handle(IPC.qdpx.importAsProject, async (): Promise<OpenProjectResult | null> => {
+  ipcMain.handle(IPC.qdpx.importAsProject, async (): Promise<(OpenProjectResult & { report: ImportReport }) | null> => {
     const openResult = await dialog.showOpenDialog({
       title: 'Selecionar arquivo QDPX',
       properties: ['openFile'],
@@ -45,10 +45,10 @@ export function registerQdpxHandlers(): void {
     const livaPath = saveResult.filePath
 
     openDatabase(livaPath)
-    await importQdpx(qdpxPath)
+    const report = await importQdpx(qdpxPath)
     const name = basename(livaPath).replace(/\.liva$/i, '')
     const meta = ensureMeta(name)
     pushRecent(livaPath, meta.name)
-    return { meta, path: livaPath }
+    return { meta, path: livaPath, report }
   })
 }
