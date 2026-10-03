@@ -22,6 +22,48 @@ export function canReceiveChild(code: Code): boolean {
   return code.parentId == null
 }
 
+// Validação central do movimento de códigos (usada no renderer e no main).
+// Regras: alvo existe (ou null), nunca self, sem ciclo, sem 3º nível.
+export function validateParentChange(
+  codes: Code[],
+  id: number,
+  newParentId: number | null
+): void {
+  if (newParentId == null) return
+  if (id === newParentId) {
+    throw new Error('Um código não pode ficar dentro dele mesmo.')
+  }
+  const byId = new Map(codes.map((c) => [c.id, c]))
+  const moving = byId.get(id)
+  const target = byId.get(newParentId)
+  if (!moving) throw new Error('Código a mover não encontrado.')
+  if (!target) throw new Error('Grupo de destino não encontrado.')
+  // Destino precisa ser raiz (sem 3º nível).
+  if (target.parentId != null) {
+    throw new Error('O destino precisa ser um grupo de 1º nível (sem criar 3º nível).')
+  }
+  // Código com filhos não pode descer para dentro de outro.
+  const hasChildren = codes.some((c) => c.parentId === id)
+  if (hasChildren) {
+    throw new Error('Um grupo não pode ser movido para dentro de outro grupo.')
+  }
+  // Sem ciclo: sobe a cadeia do alvo.
+  let cursor: Code | undefined = target
+  while (cursor) {
+    if (cursor.parentId == null) break
+    if (cursor.parentId === id) {
+      throw new Error('Este movimento criaria um ciclo na hierarquia.')
+    }
+    cursor = byId.get(cursor.parentId)
+  }
+}
+
+// Destinos válidos para "Mover para grupo…": 1º nível que já tem filhos.
+export function groupDestinations(codes: Code[]): Code[] {
+  const groups = groupIds(codes)
+  return codes.filter((c) => c.parentId == null && groups.has(c.id))
+}
+
 export interface CodeNode<T extends Code = Code> {
   code: T
   children: Array<CodeNode<T>>

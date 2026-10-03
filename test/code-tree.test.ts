@@ -3,7 +3,9 @@ import {
   applicableCodes,
   buildLibraryTree,
   canReceiveChild,
-  groupIds
+  groupDestinations,
+  groupIds,
+  validateParentChange
 } from '../src/shared/codeTree'
 import type { Code, Collection, CollectionMember } from '../src/shared/types'
 
@@ -49,6 +51,43 @@ describe('canReceiveChild', () => {
 
   it('refuses a third level', () => {
     expect(canReceiveChild(code(2, 1))).toBe(false)
+  })
+})
+
+describe('validateParentChange', () => {
+  it('accepts moving a loose code into a root group', () => {
+    const codes = [code(1), code(2, 1), code(3)]
+    expect(() => validateParentChange(codes, 3, 1)).not.toThrow()
+  })
+
+  it('accepts detaching to root', () => {
+    const codes = [code(1), code(2, 1)]
+    expect(() => validateParentChange(codes, 2, null)).not.toThrow()
+  })
+
+  it('refuses self-parenting', () => {
+    expect(() => validateParentChange([code(1)], 1, 1)).toThrow()
+  })
+
+  it('refuses moving a group into another group (3rd level)', () => {
+    const codes = [code(1), code(2, 1), code(4), code(5, 4)]
+    expect(() => validateParentChange(codes, 1, 4)).toThrow()
+  })
+
+  it('refuses a child as destination (3rd level)', () => {
+    const codes = [code(1), code(2, 1), code(3)]
+    expect(() => validateParentChange(codes, 3, 2)).toThrow()
+  })
+
+  it('refuses unknown destination', () => {
+    expect(() => validateParentChange([code(1)], 1, 99)).toThrow()
+  })
+})
+
+describe('groupDestinations', () => {
+  it('lists only roots that already have children', () => {
+    const codes = [code(1), code(2, 1), code(3), code(4, 1)]
+    expect(groupDestinations(codes).map((c) => c.id)).toEqual([1])
   })
 })
 

@@ -52,6 +52,7 @@ interface AppState {
   createCode: (input: CreateCodeInput) => Promise<Code>
   updateCode: (input: UpdateCodeInput) => Promise<void>
   deleteCode: (id: number) => Promise<void>
+  moveCodes: (ids: number[], parentId: number | null) => Promise<void>
 
   refreshCollections: () => Promise<void>
   createCollection: (input: CreateCollectionInput) => Promise<Collection>
@@ -293,6 +294,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     await window.api.codes.delete(id)
     await get().refreshCodes()
     await get().refreshCodings()
+  },
+
+  moveCodes: async (ids, parentId) => {
+    await window.api.codes.moveMany({ ids, parentId })
+    await get().refreshCodes()
   },
 
   refreshCollections: async () => {

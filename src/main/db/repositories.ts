@@ -20,6 +20,8 @@ import type {
   UpdateNoteInput
 } from '@shared/types'
 import { adjustCodings } from '@shared/editAdjust'
+import { validateParentChange } from '@shared/codeTree'
+import type { MoveCodesInput } from '@shared/types'
 import { findConnectedCodings } from '../services/codingMerge'
 import { getDb } from './index'
 import {
@@ -192,6 +194,15 @@ function getCode(id: number): Code {
 
 export function createCode(input: CreateCodeInput): Code {
   const db = getDb()
+  if (input.parentId != null) {
+    const all = db.select().from(codes).all() as Code[]
+    const byId = new Map(all.map((c) => [c.id, c]))
+    const target = byId.get(input.parentId)
+    if (!target) throw new Error('Grupo de destino não encontrado.')
+    if (target.parentId != null) {
+      throw new Error('O destino precisa ser um grupo de 1º nível (sem criar 3º nível).')
+    }
+  }
   const guid = uuid()
   const res = db
     .insert(codes)
@@ -209,6 +220,10 @@ export function createCode(input: CreateCodeInput): Code {
 
 export function updateCode(input: UpdateCodeInput): void {
   const db = getDb()
+  if (input.parentId !== undefined) {
+    const all = db.select().from(codes).all() as Code[]
+    validateParentChange(all, input.id, input.parentId)
+  }
   const patch: Record<string, unknown> = {}
   if (input.name !== undefined) patch.name = input.name
   if (input.color !== undefined) patch.color = input.color
@@ -217,6 +232,24 @@ export function updateCode(input: UpdateCodeInput): void {
   if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder
   if (Object.keys(patch).length === 0) return
   db.update(codes).set(patch).where(eq(codes.id, input.id)).run()
+  touchProject()
+}
+
+// Movimentação atômica de N códigos: valida tudo antes, aplica em transação.
+// Preserva ID/GUID, citações e memberships (nunca delete+recreate).
+export function moveCodes(input: MoveCodesInput): void {
+  const db = getDb()
+  const all = db.select().from(codes).all() as Code[]
+  const unique = [...new Set(input.ids)]
+  if (unique.length === 0) return
+  for (const id of unique) {
+    validateParentChange(all, id, input.parentId)
+  }
+  db.transaction((tx) => {
+    for (const id of unique) {
+      tx.update(codes).set({ parentId: input.parentId }).where(eq(codes.id, id)).run()
+    }
+  })
   touchProject()
 }
 

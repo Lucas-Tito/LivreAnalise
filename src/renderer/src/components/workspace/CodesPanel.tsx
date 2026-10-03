@@ -12,12 +12,17 @@ import {
   FolderMinus,
   List,
   Tags,
-  Users
+  Users,
+  GripVertical,
+  FolderInput,
+  X
 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import {
   buildLibraryTree,
   canReceiveChild,
+  groupDestinations,
+  validateParentChange,
   type CodeNode
 } from '@shared/codeTree'
 import { Button } from '@/components/ui/button'
@@ -27,6 +32,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { CodeDialog, type CodeDialogValue } from './CodeDialog'
 import { SimplePromptDialog } from './SimplePromptDialog'
 import { CollectionMembersDialog } from './CollectionMembersDialog'
@@ -44,6 +57,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const createCode = useAppStore((s) => s.createCode)
   const updateCode = useAppStore((s) => s.updateCode)
   const deleteCode = useAppStore((s) => s.deleteCode)
+  const moveCodes = useAppStore((s) => s.moveCodes)
   const createCollection = useAppStore((s) => s.createCollection)
   const updateCollection = useAppStore((s) => s.updateCollection)
   const deleteCollection = useAppStore((s) => s.deleteCollection)
@@ -67,12 +81,27 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const [membersCollection, setMembersCollection] = useState<Collection | null>(
     null
   )
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [moveOpen, setMoveOpen] = useState(false)
+  const [moveFilter, setMoveFilter] = useState('')
+  const [moveError, setMoveError] = useState<string | null>(null)
+  const [dragIds, setDragIds] = useState<number[] | null>(null)
+  const [dropTarget, setDropTarget] = useState<number | null>(null)
 
   const toggle = (key: string): void => {
     setCollapsed((prev) => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
       else next.add(key)
+      return next
+    })
+  }
+
+  const toggleSelect = (id: number): void => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
@@ -109,7 +138,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         color: prompt.code.color,
         parentId: null
       })
-      await updateCode({ id: prompt.code.id, parentId: group.id })
+      await moveCodes([prompt.code.id], group.id)
     } else {
       const collection = await createCollection({ name })
       await window.api.collections.addMember(collection.id, prompt.code.id)
@@ -125,6 +154,37 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     await refreshCollections()
   }
 
+  const doMove = async (ids: number[], parentId: number | null): Promise<void> => {
+    try {
+      for (const id of ids) validateParentChange(codes, id, parentId)
+    } catch (err) {
+      setMoveError(err instanceof Error ? err.message : 'Movimento inválido.')
+      return
+    }
+    setMoveError(null)
+    try {
+      await moveCodes(ids, parentId)
+    } catch (err) {
+      setMoveError(err instanceof Error ? err.message : 'Não foi possível mover.')
+      return
+    }
+    setSelected(new Set())
+    setMoveOpen(false)
+    setMoveFilter('')
+  }
+
+  const handleDropOn = async (targetId: number | null): Promise<void> => {
+    if (!dragIds || dragIds.length === 0) return
+    setDropTarget(null)
+    setDragIds(null)
+    await doMove(dragIds, targetId)
+  }
+
+  const destinations = useMemo(() => groupDestinations(codes), [codes])
+  const filteredDestinations = destinations.filter((c) =>
+    c.name.toLowerCase().includes(moveFilter.toLowerCase())
+  )
+
   const renderCode = (
     node: CodeNode<CodeWithCount>,
     depth: number,
@@ -136,12 +196,62 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     const key = `${path}/${node.code.id}`
     const hasChildren = node.children.length > 0
     const isCollapsed = collapsed.has(key)
+    const isSelected = selected.has(node.code.id)
+    const isDropTarget = dropTarget === node.code.id
     return (
       <li key={key}>
         <div
-          className="group flex items-center gap-1 rounded-md py-1 pr-1 text-sm hover:bg-accent/50"
+          className={`group flex items-center gap-1 rounded-md py-1 pr-1 text-sm hover:bg-accent/50 ${isDropTarget ? 'bg-accent ring-1 ring-primary' : ''}`}
           style={{ paddingLeft: depth * 14 + 4 }}
+          onDragOver={(e) => {
+            if (!dragIds) return
+            const ok = dragIds.every((id) => {
+              try {
+                validateParentChange(codes, id, node.code.id)
+                return true
+              } catch {
+                return false
+              }
+            })
+            if (ok) {
+              e.preventDefault()
+              setDropTarget(node.code.id)
+            }
+          }}
+          onDragLeave={() => {
+            if (dropTarget === node.code.id) setDropTarget(null)
+          }}
+          onDrop={(e) => {
+            e.preventDefault()
+            void handleDropOn(node.code.id)
+          }}
         >
+          <input
+            type="checkbox"
+            className="h-3.5 w-3.5 shrink-0"
+            checked={isSelected}
+            onChange={() => toggleSelect(node.code.id)}
+            title="Selecionar para mover em conjunto"
+          />
+          <span
+            draggable
+            title="Arrastar para mover"
+            onDragStart={(e) => {
+              const ids = selected.has(node.code.id)
+                ? [...selected]
+                : [node.code.id]
+              setDragIds(ids)
+              e.dataTransfer.effectAllowed = 'move'
+              e.dataTransfer.setData('text/plain', JSON.stringify(ids))
+            }}
+            onDragEnd={() => {
+              setDragIds(null)
+              setDropTarget(null)
+            }}
+            className="flex h-4 w-6 shrink-0 cursor-grab items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100"
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </span>
           <button
             className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
             onClick={() => hasChildren && toggle(key)}
@@ -187,6 +297,16 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
               <DropdownMenuItem onClick={() => onViewCode(node.code)}>
                 <List className="h-4 w-4" /> Ver trechos
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  if (!selected.has(node.code.id)) toggleSelect(node.code.id)
+                  setMoveFilter('')
+                  setMoveError(null)
+                  setMoveOpen(true)
+                }}
+              >
+                <FolderInput className="h-4 w-4" /> Mover para grupo…
+              </DropdownMenuItem>
               {canReceiveChild(node.code) && (
                 <DropdownMenuItem
                   onClick={() =>
@@ -217,9 +337,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
               )}
               {node.code.parentId != null && (
                 <DropdownMenuItem
-                  onClick={() =>
-                    updateCode({ id: node.code.id, parentId: null })
-                  }
+                  onClick={() => void doMove([node.code.id], null)}
                 >
                   <CornerUpLeft className="h-4 w-4" /> Remover do grupo
                 </DropdownMenuItem>
@@ -275,8 +393,42 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         >
           <Plus className="h-4 w-4" /> Novo código
         </Button>
+        {selected.size > 0 && (
+          <div className="mt-2 flex items-center gap-2 rounded-md border bg-muted/50 px-2 py-1.5 text-xs">
+            <span className="flex-1">
+              {selected.size} selecionado{selected.size > 1 ? 's' : ''}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setMoveFilter('')
+                setMoveError(null)
+                setMoveOpen(true)
+              }}
+            >
+              <FolderInput className="h-3.5 w-3.5" /> Mover
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setSelected(new Set())}
+            >
+              <X className="h-3.5 w-3.5" /> Limpar
+            </Button>
+          </div>
+        )}
       </div>
-      <div className="flex-1 overflow-auto p-1">
+      <div
+        className="flex-1 overflow-auto p-1"
+        onDragOver={(e) => {
+          if (dragIds) e.preventDefault()
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          void handleDropOn(null)
+        }}
+      >
         {isEmpty ? (
           <p className="p-4 text-center text-xs text-muted-foreground">
             Nenhum código ainda. Crie códigos ou selecione um trecho do
@@ -417,6 +569,71 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         }
         onSubmit={handlePrompt}
       />
+
+      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Mover {selected.size > 0 ? `${selected.size} código${selected.size > 1 ? 's' : ''}` : 'códigos'} para grupo…
+            </DialogTitle>
+          </DialogHeader>
+          <Input
+            placeholder="Pesquisar grupo..."
+            value={moveFilter}
+            onChange={(e) => setMoveFilter(e.target.value)}
+          />
+          {moveError && (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {moveError}
+            </p>
+          )}
+          <div className="max-h-72 overflow-auto rounded-md border">
+            <button
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent/50"
+              onClick={() => {
+                const ids = [...selected]
+                if (ids.length === 0) return
+                void doMove(ids, null)
+              }}
+            >
+              <CornerUpLeft className="h-4 w-4 text-muted-foreground" />
+              Sem grupo (1º nível)
+            </button>
+            {filteredDestinations.length === 0 ? (
+              <p className="p-4 text-center text-xs text-muted-foreground">
+                Nenhum grupo ainda. Grupos são códigos de 1º nível que já têm
+                filhos.
+              </p>
+            ) : (
+              <ul className="divide-y">
+                {filteredDestinations.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent/50"
+                      onClick={() => {
+                        const ids = [...selected]
+                        if (ids.length === 0) return
+                        void doMove(ids, c.id)
+                      }}
+                    >
+                      <span
+                        className="h-3 w-3 rounded-full"
+                        style={{ backgroundColor: c.color }}
+                      />
+                      <span className="truncate">{c.name}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMoveOpen(false)}>
+              Cancelar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <CollectionMembersDialog
         collection={membersCollection}

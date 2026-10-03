@@ -1,10 +1,11 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { CreateCodeInput, UpdateCodeInput } from '@shared/types'
+import type { CreateCodeInput, MoveCodesInput, UpdateCodeInput } from '@shared/types'
 import {
   createCode,
   deleteCode,
   listCodes,
+  moveCodes,
   updateCode
 } from '../db/repositories'
 
@@ -17,4 +18,7 @@ export function registerCodeHandlers(): void {
     updateCode(input)
   )
   ipcMain.handle(IPC.codes.delete, async (_e, id: number) => deleteCode(id))
+  ipcMain.handle(IPC.codes.moveMany, async (_e, input: MoveCodesInput) =>
+    moveCodes(input)
+  )
 }

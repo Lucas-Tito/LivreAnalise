@@ -13,6 +13,7 @@ import type {
   DocumentRecord,
   DocumentWithText,
   ExportResult,
+  MoveCodesInput,
   Note,
   OpenProjectResult,
   ProjectMeta,
@@ -52,7 +53,8 @@ export const IPC = {
     list: 'codes:list',
     create: 'codes:create',
     update: 'codes:update',
-    delete: 'codes:delete'
+    delete: 'codes:delete',
+    moveMany: 'codes:moveMany'
   },
   collections: {
     list: 'collections:list',
@@ -123,6 +125,7 @@ export interface Api {
     create: (input: CreateCodeInput) => Promise<Code>
     update: (input: UpdateCodeInput) => Promise<void>
     delete: (id: number) => Promise<void>
+    moveMany: (input: MoveCodesInput) => Promise<void>
   }
   collections: {
     list: () => Promise<Collection[]>

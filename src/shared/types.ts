@@ -99,6 +99,11 @@ export interface UpdateCodeInput {
   sortOrder?: number
 }
 
+export interface MoveCodesInput {
+  ids: number[]
+  parentId: number | null
+}
+
 export interface CreateCollectionInput {
   name: string
   description?: string | null

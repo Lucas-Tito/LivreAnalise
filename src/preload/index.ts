@@ -24,7 +24,8 @@ const api: Api = {
     list: () => ipcRenderer.invoke(IPC.codes.list),
     create: (input) => ipcRenderer.invoke(IPC.codes.create, input),
     update: (input) => ipcRenderer.invoke(IPC.codes.update, input),
-    delete: (id) => ipcRenderer.invoke(IPC.codes.delete, id)
+    delete: (id) => ipcRenderer.invoke(IPC.codes.delete, id),
+    moveMany: (input) => ipcRenderer.invoke(IPC.codes.moveMany, input)
   },
   collections: {
     list: () => ipcRenderer.invoke(IPC.collections.list),
