@@ -1,5 +1,4 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import { v4 as uuid } from 'uuid'
 import { APP_VERSION } from '@shared/version'
@@ -46,7 +45,8 @@ function currentProjectName(): string {
 function fileNameFor(kind: ProjectVersionKind, label: string | null, when: Date): string {
   const stamp = when.toISOString().replace(/[:.]/g, '-')
   const safe = label ? `-${sanitizeProjectFileName(label).replace(/\s+/g, '-').slice(0, 40)}` : ''
-  return `${stamp}-${kind}${safe}.liva`
+  // Sufixo único: dois snapshots no mesmo ms nunca colidem no nome.
+  return `${stamp}-${kind}${safe}-${uuid().slice(0, 8)}.liva`
 }
 
 // Snapshot consistente via API de backup do SQLite (WAL-safe, sem fechar).
@@ -63,9 +63,15 @@ export async function createVersionSnapshot(
   const file = fileNameFor(kind, label, when)
   const dest = join(dir, file)
   // Backup em tmp + rename evita manifesto apontando para arquivo parcial.
-  const tmp = join(tmpdir(), `liva-version-${uuid()}.liva`)
-  await getRaw().backup(tmp)
-  renameSync(tmp, dest)
+  // O tmp fica no MESMO diretório: rename(2) entre filesystems lança EXDEV.
+  const tmp = join(dir, `.tmp-${uuid()}.liva`)
+  try {
+    await getRaw().backup(tmp)
+    renameSync(tmp, dest)
+  } catch (err) {
+    rmSync(tmp, { force: true })
+    throw err
+  }
   const entry: ProjectVersion = {
     id: uuid(),
     file,
@@ -85,7 +91,9 @@ export async function createVersionSnapshot(
 
 export function pruneVersions(projectPath: string): ProjectVersion[] {
   const entries = readManifest(projectPath)
-  const autos = entries.filter((e) => e.kind === 'auto').sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+  const autos = entries
+    .filter((e) => e.kind === 'auto')
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.file.localeCompare(a.file))
   const drop = new Set(autos.slice(MAX_AUTO_VERSIONS).map((e) => e.id))
   if (drop.size === 0) return entries
   const kept = entries.filter((e) => !drop.has(e.id))

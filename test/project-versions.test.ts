@@ -7,7 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 const require = createRequire(import.meta.url)
 let nativeOk = true
 try {
-  require('better-sqlite3')
+  // require sozinho não basta: o dlopen é lazy e só falha no new Database.
+  const Database = require('better-sqlite3')
+  new Database(':memory:').close()
 } catch {
   nativeOk = false
 }
@@ -52,6 +54,15 @@ describe.skipIf(!nativeOk)('project versions (integration)', () => {
     const docs = snap.prepare('SELECT COUNT(*) AS n FROM documents').get() as { n: number }
     expect(docs.n).toBe(1)
     snap.close()
+    db.closeDatabase()
+  })
+
+  it('never reuses a snapshot file name even in the same millisecond', async () => {
+    const [a, b] = await Promise.all([
+      versions.createVersionSnapshot(projectPath, { kind: 'manual', label: 'mesmo rótulo bem longo para truncar igual' }),
+      versions.createVersionSnapshot(projectPath, { kind: 'manual', label: 'mesmo rótulo bem longo para truncar igual' })
+    ])
+    expect(a.file).not.toBe(b.file)
     db.closeDatabase()
   })
 

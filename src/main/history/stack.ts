@@ -57,18 +57,22 @@ export function historyState(): HistoryState {
 
 export function historyUndo(): string | null {
   const s = stackFor(key())
-  const entry = s.undo.pop()
+  const entry = s.undo[s.undo.length - 1]
   if (!entry) return null
+  // Executa antes de mover a entrada: se lançar, ela continua na pilha de
+  // undo e o histórico não dessincroniza do banco.
   entry.undo()
+  s.undo.pop()
   s.redo.push(entry)
   return entry.label
 }
 
 export function historyRedo(): string | null {
   const s = stackFor(key())
-  const entry = s.redo.pop()
+  const entry = s.redo[s.redo.length - 1]
   if (!entry) return null
   entry.redo()
+  s.redo.pop()
   s.undo.push(entry)
   return entry.label
 }

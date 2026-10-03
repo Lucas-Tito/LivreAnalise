@@ -6,6 +6,7 @@ import { writeProjectName } from '../db/projectName'
 import { removeRecent, renameRecent, replaceRecent } from './recents'
 import { sidecarPaths, targetProjectPath } from './projectPath'
 import { renameVersionsDir, versionsDir } from './projectVersions'
+import { clearHistoryFor } from '../history/stack'
 
 // O nome de exibicao e gravado primeiro, porque e o que nunca falha. Renomear o
 // arquivo vem depois: se der erro (permissao, arquivo em uso, pasta
@@ -68,7 +69,10 @@ export async function trashProject(path: string): Promise<void> {
     removeRecent(path)
     return
   }
-  if (hasActiveProject() && getActivePath() === path) closeDatabase()
+  if (hasActiveProject() && getActivePath() === path) {
+    closeDatabase()
+    clearHistoryFor(path)
+  }
   await shell.trashItem(path)
   const dir = versionsDir(path)
   if (existsSync(dir)) {

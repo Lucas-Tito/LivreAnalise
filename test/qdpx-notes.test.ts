@@ -4,7 +4,9 @@ import { beforeEach, describe, expect, it } from 'vitest'
 const require = createRequire(import.meta.url)
 let nativeOk = true
 try {
-  require('better-sqlite3')
+  // require sozinho não basta: o dlopen é lazy e só falha no new Database.
+  const Database = require('better-sqlite3')
+  new Database(':memory:').close()
 } catch {
   nativeOk = false
 }
@@ -78,6 +80,70 @@ describe.skipIf(!nativeOk)('QDPX notes round-trip (integration)', () => {
     const report = importMod.importProjectIntoDb({ project, skipped: [] })
     expect(report.notes).toBe(1)
     void note
+    db.closeDatabase()
+  })
+
+  it('preserves the anchor text of detached notes in a full round-trip', async () => {
+    const doc = repos.createDocument({ name: 'Doc', plainText: '0123456789', originalFormat: 'txt', sourceFilename: 'd.txt' })
+    repos.createNote({ scope: 'excerpt', documentId: doc.id, startPos: 0, endPos: 4, title: 'T', body: 'B' })
+    repos.updateDocumentText(doc.id, 'curto')
+    const before = repos.listNotesByDocument(doc.id)[0]
+    expect(before.anchorStatus).toBe('detached')
+    expect(before.anchorText).toBe('0123')
+
+    const { project } = exportMod.buildProjectFromDb('P')
+    const buffer = await serialize.serializeQdpx(project)
+    db.openDatabase(':memory:')
+    const parsed = await serialize.deserializeQdpx(buffer)
+    importMod.importProjectIntoDb(parsed)
+    const after = repos.listNotesByDocument(repos.listDocuments()[0].id)[0]
+    expect(after.anchorText).toBe('0123')
+    db.closeDatabase()
+  })
+
+  it('ignores codings outside the text range instead of inserting them', async () => {
+    const project = {
+      name: 'P',
+      users: [],
+      codes: [{ guid: 'c1', name: 'C', parentGuid: null }],
+      groups: [],
+      documents: [{
+        guid: 'd1', name: 'D', plainText: '0123456789', noteGuids: [],
+        selections: [
+          { guid: 's1', startPosition: 0, endPosition: 4, codeGuids: ['c1'], noteGuids: [] },
+          { guid: 's2', startPosition: 50, endPosition: 60, codeGuids: ['c1'], noteGuids: [] },
+          { guid: 's3', startPosition: 8, endPosition: 2, codeGuids: ['c1'], noteGuids: [] }
+        ]
+      }],
+      notes: [],
+      projectNoteGuids: []
+    }
+    const report = importMod.importProjectIntoDb({ project, skipped: [] })
+    expect(report.codings).toBe(1)
+    expect(repos.listAllCodings()).toHaveLength(1)
+    db.closeDatabase()
+  })
+
+  it('flattens hierarchies deeper than two levels with a warning', async () => {
+    const project = {
+      name: 'P',
+      users: [],
+      codes: [
+        { guid: 'g1', name: 'Grupo', parentGuid: null },
+        { guid: 'f1', name: 'Filho', parentGuid: 'g1' },
+        { guid: 'n1', name: 'Neto', parentGuid: 'f1' }
+      ],
+      groups: [],
+      documents: [],
+      notes: [],
+      projectNoteGuids: []
+    }
+    const report = importMod.importProjectIntoDb({ project, skipped: [] })
+    expect(report.skipped.some((s) => s.includes('Neto'))).toBe(true)
+    const codes = repos.listCodes()
+    const neto = codes.find((c) => c.name === 'Neto')!
+    const grupo = codes.find((c) => c.name === 'Grupo')!
+    expect(neto.parentId).toBe(grupo.id)
     db.closeDatabase()
   })
 

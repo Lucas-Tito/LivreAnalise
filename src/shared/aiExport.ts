@@ -168,12 +168,11 @@ export function buildNotesSection(
     }
     return linhas.join('\n')
   }
-  const todas = [...documentNotes, ...(documentName ? [] : projectNotes)]
-  if (todas.length === 0) {
+  if (documentNotes.length === 0 && (documentName || projectNotes.length === 0)) {
     linhas.push('_(nenhuma)_')
     return linhas.join('\n')
   }
-  for (const n of todas) linhas.push(linhaDaNota(n, texto))
+  for (const n of documentNotes) linhas.push(linhaDaNota(n, texto))
   if (!documentName && projectNotes.length > 0) {
     linhas.push('', '### Notas do projeto')
     linhas.push('')

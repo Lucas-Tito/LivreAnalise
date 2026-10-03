@@ -26,10 +26,32 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
   }
 
   const codeIdByGuid = new Map<string, number>()
+  const depthByGuid = new Map<string, number>()
+  const parsedByGuid = new Map(parsed.project.codes.map((c) => [c.guid, c]))
   for (const code of parsed.project.codes) {
-    const parentId = code.parentGuid
+    let parentId = code.parentGuid
       ? codeIdByGuid.get(code.parentGuid) ?? null
       : null
+    let depth = 0
+    if (code.parentGuid && parentId != null) {
+      depth = (depthByGuid.get(code.parentGuid) ?? 0) + 1
+    }
+    if (depth > 1 && code.parentGuid) {
+      // A UI só gerencia 2 níveis: netos e mais fundos viram filhos do grupo
+      // de 1º nível em vez de criar subárvores congeladas.
+      let g: string | null = code.parentGuid
+      let topId: number | null = null
+      while (g) {
+        const pid = codeIdByGuid.get(g)
+        if (pid == null) break
+        topId = pid
+        if ((depthByGuid.get(g) ?? 0) === 0) break
+        g = parsedByGuid.get(g)?.parentGuid ?? null
+      }
+      parentId = topId
+      depth = 1
+      report.skipped.push(`Hierarquia achatada (3º nível ou mais): "${code.name}"`)
+    }
     const res = db
       .insert(codes)
       .values({
@@ -41,6 +63,7 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
       })
       .run()
     codeIdByGuid.set(code.guid, Number(res.lastInsertRowid))
+    depthByGuid.set(code.guid, depth)
     report.codes += 1
   }
 
@@ -84,13 +107,20 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
     report.documents += 1
 
     for (const sel of doc.selections) {
-      if (Number.isNaN(sel.startPosition) || Number.isNaN(sel.endPosition)) {
+      // Mesma validação das notas: fora de faixa ou invertido não entra.
+      if (
+        !Number.isInteger(sel.startPosition) ||
+        !Number.isInteger(sel.endPosition) ||
+        sel.startPosition < 0 ||
+        sel.endPosition <= sel.startPosition ||
+        sel.endPosition > content.length
+      ) {
         continue
       }
       for (const codeGuid of sel.codeGuids) {
         const codeId = codeIdByGuid.get(codeGuid)
         if (!codeId) continue
-        db.insert(codings)
+        const res = db.insert(codings)
           .values({
             guid: uuid(),
             documentId,
@@ -100,7 +130,7 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
           })
           .onConflictDoNothing()
           .run()
-        report.codings += 1
+        if (res.changes > 0) report.codings += 1
       }
     }
     docGuidToId.set(doc.guid, documentId)
@@ -132,8 +162,12 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
         e = null
       }
     }
-    const anchorText = status === 'detached' ? (found.description ?? null) : null
-    db.insert(notes)
+    // O export rebaixa nota detached para NoteRef de documento guardando o
+    // trecho original em Description: preserva como anchorText no roundtrip.
+    const anchorText = status === 'detached' || scope === 'document'
+      ? (found.description ?? null)
+      : null
+    const res = db.insert(notes)
       .values({
         guid: found.guid || uuid(),
         title: found.name,
@@ -147,7 +181,7 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
       })
       .onConflictDoNothing()
       .run()
-    report.notes += 1
+    if (res.changes > 0) report.notes += 1
   }
 
   const docIdByGuid = docGuidToId
@@ -175,7 +209,7 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
   ])
   for (const note of parsed.project.notes) {
     if (!referenced.has(note.guid)) {
-      db.insert(notes)
+      const res = db.insert(notes)
         .values({
           guid: note.guid || uuid(),
           title: note.name,
@@ -189,7 +223,7 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
         })
         .onConflictDoNothing()
         .run()
-      report.notes += 1
+      if (res.changes > 0) report.notes += 1
       report.skipped.push(`Nota órfã importada como projeto: ${note.name ?? note.guid}`)
     }
   }

@@ -61,6 +61,9 @@ export function registerProjectHandlers(): void {
     })
     if (result.canceled || !result.filePath) return null
     const path = result.filePath
+    // Reabrir = nova sessão: o histórico do projeto anterior não vale mais.
+    const prev = getActivePath()
+    if (prev) clearHistoryFor(prev)
     openDatabase(path)
     const name = basename(path).replace(/\.liva$/i, '')
     const meta = ensureMeta(name)
@@ -114,12 +117,16 @@ export function registerProjectHandlers(): void {
 }
 
 function openProjectPath(path: string): OpenProjectResult | null {
+  const prev = getActivePath()
+  if (prev) clearHistoryFor(prev)
   openDatabase(path)
   const name = basename(path).replace(/\.liva$/i, '')
   const meta = ensureMeta(name)
   pushRecent(getActivePath() as string, meta.name)
   // 1 checkpoint automático por abertura (retenção poda os antigos).
-  // Melhor esforço: nunca bloqueia a abertura.
-  createVersionSnapshot(path, { kind: 'auto', label: null }).catch(() => null)
+  // Melhor esforço: nunca bloqueia a abertura, mas o erro é registrado.
+  createVersionSnapshot(path, { kind: 'auto', label: null }).catch((err: unknown) => {
+    console.error(`[versoes] checkpoint automático falhou: ${(err as Error)?.message ?? err}`)
+  })
   return { meta, path }
 }

@@ -89,12 +89,8 @@ export function buildProjectFromDb(projectName: string): {
   for (const docRecord of listDocuments()) {
     const qdpxDoc = docById.get(docRecord.guid)
     if (!qdpxDoc) continue
+    // listNotesByDocument nunca devolve scope 'project' (só document/excerpt).
     for (const note of listNotesByDocument(docRecord.id)) {
-      if (note.scope === 'project') {
-        qdpxNotes.push({ guid: note.guid, name: note.title, plainText: note.body, description: note.anchorText })
-        projectNoteGuids.push(note.guid)
-        continue
-      }
       if (note.scope === 'document' || note.anchorStatus === 'detached' || note.startPos == null || note.endPos == null) {
         if (note.scope === 'excerpt' && note.anchorStatus === 'detached') {
           warnings.push(`Nota "${note.title ?? 'sem título'}" perdeu a âncora e foi exportada no documento "${docRecord.name}".`)

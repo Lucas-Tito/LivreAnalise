@@ -213,6 +213,10 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                 return false
               }
             })
+            // Sem stopPropagation o container pai (drop = raiz) pegaria o mesmo
+            // evento e moveria o conjunto duas vezes; alvo inválido não pode
+            // cair no handler genérico senão o código saltaria para a raiz.
+            e.stopPropagation()
             if (ok) {
               e.preventDefault()
               setDropTarget(node.code.id)
@@ -223,6 +227,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
           }}
           onDrop={(e) => {
             e.preventDefault()
+            e.stopPropagation()
             void handleDropOn(node.code.id)
           }}
         >
@@ -422,9 +427,10 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
       <div
         className="flex-1 overflow-auto p-1"
         onDragOver={(e) => {
-          if (dragIds) e.preventDefault()
+          if (dragIds && e.target === e.currentTarget) e.preventDefault()
         }}
         onDrop={(e) => {
+          if (e.target !== e.currentTarget) return
           e.preventDefault()
           void handleDropOn(null)
         }}

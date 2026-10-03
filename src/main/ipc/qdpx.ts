@@ -2,7 +2,8 @@ import { dialog, ipcMain } from 'electron'
 import { basename } from 'path'
 import { IPC } from '@shared/ipc'
 import type { ExportResult, ImportReport, OpenProjectResult } from '@shared/types'
-import { getDb, hasActiveProject, openDatabase } from '../db'
+import { getActivePath, getDb, hasActiveProject, openDatabase } from '../db'
+import { clearHistoryFor } from '../history/stack'
 import { projectMeta } from '../db/schema'
 import { pushRecent } from '../services/recents'
 import { exportQdpx } from '../qdpx/export'
@@ -44,6 +45,8 @@ export function registerQdpxHandlers(): void {
     if (saveResult.canceled || !saveResult.filePath) return null
     const livaPath = saveResult.filePath
 
+    const prev = getActivePath()
+    if (prev) clearHistoryFor(prev)
     openDatabase(livaPath)
     const report = await importQdpx(qdpxPath)
     const name = basename(livaPath).replace(/\.liva$/i, '')

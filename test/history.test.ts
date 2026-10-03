@@ -4,7 +4,9 @@ import { beforeEach, describe, expect, it } from 'vitest'
 const require = createRequire(import.meta.url)
 let nativeOk = true
 try {
-  require('better-sqlite3')
+  // require sozinho não basta: o dlopen é lazy e só falha no new Database.
+  const Database = require('better-sqlite3')
+  new Database(':memory:').close()
 } catch {
   nativeOk = false
 }
@@ -102,6 +104,29 @@ describe.skipIf(!nativeOk)('history undo/redo (integration)', () => {
     const codes = repos.listCodes()
     expect(codes).toHaveLength(1)
     expect(codes[0].parentId).toBeNull()
+    db.closeDatabase()
+  })
+
+  it('keeps the entry when undo throws instead of desyncing', async () => {
+    const { pushHistory } = history
+    pushHistory({ label: 'bomba', undo: () => { throw new Error('boom') }, redo: () => undefined })
+    expect(() => history.historyUndo()).toThrow('boom')
+    const state = history.historyState()
+    expect(state.canUndo).toBe(true)
+    expect(state.undoLabel).toBe('bomba')
+    expect(state.canRedo).toBe(false)
+    db.closeDatabase()
+  })
+
+  it('ignores no-op updates instead of stacking empty entries', async () => {
+    const a = repos.createCode({ name: 'A', color: '#111' })
+    history.clearAllHistory()
+    repos.updateCode({ id: a.id, name: 'A' })
+    expect(history.historyState().canUndo).toBe(false)
+    const doc = repos.createDocument({ name: 'D', plainText: 'txt', originalFormat: 'txt', sourceFilename: 'd.txt' })
+    history.clearAllHistory()
+    repos.renameDocument(doc.id, 'D')
+    expect(history.historyState().canUndo).toBe(false)
     db.closeDatabase()
   })
 

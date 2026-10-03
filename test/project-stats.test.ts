@@ -7,7 +7,9 @@ import { beforeEach, describe, expect, it } from 'vitest'
 const require = createRequire(import.meta.url)
 let nativeOk = true
 try {
-  require('better-sqlite3')
+  // require sozinho não basta: o dlopen é lazy e só falha no new Database.
+  const Database = require('better-sqlite3')
+  new Database(':memory:').close()
 } catch {
   nativeOk = false
 }

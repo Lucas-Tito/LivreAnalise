@@ -71,6 +71,18 @@ describe('ai export notes', () => {
     expect(out).toContain('«original»')
   })
 
+  it('lists each project note only once in full scope', () => {
+    const out = buildAiExport({
+      ...base,
+      scope: 'full',
+      documents: [{ id: 1, name: 'D', plainText: 'texto', codings: [] }],
+      includeNotes: true,
+      projectNotes: [note(6, { title: 'PlanoGeral', body: 'CORPO-UNICO' })],
+      notesByDocument: new Map()
+    })
+    expect(out.match(/CORPO-UNICO/g)?.length).toBe(1)
+  })
+
   it('never leaks note bodies in structure scope', () => {
     const out = buildAiExport({
       ...base,

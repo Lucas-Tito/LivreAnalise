@@ -441,8 +441,12 @@ export function TranscriptPanel(): JSX.Element {
             <div
               ref={backdropRef}
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 overflow-auto whitespace-pre-wrap break-words p-3 font-mono leading-7"
-              style={{ fontSize: `calc(0.875rem * ${zoom})` }}
+              className="pointer-events-none absolute inset-0 overflow-auto whitespace-pre-wrap break-words p-3 font-mono"
+              style={{
+                fontSize: `calc(0.875rem * ${zoom})`,
+                lineHeight: `calc(1.75rem * ${zoom})`,
+                fontFamily: 'var(--transcript-font)'
+              }}
             >
               {draftSegments.map((seg) => {
                 const segText = draft.slice(seg.start, seg.end)
@@ -483,8 +487,13 @@ export function TranscriptPanel(): JSX.Element {
               onChange={(e) => setDraft(e.target.value)}
               onScroll={syncScroll}
               spellCheck={false}
-              className="absolute inset-0 resize-none overflow-auto whitespace-pre-wrap break-words bg-transparent p-3 font-mono leading-7 text-transparent caret-foreground outline-none"
-              style={{ color: 'transparent', fontSize: `calc(0.875rem * ${zoom})` }}
+              className="absolute inset-0 resize-none overflow-auto whitespace-pre-wrap break-words bg-transparent p-3 font-mono text-transparent caret-foreground outline-none"
+              style={{
+                color: 'transparent',
+                fontSize: `calc(0.875rem * ${zoom})`,
+                lineHeight: `calc(1.75rem * ${zoom})`,
+                fontFamily: 'var(--transcript-font)'
+              }}
             />
             {editTip && (
               <div
@@ -507,9 +516,10 @@ export function TranscriptPanel(): JSX.Element {
           <div
             ref={textRef}
             onMouseUp={handleMouseUp}
-            className="transcript flex-1 py-5 leading-7"
+            className="transcript flex-1 py-5"
             style={{
               fontSize: `calc(15px * ${zoom})`,
+              lineHeight: `calc(1.75rem * ${zoom})`,
               fontFamily: 'var(--transcript-font)'
             }}
           >
@@ -522,7 +532,10 @@ export function TranscriptPanel(): JSX.Element {
               lineRows.map((row) => {
                 return (
                   <div key={row.index} className="flex">
-                    <div className="w-12 shrink-0 select-none pr-3 text-right text-xs leading-7 text-muted-foreground/40">
+                    <div
+                      className="w-12 shrink-0 select-none pr-3 text-right text-xs text-muted-foreground/40"
+                      style={{ lineHeight: `calc(1.75rem * ${zoom})` }}
+                    >
                       {row.index + 1}
                     </div>
                     <div className="flex-1 whitespace-pre-wrap break-words pr-6">

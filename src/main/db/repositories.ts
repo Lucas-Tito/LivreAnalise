@@ -127,6 +127,7 @@ export function createDocument(input: {
 export function renameDocument(id: number, name: string): void {
   const db = getDb()
   const before = getDocument(id)
+  if (!before || before.name === name) return
   db.update(documents).set({ name }).where(eq(documents.id, id)).run()
   touchProject()
   const oldName = before?.name ?? ''
@@ -344,6 +345,10 @@ export function updateCode(input: UpdateCodeInput): void {
   if (input.parentId !== undefined) patch.parentId = input.parentId
   if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder
   if (Object.keys(patch).length === 0) return
+  const unchanged = Object.entries(patch).every(
+    ([k, v]) => (before as unknown as Record<string, unknown>)[k] === v
+  )
+  if (unchanged) return
   db.update(codes).set(patch).where(eq(codes.id, input.id)).run()
   touchProject()
   const after = getCode(input.id)
@@ -492,8 +497,19 @@ export function deleteCode(id: number): void {
     undo: () => {
       const db2 = getDb()
       db2.transaction((tx) => {
-        // Restaura pais antes dos filhos.
-        const ordered = [...codeRows].sort((a, b) => (a.parentId == null ? -1 : 0) - (b.parentId == null ? -1 : 0))
+        // Restaura pais antes dos filhos (ordem topológica: vale para
+        // qualquer profundidade, ex. árvores de QDPX importado).
+        const byId = new Map(codeRows.map((r) => [r.id, r]))
+        const depthOf = (rowId: number): number => {
+          let d = 0
+          let cur = byId.get(rowId)
+          while (cur?.parentId != null && byId.has(cur.parentId)) {
+            d += 1
+            cur = byId.get(cur.parentId)
+          }
+          return d
+        }
+        const ordered = [...codeRows].sort((a, b) => depthOf(a.id) - depthOf(b.id))
         for (const r of ordered) tx.insert(codes).values(r).onConflictDoNothing().run()
         for (const r of codingRows) tx.insert(codings).values(r).onConflictDoNothing().run()
         for (const r of memberRows) tx.insert(collectionMembers).values(r).onConflictDoNothing().run()
@@ -833,6 +849,9 @@ export function createCoding(input: CreateCodingInput): Coding {
 export function updateCoding(input: UpdateCodingInput): Coding {
   const db = getDb()
   const before = getCoding(input.id)
+  if (before && before.startPos === input.startPos && before.endPos === input.endPos) {
+    return before
+  }
   db.update(codings)
     .set({ startPos: input.startPos, endPos: input.endPos })
     .where(eq(codings.id, input.id))

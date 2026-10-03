@@ -19,9 +19,8 @@ function readFont(): TranscriptFont {
   return localStorage.getItem(FONT_KEY) === 'serif' ? 'serif' : 'sans'
 }
 
-function apply(zoom: number, font: TranscriptFont): void {
+function applyFont(font: TranscriptFont): void {
   const root = document.documentElement
-  root.style.setProperty('--transcript-scale', String(zoom))
   root.style.setProperty(
     '--transcript-font',
     font === 'serif'
@@ -47,13 +46,13 @@ export const useZoomStore = create<ZoomState>((set, get) => ({
   init: () => {
     const zoom = readZoom()
     const font = readFont()
-    apply(zoom, font)
+    applyFont(font)
     set({ zoom, font })
   },
   setZoom: (zoom) => {
     const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(zoom * 10) / 10))
     localStorage.setItem(ZOOM_KEY, String(clamped))
-    apply(clamped, get().font)
+    applyFont(get().font)
     set({ zoom: clamped })
   },
   zoomIn: () => get().setZoom(get().zoom + ZOOM_STEP),
@@ -61,7 +60,7 @@ export const useZoomStore = create<ZoomState>((set, get) => ({
   resetZoom: () => get().setZoom(1),
   setFont: (font) => {
     localStorage.setItem(FONT_KEY, font)
-    apply(get().zoom, font)
+    applyFont(font)
     set({ font })
   }
 }))

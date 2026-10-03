@@ -109,8 +109,9 @@ async function refreshAfterHistory(
     try {
       const doc = await window.api.documents.get(current.id)
       set({ currentDocument: doc })
+      if (!doc) set({ navigateNoteId: null, editorNoteId: null })
     } catch {
-      set({ currentDocument: null, codings: [] })
+      set({ currentDocument: null, codings: [], navigateNoteId: null, editorNoteId: null })
     }
     await get().refreshCodings()
   } else {

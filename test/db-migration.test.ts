@@ -9,6 +9,8 @@ let nativeOk = true
 let Database: typeof import('better-sqlite3') | null = null
 try {
   Database = require('better-sqlite3')
+  // require sozinho não basta: o dlopen é lazy e só falha no new Database.
+  new Database(':memory:').close()
 } catch {
   nativeOk = false
 }
