@@ -420,10 +420,21 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                 <CornerDownRight className="h-4 w-4" /> Adicionar código dentro
               </ContextMenuItem>
             )}
-            {!hasChildren && node.code.parentId == null && (
+            {!hasChildren && node.code.parentId == null ? (
               <ContextMenuItem
                 onClick={() =>
                   setPrompt({ kind: 'groupFromCode', code: node.code })
+                }
+              >
+                <Tags className="h-4 w-4" /> Criar grupo com este código
+              </ContextMenuItem>
+            ) : (
+              <ContextMenuItem
+                disabled
+                title={
+                  hasChildren
+                    ? 'Este código já é um grupo.'
+                    : 'Remova o código do grupo atual para agrupá-lo sozinho.'
                 }
               >
                 <Tags className="h-4 w-4" /> Criar grupo com este código
