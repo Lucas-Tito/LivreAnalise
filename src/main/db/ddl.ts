@@ -1,3 +1,23 @@
+export const NOTES_DDL = `
+CREATE TABLE IF NOT EXISTS notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guid TEXT NOT NULL UNIQUE,
+  title TEXT,
+  body TEXT NOT NULL DEFAULT '',
+  scope TEXT NOT NULL,
+  document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
+  start_pos INTEGER,
+  end_pos INTEGER,
+  anchor_status TEXT NOT NULL DEFAULT 'attached',
+  anchor_text TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS notes_by_document ON notes(document_id);
+CREATE INDEX IF NOT EXISTS notes_by_scope ON notes(scope);
+`
+
 export const SCHEMA_DDL = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -63,4 +83,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS codings_unique_span
 CREATE INDEX IF NOT EXISTS codings_by_document ON codings(document_id);
 CREATE INDEX IF NOT EXISTS codings_by_code ON codings(code_id);
 CREATE INDEX IF NOT EXISTS codes_by_parent ON codes(parent_id);
+${NOTES_DDL}
 `

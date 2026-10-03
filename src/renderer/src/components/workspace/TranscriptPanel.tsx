@@ -5,6 +5,7 @@ import {
   anchorPositions,
   buildLineRows,
   computeSegments,
+  markNoteAnchors,
   markPendingSelection,
   resolveAnchorPos
 } from '@shared/segments'
@@ -60,6 +61,11 @@ export function TranscriptPanel(): JSX.Element {
   const updateCoding = useAppStore((s) => s.updateCoding)
   const removeCoding = useAppStore((s) => s.removeCoding)
   const updateDocumentText = useAppStore((s) => s.updateDocumentText)
+  const documentNotes = useAppStore((s) => s.documentNotes)
+  const navigateNoteId = useAppStore((s) => s.navigateNoteId)
+  const clearNavigateNote = useAppStore((s) => s.clearNavigateNote)
+  const createNote = useAppStore((s) => s.createNote)
+  const openNoteEditor = useAppStore((s) => s.openNoteEditor)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
@@ -76,6 +82,7 @@ export function TranscriptPanel(): JSX.Element {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
+  const [flashNoteId, setFlashNoteId] = useState<number | null>(null)
   const [editTip, setEditTip] = useState<{
     x: number
     y: number
@@ -142,6 +149,46 @@ export function TranscriptPanel(): JSX.Element {
 
   const text = currentDocument?.plainText ?? ''
 
+  // Âncoras de notas de trecho: sublinhado pontilhado discreto, sem ocupar
+  // a margem direita (que pertence às etiquetas dos códigos).
+  const noteAnchors = useMemo(
+    () =>
+      documentNotes
+        .filter(
+          (n): n is typeof n & { startPos: number; endPos: number } =>
+            n.scope === 'excerpt' &&
+            n.anchorStatus === 'attached' &&
+            n.startPos != null &&
+            n.endPos != null
+        )
+        .map((n) => ({ id: n.id, start: n.startPos, end: n.endPos })),
+    [documentNotes]
+  )
+
+  useEffect(() => {
+    if (navigateNoteId == null) return
+    const note = documentNotes.find((n) => n.id === navigateNoteId)
+    if (note?.scope !== 'excerpt' || note.startPos == null || !textRef.current) {
+      clearNavigateNote()
+      return
+    }
+    const spans = Array.from(
+      textRef.current.querySelectorAll<HTMLElement>('[data-pos]')
+    )
+    let target: HTMLElement | null = null
+    for (const el of spans) {
+      const pos = Number(el.getAttribute('data-pos'))
+      if (Number.isNaN(pos)) continue
+      if (pos <= note.startPos) target = el
+      else break
+    }
+    target?.scrollIntoView({ block: 'center' })
+    setFlashNoteId(note.id)
+    clearNavigateNote()
+    const timer = setTimeout(() => setFlashNoteId(null), 2500)
+    return () => clearTimeout(timer)
+  }, [navigateNoteId, documentNotes, clearNavigateNote])
+
   const previewCodings = useMemo(() => {
     if (!dragging || dragPreviewPos == null) return codings
     return codings.map((c) => {
@@ -168,14 +215,20 @@ export function TranscriptPanel(): JSX.Element {
     () => markPendingSelection(dragging ? previewSegments : segments, pending),
     [dragging, previewSegments, segments, pending]
   )
+  // Divide os segmentos nas fronteiras das notas para que o sublinhado
+  // cubra exatamente a seleção anotada, não o parágrafo inteiro.
+  const noteSegments = useMemo(
+    () => markNoteAnchors(displaySegments, noteAnchors),
+    [displaySegments, noteAnchors]
+  )
   const quoteCount = codings.length
   const codesUsedInDoc = useMemo(
     () => new Set(codings.map((c) => c.codeId)).size,
     [codings]
   )
   const lineRows = useMemo(
-    () => buildLineRows(text, displaySegments),
-    [text, displaySegments]
+    () => buildLineRows(text, noteSegments),
+    [text, noteSegments]
   )
 
   const draftSegments = useMemo(() => {
@@ -291,6 +344,19 @@ export function TranscriptPanel(): JSX.Element {
     await addCoding(codeId, pending.start, pending.end)
     setPending(null)
     window.getSelection()?.removeAllRanges()
+  }
+
+  const addNoteForPending = async (): Promise<void> => {
+    if (!pending || !currentDocument) return
+    const note = await createNote({
+      scope: 'excerpt',
+      documentId: currentDocument.id,
+      startPos: pending.start,
+      endPos: pending.end
+    })
+    setPending(null)
+    window.getSelection()?.removeAllRanges()
+    openNoteEditor(note.id)
   }
 
   const startEditing = (): void => {
@@ -463,11 +529,26 @@ export function TranscriptPanel(): JSX.Element {
                           const segEnd = seg.end
                           const segText = seg.text
                           if (seg.codingIds.length === 0) {
+                            const hasNote = seg.noteIds.length > 0
+                            const isFlash =
+                              flashNoteId != null && seg.noteIds.includes(flashNoteId)
                             return (
                               <span
                                 key={`${segStart}-${seg.isPending}`}
                                 data-pos={segStart}
                                 className={seg.isPending ? 'pending-selection' : undefined}
+                                title={hasNote ? 'Trecho com nota' : undefined}
+                                style={
+                                  hasNote
+                                    ? {
+                                        textDecoration: 'underline dotted',
+                                        textUnderlineOffset: 3,
+                                        backgroundColor: isFlash
+                                          ? 'rgba(250, 204, 21, 0.35)'
+                                          : undefined
+                                      }
+                                    : undefined
+                                }
                               >
                                 {segText}
                               </span>
@@ -481,6 +562,9 @@ export function TranscriptPanel(): JSX.Element {
                             : '#888'
                           const isHover = seg.codingIds.includes(hoverCoding ?? -1)
                           const isSelected = seg.codingIds.includes(selectedCodingId ?? -1)
+                          const hasNote = seg.noteIds.length > 0
+                          const isFlash =
+                            flashNoteId != null && seg.noteIds.includes(flashNoteId)
                           const selCoding = isSelected
                             ? codings.find((c) => c.id === selectedCodingId)
                             : null
@@ -503,18 +587,27 @@ export function TranscriptPanel(): JSX.Element {
                               key={`${segStart}-${seg.isPending}`}
                               data-pos={segStart}
                               className={seg.isPending ? 'pending-selection-coded' : undefined}
-                              title={seg.codingIds
-                                .map((id) => {
-                                  const cd = codings.find((c) => c.id === id)
-                                  return cd ? codeMap.get(cd.codeId)?.name : ''
-                                })
+                              title={[
+                                seg.codingIds
+                                  .map((id) => {
+                                    const cd = codings.find((c) => c.id === id)
+                                    return cd ? codeMap.get(cd.codeId)?.name : ''
+                                  })
+                                  .filter(Boolean)
+                                  .join(', '),
+                                hasNote ? 'tem nota' : ''
+                              ]
                                 .filter(Boolean)
-                                .join(', ')}
+                                .join(' · ')}
                               style={{
-                                backgroundColor: `${topColor}${isHover || isSelected ? alpha.bgHover : alpha.bg}`,
+                                backgroundColor: isFlash
+                                  ? 'rgba(250, 204, 21, 0.35)'
+                                  : `${topColor}${isHover || isSelected ? alpha.bgHover : alpha.bg}`,
                                 boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}${isSelected ? `, 0 0 0 1px ${topColor}66` : ''}`,
                                 borderRadius: 2,
                                 cursor: 'pointer',
+                                textDecoration: hasNote ? 'underline dotted' : undefined,
+                                textUnderlineOffset: hasNote ? 3 : undefined,
                               }}
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -598,6 +691,7 @@ export function TranscriptPanel(): JSX.Element {
           y={pending.y}
           onClose={() => setPending(null)}
           onApply={applyCode}
+          onAddNote={() => void addNoteForPending()}
         />
       )}
     </div>

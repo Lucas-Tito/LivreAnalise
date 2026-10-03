@@ -8,6 +8,13 @@ export interface Segment {
 
 export interface DisplaySegment extends Segment {
   isPending: boolean
+  noteIds: number[]
+}
+
+export interface NoteAnchor {
+  id: number
+  start: number
+  end: number
 }
 
 export function computeSegments(length: number, codings: Coding[]): Segment[] {
@@ -36,13 +43,13 @@ export function markPendingSelection(
   pending: { start: number; end: number } | null
 ): DisplaySegment[] {
   if (!pending) {
-    return segments.map((s) => ({ ...s, isPending: false }))
+    return segments.map((s) => ({ ...s, isPending: false, noteIds: [] }))
   }
 
   const result: DisplaySegment[] = []
   for (const seg of segments) {
     if (seg.end <= pending.start || seg.start >= pending.end) {
-      result.push({ ...seg, isPending: false })
+      result.push({ ...seg, isPending: false, noteIds: [] })
       continue
     }
 
@@ -65,9 +72,47 @@ export function markPendingSelection(
           start: split.start,
           end: split.end,
           codingIds: seg.codingIds,
-          isPending: split.isPending
+          isPending: split.isPending,
+          noteIds: []
         })
       }
+    }
+  }
+  return result
+}
+
+/**
+ * Divide os segmentos nas fronteiras das âncoras de nota, marcando os
+ * sub-trechos exatamente cobertos com os ids das notas. Sem isso, o
+ * sublinhado da nota cobriria o segmento inteiro (às vezes o parágrafo
+ * todo) em vez de só a seleção anotada.
+ */
+export function markNoteAnchors(
+  segments: DisplaySegment[],
+  anchors: NoteAnchor[]
+): DisplaySegment[] {
+  if (anchors.length === 0) return segments
+  const result: DisplaySegment[] = []
+  for (const seg of segments) {
+    const covering = anchors.filter((a) => a.start < seg.end && a.end > seg.start)
+    if (covering.length === 0) {
+      result.push(seg)
+      continue
+    }
+    const cuts = new Set<number>([seg.start, seg.end])
+    for (const a of covering) {
+      cuts.add(Math.max(a.start, seg.start))
+      cuts.add(Math.min(a.end, seg.end))
+    }
+    const sorted = Array.from(cuts).sort((a, b) => a - b)
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const start = sorted[i]
+      const end = sorted[i + 1]
+      if (end <= start) continue
+      const noteIds = covering
+        .filter((a) => a.start <= start && a.end >= end)
+        .map((a) => a.id)
+      result.push({ ...seg, start, end, noteIds })
     }
   }
   return result
@@ -79,6 +124,7 @@ export interface LineSpan {
   text: string
   codingIds: number[]
   isPending: boolean
+  noteIds: number[]
 }
 
 export interface LineRow {
@@ -109,7 +155,8 @@ export function buildLineRows(
         end: spanEnd,
         text: spanText,
         codingIds: seg.codingIds,
-        isPending: seg.isPending
+        isPending: seg.isPending,
+        noteIds: seg.noteIds
       })
     }
     rows.push({ index, start, end, spans })

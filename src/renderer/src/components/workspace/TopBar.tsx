@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BookText, Download, Loader2, Sparkles } from 'lucide-react'
+import { BookText, Download, Loader2, Sparkles, StickyNote } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -8,8 +8,13 @@ import { AiExportDialog } from './AiExportDialog'
 export function TopBar(): JSX.Element {
   const project = useAppStore((s) => s.project)
   const closeProject = useAppStore((s) => s.closeProject)
+  const notesPanelOpen = useAppStore((s) => s.notesPanelOpen)
+  const toggleNotesPanel = useAppStore((s) => s.toggleNotesPanel)
+  const documentNotes = useAppStore((s) => s.documentNotes)
+  const projectNotes = useAppStore((s) => s.projectNotes)
   const [working, setWorking] = useState(false)
   const [exportarIa, setExportarIa] = useState(false)
+  const noteCount = documentNotes.length + projectNotes.length
 
   const handleExport = async (): Promise<void> => {
     setWorking(true)
@@ -43,6 +48,15 @@ export function TopBar(): JSX.Element {
         <span className="text-sm">{project?.name}</span>
       </div>
       <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant={notesPanelOpen ? 'default' : 'outline'}
+          onClick={toggleNotesPanel}
+          title="Abrir o painel de notas do projeto"
+        >
+          <StickyNote className="h-4 w-4" />
+          Notas{noteCount > 0 ? ` (${noteCount})` : ''}
+        </Button>
         <Button size="sm" variant="outline" onClick={() => setExportarIa(true)}>
           <Sparkles className="h-4 w-4" />
           Exportar para IA

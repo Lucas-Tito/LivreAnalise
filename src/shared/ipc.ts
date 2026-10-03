@@ -9,9 +9,11 @@ import type {
   CreateCodeInput,
   CreateCodingInput,
   CreateCollectionInput,
+  CreateNoteInput,
   DocumentRecord,
   DocumentWithText,
   ExportResult,
+  Note,
   OpenProjectResult,
   ProjectMeta,
   RecentProject,
@@ -23,7 +25,8 @@ import type {
   TranscriptionStartInput,
   UpdateCodingInput,
   UpdateCodeInput,
-  UpdateCollectionInput
+  UpdateCollectionInput,
+  UpdateNoteInput
 } from './types'
 
 export const IPC = {
@@ -67,6 +70,13 @@ export const IPC = {
     create: 'codings:create',
     update: 'codings:update',
     delete: 'codings:delete'
+  },
+  notes: {
+    listByDocument: 'notes:listByDocument',
+    listProject: 'notes:listProject',
+    create: 'notes:create',
+    update: 'notes:update',
+    delete: 'notes:delete'
   },
   transcription: {
     env: 'transcription:env',
@@ -129,6 +139,13 @@ export interface Api {
     listByCode: (codeId: number) => Promise<CodingWithCode[]>
     create: (input: CreateCodingInput) => Promise<Coding>
     update: (input: UpdateCodingInput) => Promise<Coding>
+    delete: (id: number) => Promise<void>
+  }
+  notes: {
+    listByDocument: (documentId: number) => Promise<Note[]>
+    listProject: () => Promise<Note[]>
+    create: (input: CreateNoteInput) => Promise<Note>
+    update: (input: UpdateNoteInput) => Promise<Note>
     delete: (id: number) => Promise<void>
   }
   transcription: {
