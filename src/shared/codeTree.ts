@@ -139,3 +139,25 @@ export function buildLibraryTree<T extends Code>(
 
   return { collections: collectionNodes, loose }
 }
+
+// Chaves recolhiveis da arvore, no mesmo esquema do estado `collapsed` da
+// CodesPanel (`col-<id>` para colecoes, `<path>/<id>` para codigos). So entra
+// no conjunto quem tem filhos -- e quem o "Recolher tudo" precisa fechar.
+export function collectCollapsibleKeys<T extends Code>(
+  tree: LibraryTree<T>
+): Set<string> {
+  const keys = new Set<string>()
+  const walk = (node: CodeNode<T>, path: string): void => {
+    if (node.children.length === 0) return
+    const key = `${path}/${node.code.id}`
+    keys.add(key)
+    for (const child of node.children) walk(child, key)
+  }
+  for (const col of tree.collections) {
+    const key = `col-${col.collection.id}`
+    keys.add(key)
+    for (const child of col.children) walk(child, key)
+  }
+  for (const node of tree.loose) walk(node, 'loose')
+  return keys
+}

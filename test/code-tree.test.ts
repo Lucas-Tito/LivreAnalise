@@ -3,6 +3,7 @@ import {
   applicableCodes,
   buildLibraryTree,
   canReceiveChild,
+  collectCollapsibleKeys,
   groupDestinations,
   groupIds,
   validateParentChange
@@ -146,5 +147,29 @@ describe('buildLibraryTree', () => {
     const tree = buildLibraryTree(codes, [collection(10), collection(20)], members)
     expect(tree.collections[0].children[0].code.id).toBe(1)
     expect(tree.collections[1].children[0].code.id).toBe(1)
+  })
+})
+
+describe('collectCollapsibleKeys', () => {
+  it('returns collection keys and group keys in the panel key scheme', () => {
+    const codes = [code(1), code(2, 1), code(3, 1), code(4)]
+    const tree = buildLibraryTree(codes, [collection(10)], [member(10, 1)])
+    // Grupo 1 esta na colecao 10 (chave col-10/1); o codigo 4 solto e folha,
+    // entao nao entra; a colecao col-10 entra (o cabecalho recolhe).
+    expect([...collectCollapsibleKeys(tree)].sort()).toEqual([
+      'col-10',
+      'col-10/1'
+    ])
+  })
+
+  it('uses the loose path for groups outside collections', () => {
+    const codes = [code(1), code(2, 1)]
+    const tree = buildLibraryTree(codes, [], [])
+    expect([...collectCollapsibleKeys(tree)]).toEqual(['loose/1'])
+  })
+
+  it('returns an empty set for a flat tree', () => {
+    const tree = buildLibraryTree([code(1), code(2)], [], [])
+    expect(collectCollapsibleKeys(tree).size).toBe(0)
   })
 })

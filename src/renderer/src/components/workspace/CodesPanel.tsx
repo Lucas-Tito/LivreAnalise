@@ -15,12 +15,15 @@ import {
   Users,
   GripVertical,
   FolderInput,
-  X
+  X,
+  UnfoldVertical,
+  FoldVertical
 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import {
   buildLibraryTree,
   canReceiveChild,
+  collectCollapsibleKeys,
   groupDestinations,
   validateParentChange,
   type CodeNode
@@ -32,6 +35,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from '@/components/ui/context-menu'
 import {
   Dialog,
   DialogContent,
@@ -97,6 +107,9 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
       return next
     })
   }
+
+  const expandAll = (): void => setCollapsed(new Set())
+  const collapseAll = (): void => setCollapsed(collectCollapsibleKeys(tree))
 
   const toggleSelect = (id: number): void => {
     setSelected((prev) => {
@@ -200,182 +213,224 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     const isDropTarget = dropTarget === node.code.id
     return (
       <li key={key}>
-        <div
-          className={`group flex items-center gap-1 rounded-md py-1 pr-1 text-sm hover:bg-accent/50 ${isDropTarget ? 'bg-accent ring-1 ring-primary' : ''}`}
-          style={{ paddingLeft: depth * 14 + 4 }}
-          onDragOver={(e) => {
-            if (!dragIds) return
-            const ok = dragIds.every((id) => {
-              try {
-                validateParentChange(codes, id, node.code.id)
-                return true
-              } catch {
-                return false
-              }
-            })
-            // Sem stopPropagation o container pai (drop = raiz) pegaria o mesmo
-            // evento e moveria o conjunto duas vezes; alvo inválido não pode
-            // cair no handler genérico senão o código saltaria para a raiz.
-            e.stopPropagation()
-            if (ok) {
-              e.preventDefault()
-              setDropTarget(node.code.id)
-            }
-          }}
-          onDragLeave={() => {
-            if (dropTarget === node.code.id) setDropTarget(null)
-          }}
-          onDrop={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            void handleDropOn(node.code.id)
-          }}
-        >
-          <input
-            type="checkbox"
-            className="h-3.5 w-3.5 shrink-0"
-            checked={isSelected}
-            onChange={() => toggleSelect(node.code.id)}
-            title="Selecionar para mover em conjunto"
-          />
-          <span
-            draggable
-            title="Arrastar para mover"
-            onDragStart={(e) => {
-              const ids = selected.has(node.code.id)
-                ? [...selected]
-                : [node.code.id]
-              setDragIds(ids)
-              e.dataTransfer.effectAllowed = 'move'
-              e.dataTransfer.setData('text/plain', JSON.stringify(ids))
-            }}
-            onDragEnd={() => {
-              setDragIds(null)
-              setDropTarget(null)
-            }}
-            className="flex h-4 w-6 shrink-0 cursor-grab items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100"
-          >
-            <GripVertical className="h-3.5 w-3.5" />
-          </span>
-          <button
-            className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
-            onClick={() => hasChildren && toggle(key)}
-          >
-            {hasChildren ? (
-              isCollapsed ? (
-                <ChevronRight className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronDown className="h-3.5 w-3.5" />
-              )
-            ) : null}
-          </button>
-          <button
-            className="flex min-w-0 flex-1 items-center gap-2 text-left"
-            onClick={() => onViewCode(node.code)}
-            title={node.code.description ?? undefined}
-          >
-            {hasChildren ? (
-              <Tags
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div
+              className={`group flex items-center gap-1 rounded-md py-1 pr-1 text-sm hover:bg-accent/50 ${isDropTarget ? 'bg-accent ring-1 ring-primary' : ''}`}
+              style={{ paddingLeft: depth * 14 + 4 }}
+              onContextMenu={(e) => {
+                // O container da lista tambem tem menu de contexto (fundo
+                // vazio): sem o stop, o clique na linha abriria os dois menus
+                // empilhados.
+                e.stopPropagation()
+              }}
+              onDragOver={(e) => {
+                if (!dragIds) return
+                const ok = dragIds.every((id) => {
+                  try {
+                    validateParentChange(codes, id, node.code.id)
+                    return true
+                  } catch {
+                    return false
+                  }
+                })
+                // Sem stopPropagation o container pai (drop = raiz) pegaria o mesmo
+                // evento e moveria o conjunto duas vezes; alvo inválido não pode
+                // cair no handler genérico senão o código saltaria para a raiz.
+                e.stopPropagation()
+                if (ok) {
+                  e.preventDefault()
+                  setDropTarget(node.code.id)
+                }
+              }}
+              onDragLeave={() => {
+                if (dropTarget === node.code.id) setDropTarget(null)
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                void handleDropOn(node.code.id)
+              }}
+            >
+              <input
+                type="checkbox"
                 className="h-3.5 w-3.5 shrink-0"
-                style={{ color: node.code.color }}
+                checked={isSelected}
+                onChange={() => toggleSelect(node.code.id)}
+                title="Selecionar para mover em conjunto"
               />
-            ) : (
               <span
-                className="h-3 w-3 shrink-0 rounded-full"
-                style={{ backgroundColor: node.code.color }}
-              />
-            )}
-            <span className="truncate">{node.code.name}</span>
-            {node.code.usageCount > 0 && (
-              <span className="ml-auto shrink-0 rounded bg-muted px-1.5 text-xs text-muted-foreground">
-                {node.code.usageCount}
+                draggable
+                title="Arrastar para mover"
+                onDragStart={(e) => {
+                  const ids = selected.has(node.code.id)
+                    ? [...selected]
+                    : [node.code.id]
+                  setDragIds(ids)
+                  e.dataTransfer.effectAllowed = 'move'
+                  e.dataTransfer.setData('text/plain', JSON.stringify(ids))
+                }}
+                onDragEnd={() => {
+                  setDragIds(null)
+                  setDropTarget(null)
+                }}
+                className="flex h-4 w-6 shrink-0 cursor-grab items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100"
+              >
+                <GripVertical className="h-3.5 w-3.5" />
               </span>
-            )}
-          </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="opacity-0 group-hover:opacity-100">
-                <MoreVertical className="h-4 w-4" />
+              <button
+                className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
+                onClick={() => hasChildren && toggle(key)}
+              >
+                {hasChildren ? (
+                  isCollapsed ? (
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  )
+                ) : null}
               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => onViewCode(node.code)}>
-                <List className="h-4 w-4" /> Ver trechos
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  if (!selected.has(node.code.id)) toggleSelect(node.code.id)
-                  setMoveFilter('')
-                  setMoveError(null)
-                  setMoveOpen(true)
-                }}
+              <button
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                onClick={() => onViewCode(node.code)}
+                title={node.code.description ?? undefined}
               >
-                <FolderInput className="h-4 w-4" /> Mover para grupo…
-              </DropdownMenuItem>
-              {canReceiveChild(node.code) && (
-                <DropdownMenuItem
-                  onClick={() =>
-                    setDialogState({ mode: 'child', code: node.code })
-                  }
-                >
-                  <CornerDownRight className="h-4 w-4" /> Adicionar código
-                  dentro
-                </DropdownMenuItem>
-              )}
-              {hasChildren && (
-                <DropdownMenuItem
-                  onClick={() =>
-                    setPrompt({ kind: 'collectionFromGroup', code: node.code })
-                  }
-                >
-                  <Layers className="h-4 w-4" /> Criar coleção com este grupo
-                </DropdownMenuItem>
-              )}
-              {!hasChildren && node.code.parentId == null && (
-                <DropdownMenuItem
-                  onClick={() =>
-                    setPrompt({ kind: 'groupFromCode', code: node.code })
-                  }
-                >
-                  <Tags className="h-4 w-4" /> Criar grupo com este código
-                </DropdownMenuItem>
-              )}
-              {node.code.parentId != null && (
-                <DropdownMenuItem
-                  onClick={() => void doMove([node.code.id], null)}
-                >
-                  <CornerUpLeft className="h-4 w-4" /> Remover do grupo
-                </DropdownMenuItem>
-              )}
-              {collectionId != null && (
-                <DropdownMenuItem
-                  onClick={() => removeFromCollection(collectionId, node.code.id)}
-                >
-                  <FolderMinus className="h-4 w-4" /> Remover da coleção
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                onClick={() => setDialogState({ mode: 'edit', code: node.code })}
+                {hasChildren ? (
+                  <Tags
+                    className="h-3.5 w-3.5 shrink-0"
+                    style={{ color: node.code.color }}
+                  />
+                ) : (
+                  <span
+                    className="h-3 w-3 shrink-0 rounded-full"
+                    style={{ backgroundColor: node.code.color }}
+                  />
+                )}
+                <span className="truncate">{node.code.name}</span>
+                {node.code.usageCount > 0 && (
+                  <span className="ml-auto shrink-0 rounded bg-muted px-1.5 text-xs text-muted-foreground">
+                    {node.code.usageCount}
+                  </span>
+                )}
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="opacity-0 group-hover:opacity-100">
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => onViewCode(node.code)}>
+                    <List className="h-4 w-4" /> Ver trechos
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      if (!selected.has(node.code.id)) toggleSelect(node.code.id)
+                      setMoveFilter('')
+                      setMoveError(null)
+                      setMoveOpen(true)
+                    }}
+                  >
+                    <FolderInput className="h-4 w-4" /> Mover para grupo…
+                  </DropdownMenuItem>
+                  {canReceiveChild(node.code) && (
+                    <DropdownMenuItem
+                      onClick={() =>
+                        setDialogState({ mode: 'child', code: node.code })
+                      }
+                    >
+                      <CornerDownRight className="h-4 w-4" /> Adicionar código
+                      dentro
+                    </DropdownMenuItem>
+                  )}
+                  {hasChildren && (
+                    <DropdownMenuItem
+                      onClick={() =>
+                        setPrompt({
+                          kind: 'collectionFromGroup',
+                          code: node.code
+                        })
+                      }
+                    >
+                      <Layers className="h-4 w-4" /> Criar coleção com este grupo
+                    </DropdownMenuItem>
+                  )}
+                  {!hasChildren && node.code.parentId == null && (
+                    <DropdownMenuItem
+                      onClick={() =>
+                        setPrompt({ kind: 'groupFromCode', code: node.code })
+                      }
+                    >
+                      <Tags className="h-4 w-4" /> Criar grupo com este código
+                    </DropdownMenuItem>
+                  )}
+                  {node.code.parentId != null && (
+                    <DropdownMenuItem
+                      onClick={() => void doMove([node.code.id], null)}
+                    >
+                      <CornerUpLeft className="h-4 w-4" /> Remover do grupo
+                    </DropdownMenuItem>
+                  )}
+                  {collectionId != null && (
+                    <DropdownMenuItem
+                      onClick={() =>
+                        removeFromCollection(collectionId, node.code.id)
+                      }
+                    >
+                      <FolderMinus className="h-4 w-4" /> Remover da coleção
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem
+                    onClick={() =>
+                      setDialogState({ mode: 'edit', code: node.code })
+                    }
+                  >
+                    <Pencil className="h-4 w-4" /> Editar
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => {
+                      if (
+                        confirm(
+                          `Excluir o código "${node.code.name}"? Os códigos dentro dele e as citações serão removidos.`
+                        )
+                      ) {
+                        deleteCode(node.code.id)
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" /> Excluir
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem
+              onClick={() => setDialogState({ mode: 'create' })}
+            >
+              <Plus className="h-4 w-4" /> Novo código
+            </ContextMenuItem>
+            {canReceiveChild(node.code) && (
+              <ContextMenuItem
+                onClick={() =>
+                  setDialogState({ mode: 'child', code: node.code })
+                }
               >
-                <Pencil className="h-4 w-4" /> Editar
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={() => {
-                  if (
-                    confirm(
-                      `Excluir o código "${node.code.name}"? Os códigos dentro dele e as citações serão removidos.`
-                    )
-                  ) {
-                    deleteCode(node.code.id)
-                  }
-                }}
+                <CornerDownRight className="h-4 w-4" /> Adicionar código dentro
+              </ContextMenuItem>
+            )}
+            {!hasChildren && node.code.parentId == null && (
+              <ContextMenuItem
+                onClick={() =>
+                  setPrompt({ kind: 'groupFromCode', code: node.code })
+                }
               >
-                <Trash2 className="h-4 w-4" /> Excluir
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+                <Tags className="h-4 w-4" /> Criar grupo com este código
+              </ContextMenuItem>
+            )}
+          </ContextMenuContent>
+        </ContextMenu>
         {hasChildren && !isCollapsed && (
           <ul>
             {node.children.map((c) => renderCode(c, depth + 1, key, null))}
@@ -424,112 +479,132 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
           </div>
         )}
       </div>
-      <div
-        className="flex-1 overflow-auto p-1"
-        onDragOver={(e) => {
-          if (dragIds && e.target === e.currentTarget) e.preventDefault()
-        }}
-        onDrop={(e) => {
-          if (e.target !== e.currentTarget) return
-          e.preventDefault()
-          void handleDropOn(null)
-        }}
-      >
-        {isEmpty ? (
-          <p className="p-4 text-center text-xs text-muted-foreground">
-            Nenhum código ainda. Crie códigos ou selecione um trecho do
-            documento.
-          </p>
-        ) : (
-          <ul>
-            {tree.collections.map((node) => {
-              const key = `col-${node.collection.id}`
-              const isCollapsed = collapsed.has(key)
-              return (
-                <li key={key}>
-                  <div className="group flex items-center gap-1 rounded-md px-1 py-1 text-sm hover:bg-accent/50">
-                    <button
-                      className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
-                      onClick={() => toggle(key)}
-                    >
-                      {isCollapsed ? (
-                        <ChevronRight className="h-3.5 w-3.5" />
-                      ) : (
-                        <ChevronDown className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                    <button
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left font-medium"
-                      onClick={() => setMembersCollection(node.collection)}
-                    >
-                      <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{node.collection.name}</span>
-                    </button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="opacity-0 group-hover:opacity-100">
-                          <MoreVertical className="h-4 w-4" />
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            className="flex-1 overflow-auto p-1"
+            onDragOver={(e) => {
+              if (dragIds && e.target === e.currentTarget) e.preventDefault()
+            }}
+            onDrop={(e) => {
+              if (e.target !== e.currentTarget) return
+              e.preventDefault()
+              void handleDropOn(null)
+            }}
+          >
+            {isEmpty ? (
+              <p className="p-4 text-center text-xs text-muted-foreground">
+                Nenhum código ainda. Crie códigos ou selecione um trecho do
+                documento.
+              </p>
+            ) : (
+              <ul>
+                {tree.collections.map((node) => {
+                  const key = `col-${node.collection.id}`
+                  const isCollapsed = collapsed.has(key)
+                  return (
+                    <li key={key}>
+                      <div className="group flex items-center gap-1 rounded-md px-1 py-1 text-sm hover:bg-accent/50">
+                        <button
+                          className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
+                          onClick={() => toggle(key)}
+                        >
+                          {isCollapsed ? (
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          )}
                         </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
+                        <button
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left font-medium"
                           onClick={() => setMembersCollection(node.collection)}
                         >
-                          <Users className="h-4 w-4" /> Gerenciar códigos
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() =>
-                            setPrompt({
-                              kind: 'renameCollection',
-                              collection: node.collection
-                            })
-                          }
-                        >
-                          <Pencil className="h-4 w-4" /> Renomear
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => {
-                            if (
-                              confirm(
-                                `Excluir a coleção "${node.collection.name}"? Os códigos permanecem.`
-                              )
-                            ) {
-                              deleteCollection(node.collection.id)
-                            }
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" /> Excluir
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  {!isCollapsed && (
-                    <ul>
-                      {node.children.map((c) =>
-                        renderCode(c, 1, key, node.collection.id)
+                          <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate">
+                            {node.collection.name}
+                          </span>
+                        </button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button className="opacity-0 group-hover:opacity-100">
+                              <MoreVertical className="h-4 w-4" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() =>
+                                setMembersCollection(node.collection)
+                              }
+                            >
+                              <Users className="h-4 w-4" /> Gerenciar códigos
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() =>
+                                setPrompt({
+                                  kind: 'renameCollection',
+                                  collection: node.collection
+                                })
+                              }
+                            >
+                              <Pencil className="h-4 w-4" /> Renomear
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => {
+                                if (
+                                  confirm(
+                                    `Excluir a coleção "${node.collection.name}"? Os códigos permanecem.`
+                                  )
+                                ) {
+                                  deleteCollection(node.collection.id)
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" /> Excluir
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                      {!isCollapsed && (
+                        <ul>
+                          {node.children.map((c) =>
+                            renderCode(c, 1, key, node.collection.id)
+                          )}
+                        </ul>
                       )}
-                    </ul>
-                  )}
-                </li>
-              )
-            })}
+                    </li>
+                  )
+                })}
 
-            {tree.loose.length > 0 && (
-              <li>
-                {tree.collections.length > 0 && (
-                  <p className="px-2 pb-1 pt-3 text-xs uppercase tracking-wide text-muted-foreground/60">
-                    Sem coleção
-                  </p>
+                {tree.loose.length > 0 && (
+                  <li>
+                    {tree.collections.length > 0 && (
+                      <p className="px-2 pb-1 pt-3 text-xs uppercase tracking-wide text-muted-foreground/60">
+                        Sem coleção
+                      </p>
+                    )}
+                    <ul>
+                      {tree.loose.map((c) => renderCode(c, 0, 'loose', null))}
+                    </ul>
+                  </li>
                 )}
-                <ul>
-                  {tree.loose.map((c) => renderCode(c, 0, 'loose', null))}
-                </ul>
-              </li>
+              </ul>
             )}
-          </ul>
-        )}
-      </div>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={() => setDialogState({ mode: 'create' })}>
+            <Plus className="h-4 w-4" /> Novo código
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={expandAll}>
+            <UnfoldVertical className="h-4 w-4" /> Expandir tudo
+          </ContextMenuItem>
+          <ContextMenuItem onClick={collapseAll}>
+            <FoldVertical className="h-4 w-4" /> Recolher tudo
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
       <CodeDialog
         open={dialogState !== null}
