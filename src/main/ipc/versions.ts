@@ -1,5 +1,5 @@
 import { copyFileSync } from 'fs'
-import { basename, dirname, join, resolve } from 'path'
+import { basename, dirname, join, resolve, sep } from 'path'
 import { dialog, ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
 import { getActivePath, openDatabase } from '../db'
@@ -10,7 +10,8 @@ import {
   createVersionSnapshot,
   pruneVersions,
   readManifest,
-  resolveVersionFile
+  resolveVersionFile,
+  versionsDir
 } from '../services/projectVersions'
 
 function requireActivePath(): string {
@@ -41,8 +42,14 @@ export function registerVersionHandlers(): void {
     if (result.canceled || !result.filePath) return null
     // O destino nunca pode ser o próprio projeto aberto: a conexão continua
     // em WAL e o checkpoint sobrescreveria a cópia recém-restaurada.
-    if (resolve(result.filePath) === resolve(activePath)) {
+    const dest = resolve(result.filePath)
+    if (dest === resolve(activePath)) {
       throw new Error('Escolha outro nome: não é possível restaurar sobre o próprio projeto aberto.')
+    }
+    // Nem dentro da pasta de versões: destruiria um snapshot vivo.
+    const dirPrefix = resolve(versionsDir(activePath)) + sep
+    if (dest.startsWith(dirPrefix)) {
+      throw new Error('Escolha outro local: a cópia não pode ficar dentro da pasta de versões.')
     }
     // Checkpoint do estado atual antes de sair dele. O original nunca é
     // modificado pelo restore, então falha aqui só é registrada.

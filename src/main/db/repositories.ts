@@ -338,6 +338,7 @@ export function updateCode(input: UpdateCodeInput): void {
     validateParentChange(all, input.id, input.parentId)
   }
   const before = getCode(input.id)
+  if (!before) return
   const patch: Record<string, unknown> = {}
   if (input.name !== undefined) patch.name = input.name
   if (input.color !== undefined) patch.color = input.color

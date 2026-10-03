@@ -10,8 +10,12 @@ export const ZOOM_MAX = 2.0
 export const ZOOM_STEP = 0.1
 
 function readZoom(): number {
-  const raw = Number(localStorage.getItem(ZOOM_KEY))
-  if (!Number.isFinite(raw)) return 1
+  const stored = localStorage.getItem(ZOOM_KEY)
+  // Number(null) e Number('') são 0, não NaN: sem esse guard, instalação
+  // nova abriria com o clamp mínimo (0.8) em vez de 100%.
+  if (stored == null || stored === '') return 1
+  const raw = Number(stored)
+  if (!Number.isFinite(raw) || raw <= 0) return 1
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, raw))
 }
 
