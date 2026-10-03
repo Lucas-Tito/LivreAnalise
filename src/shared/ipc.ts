@@ -98,6 +98,13 @@ export const IPC = {
   qdpx: {
     export: 'qdpx:export',
     importAsProject: 'qdpx:importAsProject'
+  },
+  view: {
+    zoomIn: 'view:zoom-in',
+    zoomOut: 'view:zoom-out',
+    resetZoom: 'view:zoom-reset',
+    fontSans: 'view:font-sans',
+    fontSerif: 'view:font-serif'
   }
 } as const
 
@@ -172,5 +179,8 @@ export interface Api {
   qdpx: {
     export: () => Promise<ExportResult | null>
     importAsProject: () => Promise<OpenProjectResult | null>
+  }
+  view: {
+    onAction: (listener: (action: string) => void) => () => void
   }
 }

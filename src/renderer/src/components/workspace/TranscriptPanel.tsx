@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { FileText, Pencil, Save, Trash2, X } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
+import { useZoomStore } from '@/stores/zoomStore'
 import {
   anchorPositions,
   buildLineRows,
@@ -66,6 +67,7 @@ export function TranscriptPanel(): JSX.Element {
   const clearNavigateNote = useAppStore((s) => s.clearNavigateNote)
   const createNote = useAppStore((s) => s.createNote)
   const openNoteEditor = useAppStore((s) => s.openNoteEditor)
+  const zoom = useZoomStore((s) => s.zoom)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
@@ -320,7 +322,7 @@ export function TranscriptPanel(): JSX.Element {
     // posicoes medidas ficam obsoletas e as etiquetas descem junto com o erro.
     ro.observe(textEl)
     return () => ro.disconnect()
-  }, [measure, text])
+  }, [measure, text, zoom])
 
   const handleMouseUp = (): void => {
     if (dragging) return
@@ -439,7 +441,8 @@ export function TranscriptPanel(): JSX.Element {
             <div
               ref={backdropRef}
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-sm leading-7"
+              className="pointer-events-none absolute inset-0 overflow-auto whitespace-pre-wrap break-words p-3 font-mono leading-7"
+              style={{ fontSize: `calc(0.875rem * ${zoom})` }}
             >
               {draftSegments.map((seg) => {
                 const segText = draft.slice(seg.start, seg.end)
@@ -480,8 +483,8 @@ export function TranscriptPanel(): JSX.Element {
               onChange={(e) => setDraft(e.target.value)}
               onScroll={syncScroll}
               spellCheck={false}
-              className="absolute inset-0 resize-none overflow-auto whitespace-pre-wrap break-words bg-transparent p-3 font-mono text-sm leading-7 text-transparent caret-foreground outline-none"
-              style={{ color: 'transparent' }}
+              className="absolute inset-0 resize-none overflow-auto whitespace-pre-wrap break-words bg-transparent p-3 font-mono leading-7 text-transparent caret-foreground outline-none"
+              style={{ color: 'transparent', fontSize: `calc(0.875rem * ${zoom})` }}
             />
             {editTip && (
               <div
@@ -504,7 +507,11 @@ export function TranscriptPanel(): JSX.Element {
           <div
             ref={textRef}
             onMouseUp={handleMouseUp}
-            className="transcript flex-1 py-5 text-[15px] leading-7"
+            className="transcript flex-1 py-5 leading-7"
+            style={{
+              fontSize: `calc(15px * ${zoom})`,
+              fontFamily: 'var(--transcript-font)'
+            }}
           >
             {segments.length === 0 ? (
               <div className="flex">

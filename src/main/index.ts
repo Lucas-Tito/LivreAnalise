@@ -1,7 +1,8 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, Menu, shell } from 'electron'
 import { join } from 'path'
 import { closeDatabase } from './db'
 import { registerIpcHandlers } from './ipc'
+import { IPC } from '@shared/ipc'
 
 // A saida padrao pode estar com o pipe fechado (AppImage aberto pelo menu,
 // terminal que ja fechou, saida redirecionada). O proprio Electron faz um
@@ -50,6 +51,25 @@ function createWindow(): void {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
+
+  const send = (channel: string): void => {
+    mainWindow.webContents.send(channel, channel)
+  }
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: 'View',
+        submenu: [
+          { label: 'Ampliar', accelerator: 'CmdOrCtrl+Plus', click: () => send(IPC.view.zoomIn) },
+          { label: 'Reduzir', accelerator: 'CmdOrCtrl+-', click: () => send(IPC.view.zoomOut) },
+          { label: 'Restaurar zoom', accelerator: 'CmdOrCtrl+0', click: () => send(IPC.view.resetZoom) },
+          { type: 'separator' },
+          { label: 'Fonte sem serifa', type: 'radio', click: () => send(IPC.view.fontSans) },
+          { label: 'Fonte com serifa', type: 'radio', click: () => send(IPC.view.fontSerif) }
+        ]
+      }
+    ])
+  )
 
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])

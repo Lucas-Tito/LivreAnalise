@@ -83,6 +83,23 @@ const api: Api = {
   qdpx: {
     export: () => ipcRenderer.invoke(IPC.qdpx.export),
     importAsProject: () => ipcRenderer.invoke(IPC.qdpx.importAsProject)
+  },
+  view: {
+    onAction: (listener) => {
+      const handler = (_e: unknown, action: string): void => listener(action)
+      ipcRenderer.on(IPC.view.zoomIn, handler)
+      ipcRenderer.on(IPC.view.zoomOut, handler)
+      ipcRenderer.on(IPC.view.resetZoom, handler)
+      ipcRenderer.on(IPC.view.fontSans, handler)
+      ipcRenderer.on(IPC.view.fontSerif, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.view.zoomIn, handler)
+        ipcRenderer.removeListener(IPC.view.zoomOut, handler)
+        ipcRenderer.removeListener(IPC.view.resetZoom, handler)
+        ipcRenderer.removeListener(IPC.view.fontSans, handler)
+        ipcRenderer.removeListener(IPC.view.fontSerif, handler)
+      }
+    }
   }
 }
 
