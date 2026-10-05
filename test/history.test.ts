@@ -107,6 +107,36 @@ describe.skipIf(!nativeOk)('history undo/redo (integration)', () => {
     db.closeDatabase()
   })
 
+  it('restores the original root order when undoing single-code grouping', () => {
+    const roots = ['A', 'B', 'C'].map((name) => repos.createCode({ name, color: '#111' }))
+    history.clearAllHistory()
+    const group = repos.createGroupCode('Grupo', '#222', roots[2].id)
+    history.historyUndo()
+    expect(repos.listCodes()).toEqual(roots.map((c) => ({ ...c, usageCount: 0 })))
+    history.historyRedo()
+    expect(repos.listCodes().find((c) => c.id === roots[2].id)?.parentId).toBe(group.id)
+    history.historyUndo()
+    expect(repos.listCodes()).toEqual(roots.map((c) => ({ ...c, usageCount: 0 })))
+    db.closeDatabase()
+  })
+
+  it('restores parent and order when undoing grouping across different levels', () => {
+    const parent = repos.createCode({ name: 'Pai', color: '#111' })
+    repos.createCode({ name: 'Primeiro', color: '#111', parentId: parent.id })
+    const child = repos.createCode({ name: 'Filho', color: '#111', parentId: parent.id })
+    const root = repos.createCode({ name: 'Solto', color: '#111' })
+    const before = repos.listCodes()
+    history.clearAllHistory()
+    const group = repos.createGroupFromCodes('Grupo', '#222', [root.id, child.id])
+    const grouped = repos.listCodes()
+    expect(grouped.find((c) => c.id === child.id)?.parentId).toBe(group.id)
+    history.historyUndo()
+    expect(repos.listCodes()).toEqual(before)
+    history.historyRedo()
+    expect(repos.listCodes()).toEqual(grouped)
+    db.closeDatabase()
+  })
+
   it('keeps the entry when undo throws instead of desyncing', async () => {
     const { pushHistory } = history
     pushHistory({ label: 'bomba', undo: () => { throw new Error('boom') }, redo: () => undefined })

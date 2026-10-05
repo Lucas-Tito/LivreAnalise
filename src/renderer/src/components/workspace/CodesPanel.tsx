@@ -110,7 +110,8 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const createCollection = useAppStore((s) => s.createCollection)
   const updateCollection = useAppStore((s) => s.updateCollection)
   const deleteCollection = useAppStore((s) => s.deleteCollection)
-  const refreshCollections = useAppStore((s) => s.refreshCollections)
+  const addCollectionMember = useAppStore((s) => s.addCollectionMember)
+  const removeCollectionMember = useAppStore((s) => s.removeCollectionMember)
 
   const tree = useMemo(
     () => buildLibraryTree(codes, collections, collectionMembers),
@@ -677,8 +678,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
       })
     } else {
       const collection = await createCollection({ name })
-      await window.api.collections.addMember(collection.id, prompt.code.id)
-      await refreshCollections()
+      await addCollectionMember(collection.id, prompt.code.id)
     }
   }
 
@@ -686,8 +686,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     collectionId: number,
     codeId: number
   ): Promise<void> => {
-    await window.api.collections.removeMember(collectionId, codeId)
-    await refreshCollections()
+    await removeCollectionMember(collectionId, codeId)
   }
 
   // Grupo vindo do arrasto: junta os códigos arrastados com a folha sobre a

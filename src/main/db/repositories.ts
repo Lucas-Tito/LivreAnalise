@@ -541,7 +541,7 @@ export function createGroupFromCodes(
   })
   touchProject()
   const groupSnap = { ...group }
-  const oldParents = members.map((m) => m.parentId)
+  const previous = members.map((m) => ({ parentId: m.parentId, sortOrder: m.sortOrder }))
   const ids = members.map((m) => m.id)
   pushHistory({
     label: `criar grupo "${name}"`,
@@ -549,7 +549,7 @@ export function createGroupFromCodes(
       const db2 = getDb()
       db2.transaction((tx) => {
         ids.forEach((id, index) => {
-          tx.update(codes).set({ parentId: oldParents[index] }).where(eq(codes.id, id)).run()
+          tx.update(codes).set(previous[index]).where(eq(codes.id, id)).run()
         })
         tx.delete(codes).where(eq(codes.id, groupSnap.id)).run()
       })

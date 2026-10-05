@@ -78,6 +78,8 @@ interface AppState {
   createCollection: (input: CreateCollectionInput) => Promise<Collection>
   updateCollection: (input: UpdateCollectionInput) => Promise<void>
   deleteCollection: (id: number) => Promise<void>
+  addCollectionMember: (collectionId: number, codeId: number) => Promise<void>
+  removeCollectionMember: (collectionId: number, codeId: number) => Promise<void>
 
   refreshCodings: () => Promise<void>
   addCoding: (codeId: number, startPos: number, endPos: number) => Promise<void>
@@ -113,6 +115,8 @@ async function refreshAfterHistory(
   get: () => AppState,
   set: (partial: Partial<AppState>) => void
 ): Promise<void> {
+  const editorId = get().editorNoteId
+  const editedNote = [...get().documentNotes, ...get().projectNotes].find((n) => n.id === editorId)
   await get().refreshDocuments()
   await get().refreshCodes()
   await get().refreshCollections()
@@ -131,6 +135,11 @@ async function refreshAfterHistory(
     set({ codings: [] })
   }
   await get().refreshNotes()
+  const restoredNote = [...get().documentNotes, ...get().projectNotes].find((n) => n.id === editorId)
+  if (editedNote && (!restoredNote || editedNote.title !== restoredNote.title || editedNote.body !== restoredNote.body)) {
+    // O editor tem um rascunho local: fecha quando o histórico muda seu conteúdo.
+    set({ editorNoteId: null })
+  }
   await get().refreshHistory()
 }
 
@@ -296,6 +305,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await window.api.documents.import()
       await get().refreshDocuments()
+      await get().refreshHistory()
     } finally {
       set({ busy: false })
     }
@@ -323,6 +333,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (current && current.id === id) {
       set({ currentDocument: { ...current, name } })
     }
+    await get().refreshHistory()
   },
 
   updateDocumentText: async (id, text) => {
@@ -481,6 +492,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   deleteCollection: async (id) => {
     await window.api.collections.delete(id)
+    await get().refreshCollections()
+    await get().refreshHistory()
+  },
+
+  addCollectionMember: async (collectionId, codeId) => {
+    await window.api.collections.addMember(collectionId, codeId)
+    await get().refreshCollections()
+    await get().refreshHistory()
+  },
+
+  removeCollectionMember: async (collectionId, codeId) => {
+    await window.api.collections.removeMember(collectionId, codeId)
     await get().refreshCollections()
     await get().refreshHistory()
   },
