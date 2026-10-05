@@ -172,4 +172,61 @@ describe.skipIf(!nativeOk)('moveCodes (integration)', () => {
     expect(repos.listCodes().map((x) => x.name)).toEqual(['A', 'B', 'C', 'D'])
     db.closeDatabase()
   })
+
+  // Devolver ao mesmo lugar não é erro e não empilha desfazer: sai sem tocar
+  // em nada.
+  it('treats dropping a code where it already is as a silent no-op', async () => {
+    const history = await import('../src/main/history/stack')
+    const a = repos.createCode({ name: 'A', color: '#111' })
+    const b = repos.createCode({ name: 'B', color: '#222' })
+    repos.createCode({ name: 'C', color: '#333' })
+    history.clearAllHistory()
+
+    // B já está logo depois de A: soltar "depois de A" não muda nada.
+    repos.moveCodes({ ids: [b.id], parentId: null, anchorId: a.id, position: 'after' })
+
+    expect(repos.listCodes().map((x) => x.name)).toEqual(['A', 'B', 'C'])
+    expect(history.historyState().canUndo).toBe(false)
+    db.closeDatabase()
+  })
+
+  it('treats choosing the current group in the move dialog as a no-op', async () => {
+    const history = await import('../src/main/history/stack')
+    const group = repos.createCode({ name: 'Grupo', color: '#111' })
+    const member = repos.createCode({ name: 'M', color: '#222', parentId: group.id })
+    history.clearAllHistory()
+
+    repos.moveCodes({ ids: [member.id], parentId: group.id })
+
+    expect(repos.listCodes().find((x) => x.id === member.id)?.parentId).toBe(group.id)
+    expect(history.historyState().canUndo).toBe(false)
+    db.closeDatabase()
+  })
+
+  // Regressão: o desempate de nome precisa ser a colação BINARY do
+  // ORDER BY name do SQLite, que é o que a lista mostra. Importar QDPX grava
+  // todos os códigos com sort_order 0 (default do schema), então o desempate
+  // por nome decide a ordem — e com localeCompare('pt-BR') nomes acentuados
+  // vinham em outra ordem, fazendo um arrasto real ser julgado no-op.
+  it('reorders tied accented names the way the list displays them', async () => {
+    const fala = repos.createCode({ name: 'Fala', color: '#111' })
+    const acao = repos.createCode({ name: 'ação', color: '#222' })
+    // sort_order empatado, como a importação QDPX deixa (o insert dela não
+    // manda sort_order e o default do schema é 0). É o desempate por nome que
+    // decide a ordem exibida.
+    db.getRaw().prepare('UPDATE codes SET sort_order = 0').run()
+
+    // A lista mostra Fala primeiro (BINARY: 'F' < 'a').
+    expect(repos.listCodes().map((x) => x.name)).toEqual(['Fala', 'ação'])
+
+    repos.moveCodes({
+      ids: [acao.id],
+      parentId: null,
+      anchorId: fala.id,
+      position: 'before'
+    })
+
+    expect(repos.listCodes().map((x) => x.name)).toEqual(['ação', 'Fala'])
+    db.closeDatabase()
+  })
 })

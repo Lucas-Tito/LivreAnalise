@@ -20,7 +20,11 @@ import type {
   UpdateNoteInput
 } from '@shared/types'
 import { adjustCodings } from '@shared/editAdjust'
-import { validateParentChange } from '@shared/codeTree'
+import {
+  computeMoveOrder,
+  isNoopMove,
+  validateParentChange
+} from '@shared/codeTree'
 import { pushHistory } from '../history/stack'
 import type { MoveCodesInput } from '@shared/types'
 import { findConnectedCodings } from '../services/codingMerge'
@@ -395,14 +399,6 @@ export function updateCode(input: UpdateCodeInput): void {
 
 // Movimentação atômica de N códigos: valida tudo antes, aplica em transação.
 // Preserva ID/GUID, citações e memberships (nunca delete+recreate).
-// Ordem dos irmãos dentro de um mesmo pai: sort_order primeiro (é o que o
-// arrasto reescreve) e nome como desempate para os códigos que nunca foram
-// movidos — todos nascem com sort_order 0.
-function siblingKey(a: Code, b: Code): number {
-  if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
-  return a.name.localeCompare(b.name, 'pt-BR')
-}
-
 export function moveCodes(input: MoveCodesInput): void {
   const db = getDb()
   const all = db.select().from(codes).all() as Code[]
@@ -411,22 +407,24 @@ export function moveCodes(input: MoveCodesInput): void {
   for (const id of unique) {
     validateParentChange(all, id, input.parentId)
   }
-  // Uma âncora que também está sendo arrastada não pode virar referência: ela
-  // sai da lista e o vizinho real do destino é o seu antigo antecessor.
-  const anchorId =
-    input.anchorId != null && !unique.includes(input.anchorId)
-      ? input.anchorId
-      : null
-  const moving = unique
-    .map((id) => all.find((c) => c.id === id))
-    .filter((c): c is Code => c != null)
-    .sort(siblingKey)
-  const staying = all
-    .filter((c) => c.parentId === input.parentId && !unique.includes(c.id))
-    .sort(siblingKey)
-  const at = anchorId == null ? -1 : staying.findIndex((c) => c.id === anchorId)
-  const index = at === -1 ? staying.length : at + (input.position === 'after' ? 1 : 0)
-  const ordered = [...staying.slice(0, index), ...moving, ...staying.slice(index)]
+  // Soltar onde já estava não é erro nem movimento: sai antes de tocar no
+  // banco e no histórico, para o desfazer não ganhar passos vazios.
+  if (
+    isNoopMove(all, unique, {
+      parentId: input.parentId,
+      anchorId: input.anchorId,
+      position: input.position
+    })
+  ) {
+    return
+  }
+  const { ordered } = computeMoveOrder(
+    all,
+    unique,
+    input.parentId,
+    input.anchorId,
+    input.position
+  )
 
   // Um sort_order novo para todos os irmãos do destino: é o que faz a lista
   // obedecer à ordem escolhida no arrasto em vez de ao alfabeto.

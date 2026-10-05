@@ -25,6 +25,7 @@ import {
   canReceiveChild,
   collectCollapsibleKeys,
   groupDestinations,
+  isNoopMove,
   validateParentChange,
   type CodeNode
 } from '@shared/codeTree'
@@ -77,9 +78,12 @@ interface RowHit {
 }
 
 // O que o arrasto vai fazer, já validado. As três intenções são distintas de
-// propósito: subir/descer de nível move o código; o centro agrupa.
+// propósito: subir/descer de nível move o código; o centro agrupa. `noop` é
+// o soltar que não muda nada (devolver ao mesmo lugar): não é erro, só não
+// faz nada.
 type DropIntent =
   | { kind: 'invalid' }
+  | { kind: 'noop' }
   | { kind: 'root' }
   | {
       kind: 'move'
@@ -90,7 +94,8 @@ type DropIntent =
   | { kind: 'group'; codeIds: number[] }
 
 // Como o destino se apresenta na lista: cada um com seu próprio visual.
-type DropKind = 'up' | 'down' | 'group' | 'inside' | 'root'
+// `same` é o noop: mesma posição de inserção, mas em tom neutro.
+type DropKind = 'up' | 'down' | 'group' | 'inside' | 'root' | 'same'
 
 export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const codes = useAppStore((s) => s.codes)
@@ -306,7 +311,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   // é a diferenciação mais direta entre subir, descer e criar grupo.
   const setGhostLabel = (
     label: string | null,
-    kind: 'none' | 'up' | 'down' | 'group' | 'inside' | 'root' = 'none'
+    kind: 'none' | 'up' | 'down' | 'group' | 'inside' | 'root' | 'same' = 'none'
   ): void => {
     const ghost = ghostRef.current
     if (!ghost) return
@@ -320,6 +325,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     intent: DropIntent,
     hit: RowHit | 'root' | null
   ): DropKind => {
+    if (intent.kind === 'noop') return 'same'
     if (intent.kind === 'root') return 'root'
     if (intent.kind === 'group') return 'group'
     if (hit !== null && hit !== 'root') {
@@ -384,39 +390,61 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
 
   // Traduz a zona sob o cursor na intenção do arrasto. Centro em folha = unir os
   // dois em um grupo novo; centro em grupo = entrar no grupo existente.
+  // Devolver ao mesmo lugar (em cima de si, ou numa posição que não muda a
+  // ordem) é `noop`: não é erro, só não faz nada.
   const resolveDrop = (
     ids: number[],
     hit: RowHit | 'root' | null
   ): DropIntent => {
     if (hit === null) return { kind: 'invalid' }
-    if (hit === 'root') return { kind: 'root' }
-    if (hit.zone !== 'inside') {
-      // Nas bordas, soltar sobre si mesmo seria um mover sem efeito.
-      if (ids.length === 1 && ids[0] === hit.id) return { kind: 'invalid' }
-      const parent = hit.parentId
-      return canDropIds(ids, parent)
-        ? {
-            kind: 'move',
-            parentId: parent,
-            anchorId: hit.id,
-            position: hit.zone === 'before' ? 'before' : 'after'
-          }
-        : { kind: 'invalid' }
+    if (hit === 'root') {
+      return isNoopMove(codesRef.current, ids, { parentId: null })
+        ? { kind: 'noop' }
+        : { kind: 'root' }
     }
+    if (hit.zone !== 'inside') {
+      // Nas bordas, soltar sobre si mesmo é devolver ao mesmo lugar.
+      if (ids.length === 1 && ids[0] === hit.id) return { kind: 'noop' }
+      const parent = hit.parentId
+      if (!canDropIds(ids, parent)) return { kind: 'invalid' }
+      const placement = {
+        parentId: parent,
+        anchorId: hit.id,
+        position: (hit.zone === 'before' ? 'before' : 'after') as
+          | 'before'
+          | 'after'
+      }
+      return isNoopMove(codesRef.current, ids, placement)
+        ? { kind: 'noop' }
+        : { kind: 'move', ...placement }
+    }
+    // No centro, soltar sobre si mesmo também é devolver ao mesmo lugar
+    // (vale para grupo, que não pode entrar nele mesmo de jeito nenhum).
+    if (ids.length === 1 && ids[0] === hit.id) return { kind: 'noop' }
     if (hit.hasChildren) {
-      return canDropIds(ids, hit.id)
-        ? { kind: 'move', parentId: hit.id, anchorId: null, position: 'end' }
-        : { kind: 'invalid' }
+      if (!canDropIds(ids, hit.id)) return { kind: 'invalid' }
+      const placement = {
+        parentId: hit.id,
+        anchorId: null,
+        position: 'end' as const
+      }
+      return isNoopMove(codesRef.current, ids, placement)
+        ? { kind: 'noop' }
+        : { kind: 'move', ...placement }
     }
     // Folha no centro: grupo novo com o arrastado + a folha. Nenhum dos dois
     // pode ser grupo, senão nasceria um 3º nível.
     const members = [...ids, hit.id]
-    if (new Set(members).size !== members.length) return { kind: 'invalid' }
+    // Só a linha arrastada, solta no centro dela mesma, é "já está aqui".
+    // Com seleção múltipla, o alvo já está no arrasto: isso é um destino
+    // impossível de agrupar, e dizer "destino inválido" é honesto.
+    if (ids.length > 1 && ids.includes(hit.id)) return { kind: 'invalid' }
     if (members.some((id) => isGroup(id))) return { kind: 'invalid' }
     return { kind: 'group', codeIds: members }
   }
 
   const intentLabel = (intent: DropIntent, hit: RowHit | 'root' | null): string => {
+    if (intent.kind === 'noop') return 'Já está aqui'
     if (intent.kind === 'root') return 'Mover para o 1º nível'
     if (intent.kind === 'invalid') return 'Destino inválido'
     if (intent.kind === 'move') {
@@ -449,7 +477,9 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
       clear()
       return
     }
-    setRootHover(hit === 'root')
+    // Um noop sobre o fundo não recebe o azul de "mover para o 1º nível":
+    // o fundo em tom normal é o que combina com a dica "Já está aqui".
+    setRootHover(hit === 'root' && intent.kind !== 'noop')
     if (hit === 'root') {
       setDropTarget(null)
       setDropPos(null)
@@ -568,6 +598,12 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         return
       }
       const intent = resolveDrop(ids, hit)
+      // Devolver ao mesmo lugar não é erro: some sem aviso e sem mexer na
+      // seleção.
+      if (intent.kind === 'noop') {
+        cleanupDrag()
+        return
+      }
       if (intent.kind === 'invalid') {
         cleanupDrag()
         flashNotice('Destino inválido — nada foi movido.')
@@ -734,6 +770,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     const isInsertAfter = isDropTarget && dropPos === 'after'
     const isNestTarget = isDropTarget && dropPos === 'inside'
     const isGroupTarget = isDropTarget && dropKind === 'group'
+    const isSameSpot = isDropTarget && dropKind === 'same'
     return (
       <li key={key}>
         <ContextMenu>
@@ -742,7 +779,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
               data-code-row={node.code.id}
               data-code-key={key}
               data-code-children={hasChildren ? '1' : '0'}
-              className={`group relative flex cursor-grab select-none items-center gap-1 rounded-md py-1 pr-1 text-sm transition-all duration-150 ease-out hover:bg-accent/50 ${isSelected ? 'bg-accent ring-1 ring-inset ring-primary/40' : ''} ${isDragging ? 'scale-[0.98] opacity-50' : ''} ${isGroupTarget ? 'code-drop-group' : ''} ${isNestTarget && !isGroupTarget ? 'code-drop-inside' : ''} ${isInsertBefore ? 'code-insert-before' : ''} ${isInsertAfter ? 'code-insert-after' : ''}`}
+              className={`group relative flex cursor-grab select-none items-center gap-1 rounded-md py-1 pr-1 text-sm transition-all duration-150 ease-out hover:bg-accent/50 ${isSelected ? 'bg-accent ring-1 ring-inset ring-primary/40' : ''} ${isDragging ? 'scale-[0.98] opacity-50' : ''} ${isGroupTarget ? 'code-drop-group' : ''} ${isNestTarget && !isGroupTarget ? 'code-drop-inside' : ''} ${isInsertBefore ? 'code-insert-before' : ''} ${isInsertAfter ? 'code-insert-after' : ''} ${isSameSpot ? 'code-drop-same' : ''}`}
               style={{ paddingLeft: depth * 14 + 4 }}
               title="Arrastar: bordas reordenam • centro agrupa • fundo tira do grupo"
               onPointerDown={(e) => startPointerDrag(e, node.code)}
@@ -1146,7 +1183,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
       {dragIds && (
         <div
           role="status"
-          className={`pointer-events-none absolute bottom-2 left-1/2 z-20 max-w-[92%] -translate-x-1/2 truncate rounded-full border bg-background/95 px-3 py-1 text-[11px] font-medium shadow-md backdrop-blur-sm ${dropPos === 'inside' ? 'border-dashed border-primary text-foreground' : 'text-muted-foreground'}`}
+          className={`pointer-events-none absolute bottom-2 left-1/2 z-20 max-w-[92%] -translate-x-1/2 truncate rounded-full border bg-background/95 px-3 py-1 text-[11px] font-medium shadow-md backdrop-blur-sm ${dropPos === 'inside' && dropKind !== 'same' ? 'border-dashed border-primary text-foreground' : 'text-muted-foreground'}`}
         >
           {dropHint}
         </div>

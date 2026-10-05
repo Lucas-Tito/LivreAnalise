@@ -4,8 +4,11 @@ import {
   buildLibraryTree,
   canReceiveChild,
   collectCollapsibleKeys,
+  computeMoveOrder,
   groupDestinations,
   groupIds,
+  isNoopMove,
+  siblingOrder,
   validateParentChange
 } from '../src/shared/codeTree'
 import type { Code, Collection, CollectionMember } from '../src/shared/types'
@@ -89,6 +92,114 @@ describe('groupDestinations', () => {
   it('lists only roots that already have children', () => {
     const codes = [code(1), code(2, 1), code(3), code(4, 1)]
     expect(groupDestinations(codes).map((c) => c.id)).toEqual([1])
+  })
+})
+
+function ord(id: number, sortOrder: number, parentId: number | null = null): Code {
+  return { ...code(id, parentId), sortOrder }
+}
+
+describe('computeMoveOrder', () => {
+  it('inserts the moved code before the anchor', () => {
+    const codes = [ord(1, 0), ord(2, 1), ord(3, 2)]
+    const { ordered } = computeMoveOrder(codes, [3], null, 1, 'before')
+    expect(ordered.map((c) => c.id)).toEqual([3, 1, 2])
+  })
+
+  it('inserts the moved code after the anchor', () => {
+    const codes = [ord(1, 0), ord(2, 1), ord(3, 2)]
+    const { ordered } = computeMoveOrder(codes, [3], null, 1, 'after')
+    expect(ordered.map((c) => c.id)).toEqual([1, 3, 2])
+  })
+
+  it('sends the block to the end without an anchor', () => {
+    const codes = [ord(1, 0), ord(2, 1), ord(3, 2)]
+    const { ordered } = computeMoveOrder(codes, [1], null)
+    expect(ordered.map((c) => c.id)).toEqual([2, 3, 1])
+  })
+
+  // A âncora arrastada junto não pode virar referência: o bloco vai para o
+  // fim em vez de se ancorar nele mesmo.
+  it('discards an anchor that is also being dragged', () => {
+    const codes = [ord(1, 0), ord(2, 1), ord(3, 2)]
+    const { ordered, anchorId } = computeMoveOrder(codes, [1, 2], null, 1, 'before')
+    expect(anchorId).toBeNull()
+    expect(ordered.map((c) => c.id)).toEqual([3, 1, 2])
+  })
+})
+
+describe('isNoopMove', () => {
+  it('detects dropping right where the code already is', () => {
+    const codes = [ord(1, 0), ord(2, 1), ord(3, 2)]
+    // O 2 já está logo depois do 1.
+    expect(
+      isNoopMove(codes, [2], { parentId: null, anchorId: 1, position: 'after' })
+    ).toBe(true)
+  })
+
+  it('detects a move that really changes the order', () => {
+    const codes = [ord(1, 0), ord(2, 1), ord(3, 2)]
+    expect(
+      isNoopMove(codes, [1], { parentId: null, anchorId: 3, position: 'after' })
+    ).toBe(false)
+  })
+
+  it('detects a different parent as a real move', () => {
+    const codes = [ord(1, 0), ord(2, 0, 1), ord(3, 1)]
+    expect(isNoopMove(codes, [3], { parentId: 1 })).toBe(false)
+  })
+
+  it('detects choosing the group the code is already in', () => {
+    // sort_order distintos é o estado real depois de qualquer arrasto.
+    const codes = [ord(1, 0), ord(2, 0, 1), ord(3, 1, 1)]
+    // O 3 já é o último filho do 1.
+    expect(isNoopMove(codes, [3], { parentId: 1, position: 'end' })).toBe(true)
+  })
+
+  it('detects a reorder inside the same group as a real move', () => {
+    const codes = [ord(1, 0), ord(2, 0, 1), ord(3, 0, 1)]
+    // O 2 é o primeiro filho: mandar para o fim troca a ordem.
+    expect(isNoopMove(codes, [2], { parentId: 1, position: 'end' })).toBe(false)
+  })
+
+  it('detects choosing root for a code that is already root', () => {
+    const codes = [ord(1, 0), ord(2, 1)]
+    expect(isNoopMove(codes, [2], { parentId: null })).toBe(true)
+  })
+
+  it('treats an empty batch as a no-op', () => {
+    expect(isNoopMove([ord(1, 0)], [], { parentId: null })).toBe(true)
+  })
+
+  it('returns false for an unknown code', () => {
+    expect(isNoopMove([ord(1, 0)], [99], { parentId: null })).toBe(false)
+  })
+
+  // Regressão: o desempate precisa ser a colação BINARY do ORDER BY name do
+  // SQLite, que é o que a lista mostra. Com localeCompare('pt-BR') os nomes
+  // acentuados vinham em outra ordem e um arrasto real era descartado.
+  it('uses the same name order as the SQLite BINARY collation', () => {
+    const fala = { ...ord(1, 0), name: 'Fala' }
+    const acao = { ...ord(2, 0), name: 'ação' }
+    // BINARY ordena por byte UTF-8: 'F' (0x46) < 'ã' (0xE3).
+    expect(siblingOrder(fala, acao)).toBe(-1)
+    expect(siblingOrder(acao, fala)).toBe(1)
+    // 'ação' em 0 e 'Fala' em 0: a lista mostra Fala primeiro. Soltar 'ação'
+    // na borda de cima de 'Fala' é um movimento de verdade, não um noop.
+    expect(
+      isNoopMove([fala, acao], [acao.id], {
+        parentId: null,
+        anchorId: fala.id,
+        position: 'before'
+      })
+    ).toBe(false)
+  })
+
+  it('orders emoji and accented letters by code point like SQLite', () => {
+    const emoji = { ...ord(1, 0), name: '🙂' }
+    const tilde = { ...ord(2, 0), name: 'ã' }
+    expect(siblingOrder(tilde, emoji)).toBe(-1)
+    expect(siblingOrder(emoji, tilde)).toBe(1)
   })
 })
 

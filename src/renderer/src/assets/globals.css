@@ -138,6 +138,22 @@ body {
   background-color: transparent;
 }
 
+/* Já está aqui: a mesma posição de inserção, mas em tom neutro — o soltar
+   não vai mudar nada, então o destino não veste o azul de "vai mover". Vem
+   depois das regras de inserir/agrupar para sobrescrevê-las. */
+.code-drop-same.code-insert-before::before,
+.code-drop-same.code-insert-after::after {
+  background: hsl(var(--muted-foreground) / 0.55);
+  box-shadow: none;
+  animation: none;
+}
+
+.code-drop-same.code-drop-inside {
+  background-color: hsl(var(--muted) / 0.4);
+  box-shadow: 0 0 0 2px hsl(var(--muted-foreground) / 0.35);
+  animation: none;
+}
+
 @keyframes code-nest-in {
   0% {
     transform: scale(1);
@@ -202,5 +218,13 @@ body.code-dragging * {
   color: hsl(var(--foreground));
   box-shadow: none;
   border: 1px dashed hsl(var(--primary) / 0.8);
+  padding: 3px 9px;
+}
+
+.code-drag-ghost[data-intent='same'] {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  box-shadow: none;
+  border: 1px dashed hsl(var(--muted-foreground) / 0.6);
   padding: 3px 9px;
 }
