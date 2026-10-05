@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
@@ -57,8 +57,40 @@ import { randomColor } from '@/lib/utils'
 import type { CodeWithCount, Collection } from '@shared/types'
 
 interface Props {
-  onViewCode: (code: CodeWithCount) => void
+  onViewCode: (code: CodeWithCount | null) => void
 }
+
+interface SelectModifiers {
+  ctrlKey: boolean
+  metaKey: boolean
+  shiftKey: boolean
+}
+
+type DropZone = 'before' | 'inside' | 'after'
+
+interface RowHit {
+  id: number
+  zone: DropZone
+  key: string
+  hasChildren: boolean
+  parentId: number | null
+}
+
+// O que o arrasto vai fazer, já validado. As três intenções são distintas de
+// propósito: subir/descer de nível move o código; o centro agrupa.
+type DropIntent =
+  | { kind: 'invalid' }
+  | { kind: 'root' }
+  | {
+      kind: 'move'
+      parentId: number | null
+      anchorId: number | null
+      position: 'before' | 'after' | 'end'
+    }
+  | { kind: 'group'; codeIds: number[] }
+
+// Como o destino se apresenta na lista: cada um com seu próprio visual.
+type DropKind = 'up' | 'down' | 'group' | 'inside' | 'root'
 
 export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const codes = useAppStore((s) => s.codes)
@@ -66,6 +98,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const collectionMembers = useAppStore((s) => s.collectionMembers)
   const createCode = useAppStore((s) => s.createCode)
   const createGroup = useAppStore((s) => s.createGroup)
+  const createGroupFrom = useAppStore((s) => s.createGroupFrom)
   const updateCode = useAppStore((s) => s.updateCode)
   const deleteCode = useAppStore((s) => s.deleteCode)
   const moveCodes = useAppStore((s) => s.moveCodes)
@@ -98,6 +131,41 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const [moveError, setMoveError] = useState<string | null>(null)
   const [dragIds, setDragIds] = useState<number[] | null>(null)
   const [dropTarget, setDropTarget] = useState<number | null>(null)
+  const [dropPos, setDropPos] = useState<DropZone | null>(null)
+  const [dropKind, setDropKind] = useState<DropKind | null>(null)
+  const DEFAULT_HINT =
+    'Bordas: reordenar • centro: agrupar • fundo: 1º nível'
+  const [dropHint, setDropHint] = useState(DEFAULT_HINT)
+  const [rootHover, setRootHover] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  // Códigos que o arrasto juntou; o nome do grupo só é decidido no diálogo, para
+  // que cancelar não deixe nada pela metade.
+  const [groupPrompt, setGroupPrompt] = useState<number[] | null>(null)
+  const anchorRef = useRef<number | null>(null)
+  const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const expandKeyRef = useRef<string | null>(null)
+  const ghostRef = useRef<HTMLDivElement | null>(null)
+  // O arrasto é feito com pointer events, não com o drag nativo do Chromium:
+  // sobre os controles da linha o drag nativo morria virando clique (e o clique
+  // abria os trechos). Aqui o limiar de movimento é nosso, o que também permite
+  // animar a etiqueta que segue o cursor.
+  const pendingRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    code: CodeWithCount
+    mods: SelectModifiers
+  } | null>(null)
+  const dragIdsRef = useRef<number[] | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  // Espelhos para os handlers globais de pointer (instalados uma vez) lerem o
+  // estado atual sem recriá-los a cada render.
+  const codesRef = useRef(codes)
+  codesRef.current = codes
+  const selectedRef = useRef(selected)
+  selectedRef.current = selected
+  const collapsedRef = useRef(collapsed)
+  collapsedRef.current = collapsed
 
   const toggle = (key: string): void => {
     setCollapsed((prev) => {
@@ -112,6 +180,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const collapseAll = (): void => setCollapsed(collectCollapsibleKeys(tree))
 
   const toggleSelect = (id: number): void => {
+    anchorRef.current = id
     setSelected((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
@@ -119,6 +188,424 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
       return next
     })
   }
+
+  // Ordem visível dos códigos (respeita coleções e grupos recolhidos), usada
+  // pelo Shift+clique para selecionar intervalos como no explorador de arquivos.
+  const visibleIds = useMemo(() => {
+    const ids: number[] = []
+    const walk = (node: CodeNode<CodeWithCount>, path: string): void => {
+      ids.push(node.code.id)
+      const key = `${path}/${node.code.id}`
+      if (node.children.length > 0 && !collapsed.has(key)) {
+        for (const child of node.children) walk(child, key)
+      }
+    }
+    for (const col of tree.collections) {
+      const key = `col-${col.collection.id}`
+      if (collapsed.has(key)) continue
+      for (const child of col.children) walk(child, key)
+    }
+    for (const node of tree.loose) walk(node, 'loose')
+    return ids
+  }, [tree, collapsed])
+
+  const selectRange = (id: number): void => {
+    const anchor = anchorRef.current
+    if (anchor == null || !visibleIds.includes(anchor)) {
+      anchorRef.current = id
+      setSelected(new Set([id]))
+      return
+    }
+    const from = visibleIds.indexOf(anchor)
+    const to = visibleIds.indexOf(id)
+    if (to === -1) {
+      anchorRef.current = id
+      setSelected(new Set([id]))
+      return
+    }
+    const [start, end] =
+      from <= to ? [from, to] : ([to, from] as const)
+    setSelected(new Set(visibleIds.slice(start, end + 1)))
+  }
+
+  // Clique simples seleciona e abre; Ctrl/Cmd alterna e Shift faz intervalo,
+  // ambos sem abrir os trechos.
+  const applySelect = (mods: SelectModifiers, code: CodeWithCount): void => {
+    if (mods.ctrlKey || mods.metaKey) {
+      toggleSelect(code.id)
+      return
+    }
+    if (mods.shiftKey) {
+      selectRange(code.id)
+      return
+    }
+    anchorRef.current = code.id
+    setSelected(new Set([code.id]))
+    onViewCode(code)
+  }
+
+  // Aviso curto (destino inválido, por exemplo) some sozinho.
+  const flashNotice = (message: string): void => {
+    setNotice(message)
+    setTimeout(() => setNotice(null), 2600)
+  }
+
+  // Esc limpa a seleção sem mexer no resto.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        setSelected(new Set())
+        anchorRef.current = null
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const cancelExpandTimer = (): void => {
+    if (expandTimer.current) {
+      clearTimeout(expandTimer.current)
+      expandTimer.current = null
+    }
+    expandKeyRef.current = null
+  }
+
+  const scheduleAutoExpand = (key: string): void => {
+    if (expandKeyRef.current === key) return
+    cancelExpandTimer()
+    expandKeyRef.current = key
+    expandTimer.current = setTimeout(() => {
+      setCollapsed((prev) => {
+        if (!prev.has(key)) return prev
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+      expandTimer.current = null
+      expandKeyRef.current = null
+    }, 600)
+  }
+
+  const cleanupDrag = (): void => {
+    dragIdsRef.current = null
+    setDragIds(null)
+    setDropTarget(null)
+    setDropPos(null)
+    setDropKind(null)
+    setDropHint(DEFAULT_HINT)
+    setRootHover(false)
+    cancelExpandTimer()
+    document.body.classList.remove('code-dragging')
+    if (ghostRef.current) {
+      ghostRef.current.remove()
+      ghostRef.current = null
+    }
+  }
+
+  // A etiqueta que segue o cursor muda de texto (e de cor) conforme a intenção:
+  // é a diferenciação mais direta entre subir, descer e criar grupo.
+  const setGhostLabel = (
+    label: string | null,
+    kind: 'none' | 'up' | 'down' | 'group' | 'inside' | 'root' = 'none'
+  ): void => {
+    const ghost = ghostRef.current
+    if (!ghost) return
+    const ids = dragIdsRef.current ?? []
+    ghost.textContent =
+      label ?? (ids.length > 1 ? `${ids.length} códigos` : '')
+    ghost.dataset.intent = kind
+  }
+
+  const dropKindOf = (
+    intent: DropIntent,
+    hit: RowHit | 'root' | null
+  ): DropKind => {
+    if (intent.kind === 'root') return 'root'
+    if (intent.kind === 'group') return 'group'
+    if (hit !== null && hit !== 'root') {
+      if (hit.zone === 'before') return 'up'
+      if (hit.zone === 'after') return 'down'
+    }
+    return 'inside'
+  }
+
+  const codeName = (id: number): string =>
+    codesRef.current.find((c) => c.id === id)?.name ?? ''
+
+  // "A", "A e B", "A, B e C" para o diálogo do novo grupo.
+  const groupNames = (ids: number[] | null): string => {
+    if (!ids) return ''
+    const names = ids.map((id) => codeName(id)).filter(Boolean)
+    if (names.length <= 1) return names[0] ?? ''
+    return `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}`
+  }
+
+  const isGroup = (id: number): boolean =>
+    codesRef.current.some((c) => c.parentId === id)
+
+  const canDropIds = (ids: number[], parentId: number | null): boolean =>
+    ids.every((id) => {
+      try {
+        validateParentChange(codesRef.current, id, parentId)
+        return true
+      } catch {
+        return false
+      }
+    })
+
+  // Quem está sob o cursor: a linha (e sua zona) ou o fundo da lista (raiz).
+  // Usa elementsFromPoint (a pilha inteira) em vez de elementFromPoint: um
+  // overlay por cima — o painel de trechos, a etiqueta do arrasto, a dica —
+  // não pode esconder o destino que está embaixo dele.
+  const hitZone = (x: number, y: number): RowHit | 'root' | null => {
+    const stack = document.elementsFromPoint(x, y)
+    for (const node of stack) {
+      const el = node as HTMLElement
+      if (typeof el.closest !== 'function') continue
+      const rowEl = el.closest<HTMLElement>('[data-code-row]')
+      if (rowEl) {
+        const rect = rowEl.getBoundingClientRect()
+        const rel = rect.height > 0 ? (y - rect.top) / rect.height : 0.5
+        const zone: DropZone =
+          rel < 0.25 ? 'before' : rel > 0.75 ? 'after' : 'inside'
+        const id = Number(rowEl.dataset.codeRow)
+        return {
+          id,
+          zone,
+          key: rowEl.dataset.codeKey ?? '',
+          hasChildren: rowEl.dataset.codeChildren === '1',
+          parentId: codesRef.current.find((c) => c.id === id)?.parentId ?? null
+        }
+      }
+      if (el.closest('[data-code-root]')) return 'root'
+    }
+    return null
+  }
+
+  // Traduz a zona sob o cursor na intenção do arrasto. Centro em folha = unir os
+  // dois em um grupo novo; centro em grupo = entrar no grupo existente.
+  const resolveDrop = (
+    ids: number[],
+    hit: RowHit | 'root' | null
+  ): DropIntent => {
+    if (hit === null) return { kind: 'invalid' }
+    if (hit === 'root') return { kind: 'root' }
+    if (hit.zone !== 'inside') {
+      // Nas bordas, soltar sobre si mesmo seria um mover sem efeito.
+      if (ids.length === 1 && ids[0] === hit.id) return { kind: 'invalid' }
+      const parent = hit.parentId
+      return canDropIds(ids, parent)
+        ? {
+            kind: 'move',
+            parentId: parent,
+            anchorId: hit.id,
+            position: hit.zone === 'before' ? 'before' : 'after'
+          }
+        : { kind: 'invalid' }
+    }
+    if (hit.hasChildren) {
+      return canDropIds(ids, hit.id)
+        ? { kind: 'move', parentId: hit.id, anchorId: null, position: 'end' }
+        : { kind: 'invalid' }
+    }
+    // Folha no centro: grupo novo com o arrastado + a folha. Nenhum dos dois
+    // pode ser grupo, senão nasceria um 3º nível.
+    const members = [...ids, hit.id]
+    if (new Set(members).size !== members.length) return { kind: 'invalid' }
+    if (members.some((id) => isGroup(id))) return { kind: 'invalid' }
+    return { kind: 'group', codeIds: members }
+  }
+
+  const intentLabel = (intent: DropIntent, hit: RowHit | 'root' | null): string => {
+    if (intent.kind === 'root') return 'Mover para o 1º nível'
+    if (intent.kind === 'invalid') return 'Destino inválido'
+    if (intent.kind === 'move') {
+      if (hit !== null && hit !== 'root' && hit.zone === 'before')
+        return 'Mover para cima'
+      if (hit !== null && hit !== 'root' && hit.zone === 'after')
+        return 'Mover para baixo'
+      if (hit !== null && hit !== 'root')
+        return `Mover para dentro de “${codeName(hit.id)}”`
+      return 'Mover de nível'
+    }
+    return `Criar grupo com “${hit !== null && hit !== 'root' ? codeName(hit.id) : ''}”`
+  }
+
+  const updateDropTarget = (x: number, y: number): void => {
+    const ids = dragIdsRef.current
+    if (!ids) return
+    const hit = hitZone(x, y)
+    const intent = resolveDrop(ids, hit)
+    const clear = (): void => {
+      setDropTarget(null)
+      setDropPos(null)
+      setDropKind(null)
+      setRootHover(false)
+      setDropHint(DEFAULT_HINT)
+      setGhostLabel(null)
+      cancelExpandTimer()
+    }
+    if (intent.kind === 'invalid' || hit === null) {
+      clear()
+      return
+    }
+    setRootHover(hit === 'root')
+    if (hit === 'root') {
+      setDropTarget(null)
+      setDropPos(null)
+      cancelExpandTimer()
+    } else {
+      setDropTarget(hit.id)
+      setDropPos(hit.zone)
+      if (
+        hit.zone === 'inside' &&
+        hit.hasChildren &&
+        collapsedRef.current.has(hit.key)
+      ) {
+        scheduleAutoExpand(hit.key)
+      } else {
+        cancelExpandTimer()
+      }
+    }
+    setDropKind(dropKindOf(intent, hit))
+    const label = intentLabel(intent, hit)
+    setDropHint(
+      ids.length > 1 && intent.kind === 'group'
+        ? `${label} (${ids.length + 1} códigos)`
+        : label
+    )
+    setGhostLabel(label, dropKindOf(intent, hit))
+  }
+
+  const startPointerDrag = (
+    e: React.PointerEvent<HTMLDivElement>,
+    code: CodeWithCount
+  ): void => {
+    if (e.button !== 0) return
+    // Só mouse: no toque a lista precisa continuar rolando normalmente.
+    if (e.pointerType !== 'mouse') return
+    // Controles com clique próprio (seta, menu) não initiates arrasto.
+    if ((e.target as HTMLElement).closest('[data-no-drag]')) return
+    pendingRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      code,
+      mods: { ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey }
+    }
+  }
+
+  // Um único arrasto por vez: o pressionar inicia a intenção, o primeiro
+  // movimento acima do limiar cria o fantasma, e o soltar decide entre mover,
+  // não mover (destino inválido) ou tratar como clique comum.
+  useEffect(() => {
+    const onMove = (e: PointerEvent): void => {
+      const pending = pendingRef.current
+      if (!pending || e.pointerId !== pending.pointerId) return
+      if (dragIdsRef.current === null) {
+        const dist = Math.hypot(
+          e.clientX - pending.startX,
+          e.clientY - pending.startY
+        )
+        if (dist < 4) return
+        const ids = selectedRef.current.has(pending.code.id)
+          ? [...selectedRef.current]
+          : [pending.code.id]
+        dragIdsRef.current = ids
+        setDragIds(ids)
+        // Nenhum painel pode ficar em cima da lista durante o arrasto.
+        onViewCode(null)
+        // De propósito, `selected` não é tocado aqui: a barra "N selecionados"
+        // do cabeçalho empurraria a lista para baixo no primeiro movimento, e o
+        // destino sob o cursor mudaria junto. O destaque do que está sendo
+        // arrastado vem de `isDragging`.
+        document.body.classList.add('code-dragging')
+        const ghost = document.createElement('div')
+        ghost.className = 'code-drag-ghost'
+        ghost.textContent =
+          ids.length > 1 ? `${ids.length} códigos` : pending.code.name
+        document.body.appendChild(ghost)
+        ghostRef.current = ghost
+      }
+      e.preventDefault()
+      ghostRef.current?.style.setProperty(
+        'transform',
+        `translate3d(${e.clientX + 14}px, ${e.clientY + 12}px, 0)`
+      )
+      // Rola a lista quando o cursor encosta nas bordas: sem isso não dá para
+      // arrastar até um código que está fora da área visível.
+      const scroller = scrollRef.current
+      if (scroller) {
+        const rect = scroller.getBoundingClientRect()
+        const edge = 40
+        if (e.clientY < rect.top + edge) scroller.scrollTop -= 12
+        else if (e.clientY > rect.bottom - edge) scroller.scrollTop += 12
+      }
+      updateDropTarget(e.clientX, e.clientY)
+    }
+
+    const finish = (e: PointerEvent): void => {
+      const pending = pendingRef.current
+      if (!pending || e.pointerId !== pending.pointerId) return
+      pendingRef.current = null
+      const ids = dragIdsRef.current
+      if (ids === null) {
+        // Não passou do limiar: só selecionar/abrir, e só se o soltar foi na
+        // mesma linha do pressionar.
+        const upRow = (e.target as HTMLElement | null)?.closest<HTMLElement>(
+          '[data-code-row]'
+        )
+        const upId = upRow ? Number(upRow.dataset.codeRow) : null
+        if (upId === pending.code.id)
+          liveRef.current.applySelect(pending.mods, pending.code)
+        return
+      }
+      const hit = hitZone(e.clientX, e.clientY)
+      // Soltar fora da lista é cancelar, não erro; dentro de uma linha inválida
+      // é erro de destino (e o usuário precisa saber por que nada moveu).
+      if (hit === null) {
+        cleanupDrag()
+        return
+      }
+      const intent = resolveDrop(ids, hit)
+      if (intent.kind === 'invalid') {
+        cleanupDrag()
+        flashNotice('Destino inválido — nada foi movido.')
+        return
+      }
+      if (intent.kind === 'group') {
+        cleanupDrag()
+        setGroupPrompt(intent.codeIds)
+        return
+      }
+      cleanupDrag()
+      void liveRef.current.doMove(
+        ids,
+        intent.kind === 'move' ? intent.parentId : null,
+        intent.kind === 'move'
+          ? { anchorId: intent.anchorId, position: intent.position }
+          : undefined
+      )
+    }
+
+    const cancel = (): void => {
+      pendingRef.current = null
+      if (dragIdsRef.current !== null) cleanupDrag()
+    }
+
+    window.addEventListener('pointermove', onMove, { passive: false })
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', cancel)
+    window.addEventListener('blur', cancel)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', cancel)
+      window.removeEventListener('blur', cancel)
+      if (dragIdsRef.current !== null) cleanupDrag()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleSubmit = (value: CodeDialogValue): void => {
     if (!dialogState) return
@@ -167,31 +654,62 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     await refreshCollections()
   }
 
-  const doMove = async (ids: number[], parentId: number | null): Promise<void> => {
+  // Grupo vindo do arrasto: junta os códigos arrastados com a folha sobre a
+  // qual foram soltos, com o nome que o usuário escolher.
+  const submitGroupPrompt = async (name: string): Promise<void> => {
+    if (!groupPrompt) return
+    const members = [...groupPrompt]
+    setGroupPrompt(null)
+    try {
+      await createGroupFrom({
+        name,
+        color: codes.find((c) => c.id === members[0])?.color ?? randomColor(),
+        codeIds: members
+      })
+      setSelected(new Set())
+      anchorRef.current = null
+    } catch (err) {
+      flashNotice(
+        err instanceof Error ? err.message : 'Não foi possível criar o grupo.'
+      )
+    }
+  }
+
+  const doMove = async (
+    ids: number[],
+    parentId: number | null,
+    placement?: { anchorId?: number | null; position?: 'before' | 'after' | 'end' }
+  ): Promise<boolean> => {
     try {
       for (const id of ids) validateParentChange(codes, id, parentId)
     } catch (err) {
-      setMoveError(err instanceof Error ? err.message : 'Movimento inválido.')
-      return
+      const message = err instanceof Error ? err.message : 'Movimento inválido.'
+      setMoveError(message)
+      // O dialog de mover nem sempre está aberto: sem isto a falha era muda.
+      flashNotice(message)
+      return false
     }
     setMoveError(null)
     try {
-      await moveCodes(ids, parentId)
+      await moveCodes(ids, parentId, placement)
     } catch (err) {
-      setMoveError(err instanceof Error ? err.message : 'Não foi possível mover.')
-      return
+      const message =
+        err instanceof Error ? err.message : 'Não foi possível mover.'
+      setMoveError(message)
+      flashNotice(message)
+      return false
     }
     setSelected(new Set())
+    anchorRef.current = null
     setMoveOpen(false)
     setMoveFilter('')
+    return true
   }
 
-  const handleDropOn = async (targetId: number | null): Promise<void> => {
-    if (!dragIds || dragIds.length === 0) return
-    setDropTarget(null)
-    setDragIds(null)
-    await doMove(dragIds, targetId)
-  }
+  // Os handlers de pointer são instalados uma única vez, então precisam enxergar
+  // as versões mais recentes de `doMove` e `applySelect` (que capturam `codes`).
+  const liveRef = useRef({ applySelect, doMove })
+  liveRef.current = { applySelect, doMove }
 
   const destinations = useMemo(() => groupDestinations(codes), [codes])
   const filteredDestinations = destinations.filter((c) =>
@@ -211,76 +729,51 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     const isCollapsed = collapsed.has(key)
     const isSelected = selected.has(node.code.id)
     const isDropTarget = dropTarget === node.code.id
+    const isDragging = dragIds?.includes(node.code.id) ?? false
+    const isInsertBefore = isDropTarget && dropPos === 'before'
+    const isInsertAfter = isDropTarget && dropPos === 'after'
+    const isNestTarget = isDropTarget && dropPos === 'inside'
+    const isGroupTarget = isDropTarget && dropKind === 'group'
     return (
       <li key={key}>
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div
-              className={`group flex items-center gap-1 rounded-md py-1 pr-1 text-sm hover:bg-accent/50 ${isDropTarget ? 'bg-accent ring-1 ring-primary' : ''}`}
+              data-code-row={node.code.id}
+              data-code-key={key}
+              data-code-children={hasChildren ? '1' : '0'}
+              className={`group relative flex cursor-grab select-none items-center gap-1 rounded-md py-1 pr-1 text-sm transition-all duration-150 ease-out hover:bg-accent/50 ${isSelected ? 'bg-accent ring-1 ring-inset ring-primary/40' : ''} ${isDragging ? 'scale-[0.98] opacity-50' : ''} ${isGroupTarget ? 'code-drop-group' : ''} ${isNestTarget && !isGroupTarget ? 'code-drop-inside' : ''} ${isInsertBefore ? 'code-insert-before' : ''} ${isInsertAfter ? 'code-insert-after' : ''}`}
               style={{ paddingLeft: depth * 14 + 4 }}
+              title="Arrastar: bordas reordenam • centro agrupa • fundo tira do grupo"
+              onPointerDown={(e) => startPointerDrag(e, node.code)}
               onContextMenu={(e) => {
                 // O container da lista tambem tem menu de contexto (fundo
                 // vazio): sem o stop, o clique na linha abriria os dois menus
                 // empilhados.
                 e.stopPropagation()
               }}
-              onDragOver={(e) => {
-                if (!dragIds) return
-                const ok = dragIds.every((id) => {
-                  try {
-                    validateParentChange(codes, id, node.code.id)
-                    return true
-                  } catch {
-                    return false
-                  }
-                })
-                // Sem stopPropagation o container pai (drop = raiz) pegaria o mesmo
-                // evento e moveria o conjunto duas vezes; alvo inválido não pode
-                // cair no handler genérico senão o código saltaria para a raiz.
-                e.stopPropagation()
-                if (ok) {
-                  e.preventDefault()
-                  setDropTarget(node.code.id)
-                }
-              }}
-              onDragLeave={() => {
-                if (dropTarget === node.code.id) setDropTarget(null)
-              }}
-              onDrop={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                void handleDropOn(node.code.id)
-              }}
             >
-              <input
-                type="checkbox"
-                className="h-3.5 w-3.5 shrink-0"
-                checked={isSelected}
-                onChange={() => toggleSelect(node.code.id)}
-                title="Selecionar para mover em conjunto"
-              />
               <span
-                draggable
                 title="Arrastar para mover"
-                onDragStart={(e) => {
-                  const ids = selected.has(node.code.id)
-                    ? [...selected]
-                    : [node.code.id]
-                  setDragIds(ids)
-                  e.dataTransfer.effectAllowed = 'move'
-                  e.dataTransfer.setData('text/plain', JSON.stringify(ids))
-                }}
-                onDragEnd={() => {
-                  setDragIds(null)
-                  setDropTarget(null)
-                }}
-                className="flex h-4 w-6 shrink-0 cursor-grab items-center justify-center text-muted-foreground opacity-0 group-hover:opacity-100"
+                className="flex h-4 w-6 shrink-0 cursor-grab items-center justify-center text-muted-foreground/40 transition-colors group-hover:text-muted-foreground"
               >
                 <GripVertical className="h-3.5 w-3.5" />
               </span>
-              <button
-                className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
-                onClick={() => hasChildren && toggle(key)}
+              <div
+                data-no-drag
+                role="button"
+                tabIndex={hasChildren ? 0 : -1}
+                aria-label={hasChildren ? 'Expandir ou recolher' : undefined}
+                className="flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center text-muted-foreground"
+                onClick={() => {
+                  if (hasChildren) toggle(key)
+                }}
+                onKeyDown={(e) => {
+                  if ((e.key === 'Enter' || e.key === ' ') && hasChildren) {
+                    e.preventDefault()
+                    toggle(key)
+                  }
+                }}
               >
                 {hasChildren ? (
                   isCollapsed ? (
@@ -289,10 +782,24 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                     <ChevronDown className="h-3.5 w-3.5" />
                   )
                 ) : null}
-              </button>
-              <button
-                className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                onClick={() => onViewCode(node.code)}
+              </div>
+              {/* O nome usa div com role (e não button) porque o <button> do
+                  Chromium não propaga o pressionar para o arrasto da linha. O
+                  clique aqui é resolvido no pointerup global, junto com o
+                  arrasto, para o gesto nunca virar duas coisas. */}
+              <div
+                role="button"
+                tabIndex={0}
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    applySelect(
+                      { ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey },
+                      node.code
+                    )
+                  }
+                }}
                 title={node.code.description ?? undefined}
               >
                 {hasChildren ? (
@@ -312,10 +819,13 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                     {node.code.usageCount}
                   </span>
                 )}
-              </button>
+              </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="opacity-0 group-hover:opacity-100">
+                  <button
+                    data-no-drag
+                    className="opacity-0 group-hover:opacity-100"
+                  >
                     <MoreVertical className="h-4 w-4" />
                   </button>
                 </DropdownMenuTrigger>
@@ -454,7 +964,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const isEmpty = tree.collections.length === 0 && tree.loose.length === 0
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       <div className="border-b p-2">
         <Button
           size="sm"
@@ -483,24 +993,38 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => setSelected(new Set())}
+              onClick={() => {
+                setSelected(new Set())
+                anchorRef.current = null
+              }}
             >
               <X className="h-3.5 w-3.5" /> Limpar
             </Button>
           </div>
         )}
+        {selected.size === 0 && !notice && (
+          <p className="mt-1.5 px-1 text-[11px] leading-tight text-muted-foreground/70">
+            Ctrl+clique soma • Shift+clique intervala • arraste: borda
+            reordena, centro agrupa
+          </p>
+        )}
+        {notice && (
+          <p className="mt-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
+            {notice}
+          </p>
+        )}
       </div>
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
-            className="flex-1 overflow-auto p-1"
-            onDragOver={(e) => {
-              if (dragIds && e.target === e.currentTarget) e.preventDefault()
-            }}
-            onDrop={(e) => {
-              if (e.target !== e.currentTarget) return
-              e.preventDefault()
-              void handleDropOn(null)
+            ref={scrollRef}
+            data-code-root
+            className={`flex-1 overflow-auto p-1 transition-colors duration-150 ${rootHover ? 'bg-primary/[0.07] outline-1 outline-dashed outline-primary/50 -outline-offset-4' : ''}`}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setSelected(new Set())
+                anchorRef.current = null
+              }
             }}
           >
             {isEmpty ? (
@@ -617,6 +1141,17 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         </ContextMenuContent>
       </ContextMenu>
 
+      {/* A dica do arrasto é sobreposta, nunca uma linha no fluxo: no fluxo ela
+          empurrava a lista para baixo e o destino sob o cursor mudava sozinho. */}
+      {dragIds && (
+        <div
+          role="status"
+          className={`pointer-events-none absolute bottom-2 left-1/2 z-20 max-w-[92%] -translate-x-1/2 truncate rounded-full border bg-background/95 px-3 py-1 text-[11px] font-medium shadow-md backdrop-blur-sm ${dropPos === 'inside' ? 'border-dashed border-primary text-foreground' : 'text-muted-foreground'}`}
+        >
+          {dropHint}
+        </div>
+      )}
+
       <CodeDialog
         open={dialogState !== null}
         onOpenChange={(o) => !o && setDialogState(null)}
@@ -660,6 +1195,15 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
           prompt?.kind === 'renameCollection' ? prompt.collection.name : ''
         }
         onSubmit={handlePrompt}
+      />
+
+      <SimplePromptDialog
+        open={groupPrompt !== null}
+        onOpenChange={(o) => !o && setGroupPrompt(null)}
+        title={`Novo grupo com ${groupNames(groupPrompt)}`}
+        label="Nome do grupo"
+        initialValue=""
+        onSubmit={submitGroupPrompt}
       />
 
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>

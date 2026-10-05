@@ -3,7 +3,7 @@ import { TopBar } from './TopBar'
 import { Sidebar } from './Sidebar'
 import { TranscriptPanel } from './TranscriptPanel'
 import { NotesPanel } from './NotesPanel'
-import { CodeQuotationsDialog } from './CodeQuotationsDialog'
+import { CodeQuotesPopover } from './CodeQuotesPopover'
 import { useAppStore } from '@/stores/appStore'
 import type { CodeWithCount } from '@shared/types'
 
@@ -19,7 +19,7 @@ export function Workspace(): JSX.Element {
         <TranscriptPanel />
         {notesPanelOpen && <NotesPanel />}
       </div>
-      <CodeQuotationsDialog
+      <CodeQuotesPopover
         code={viewCode}
         onOpenChange={(o) => !o && setViewCode(null)}
       />
