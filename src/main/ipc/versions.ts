@@ -51,12 +51,13 @@ export function registerVersionHandlers(): void {
     if (dest.startsWith(dirPrefix)) {
       throw new Error('Escolha outro local: a cópia não pode ficar dentro da pasta de versões.')
     }
+    // Preserva a cópia antes do checkpoint, cuja retenção pode podar a origem.
+    copyFileSync(source, result.filePath)
     // Checkpoint do estado atual antes de sair dele. O original nunca é
     // modificado pelo restore, então falha aqui só é registrada.
     await createVersionSnapshot(activePath, { kind: 'auto', label: 'antes de restaurar' }).catch((err: unknown) => {
       console.error(`[versoes] snapshot de segurança falhou: ${(err as Error)?.message ?? err}`)
     })
-    copyFileSync(source, result.filePath)
     clearHistoryFor(activePath)
     openDatabase(result.filePath)
     const meta = ensureMeta(basename(result.filePath).replace(/\.liva$/i, ''))

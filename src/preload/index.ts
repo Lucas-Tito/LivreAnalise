@@ -95,7 +95,12 @@ const api: Api = {
     list: () => ipcRenderer.invoke(IPC.versions.list),
     create: (label) => ipcRenderer.invoke(IPC.versions.create, label),
     prune: () => ipcRenderer.invoke(IPC.versions.prune),
-    restore: (id) => ipcRenderer.invoke(IPC.versions.restore, id)
+    restore: (id) => ipcRenderer.invoke(IPC.versions.restore, id),
+    onChanged: (listener) => {
+      const handler = (): void => listener()
+      ipcRenderer.on(IPC.versions.changed, handler)
+      return () => ipcRenderer.removeListener(IPC.versions.changed, handler)
+    }
   },
   view: {
     onAction: (listener) => {

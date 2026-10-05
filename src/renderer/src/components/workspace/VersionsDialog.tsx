@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { History, RotateCcw } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { Button } from '@/components/ui/button'
@@ -20,9 +20,17 @@ export function VersionsDialog({ open, onOpenChange }: Props): JSX.Element {
   const versions = useAppStore((s) => s.versions)
   const createVersion = useAppStore((s) => s.createVersion)
   const restoreVersion = useAppStore((s) => s.restoreVersion)
+  const refreshVersions = useAppStore((s) => s.refreshVersions)
   const [label, setLabel] = useState('')
   const [working, setWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const off = window.api.versions.onChanged(() => void refreshVersions())
+    void refreshVersions()
+    return off
+  }, [open, refreshVersions])
 
   const handleCreate = async (): Promise<void> => {
     setWorking(true)

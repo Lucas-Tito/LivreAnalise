@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { basename } from 'path'
 import { v4 as uuid } from 'uuid'
 import { IPC } from '@shared/ipc'
@@ -125,8 +125,15 @@ function openProjectPath(path: string): OpenProjectResult | null {
   pushRecent(getActivePath() as string, meta.name)
   // 1 checkpoint automático por abertura (retenção poda os antigos).
   // Melhor esforço: nunca bloqueia a abertura, mas o erro é registrado.
-  createVersionSnapshot(path, { kind: 'auto', label: null }).catch((err: unknown) => {
-    console.error(`[versoes] checkpoint automático falhou: ${(err as Error)?.message ?? err}`)
-  })
+  createVersionSnapshot(path, { kind: 'auto', label: null })
+    .then(() => {
+      if (getActivePath() !== path) return
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send(IPC.versions.changed)
+      }
+    })
+    .catch((err: unknown) => {
+      console.error(`[versoes] checkpoint automático falhou: ${(err as Error)?.message ?? err}`)
+    })
   return { meta, path }
 }
