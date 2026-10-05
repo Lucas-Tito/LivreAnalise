@@ -33,6 +33,42 @@ interface Bar {
   column: number
 }
 
+const BAR_LANE_KEY = 'transcriptCodesWidth'
+const BAR_LANE_MIN = 120
+const BAR_LANE_MAX = 640
+const BAR_LANE_AUTO_BASE = 150
+const BAR_LANE_PAD = 16
+const BAR_GAP = 8
+const BAR_MIN_WIDTH = 72
+
+// Nome da etiqueta com tooltip nativo só quando o texto está cortado: o
+// `title` incondicional mostrava dica até em nomes curtos, poluindo o hover.
+function BarName({ name }: { name: string }): JSX.Element {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [truncated, setTruncated] = useState(false)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const check = (): void => {
+      setTruncated(el.scrollWidth > el.clientWidth + 1)
+    }
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [name])
+
+  return (
+    <span
+      ref={ref}
+      className="min-w-0 flex-1 truncate"
+      title={truncated ? name : undefined}
+    >
+      {name}
+    </span>
+  )
+}
 
 function resolveOffset(node: Node, offset: number): number | null {
   if (node.nodeType === Node.TEXT_NODE) {
@@ -79,6 +115,24 @@ export function TranscriptPanel(): JSX.Element {
   const [bars, setBars] = useState<Bar[]>([])
   const [columnCount, setColumnCount] = useState(1)
   const columnFloorRef = useRef(1)
+  const [laneWidth, setLaneWidth] = useState<number | null>(() => {
+    try {
+      const stored = Number(localStorage.getItem(BAR_LANE_KEY))
+      return Number.isFinite(stored) &&
+        stored >= BAR_LANE_MIN &&
+        stored <= BAR_LANE_MAX
+        ? stored
+        : null
+    } catch {
+      return null
+    }
+  })
+  const [laneResizing, setLaneResizing] = useState(false)
+  const laneResizeRef = useRef<{ startX: number; startWidth: number } | null>(
+    null
+  )
+  const laneWidthRef = useRef<number | null>(laneWidth)
+  laneWidthRef.current = laneWidth
   const [hoverCoding, setHoverCoding] = useState<number | null>(null)
   const [selectedCodingId, setSelectedCodingId] = useState<number | null>(null)
   const [dragging, setDragging] = useState<{ codingId: number; end: 'start' | 'end' } | null>(null)
@@ -105,6 +159,59 @@ export function TranscriptPanel(): JSX.Element {
     obs.observe(document.documentElement, { attributeFilter: ['class'] })
     return () => obs.disconnect()
   }, [])
+
+  // Arrasto do divisor: a faixa fica à direita, então mover o mouse para a
+  // esquerda alarga (startX - clientX positivo) e para a direita estreita.
+  // O overlay é pointer-events-none (para não quebrar o duplo clique), então
+  // a seleção de texto durante o arrasto é bloqueada via body.
+  useEffect(() => {
+    if (!laneResizing) return
+    const prevUserSelect = document.body.style.userSelect
+    const prevCursor = document.body.style.cursor
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'col-resize'
+    const onMove = (e: MouseEvent): void => {
+      const start = laneResizeRef.current
+      if (!start) return
+      const next = Math.min(
+        BAR_LANE_MAX,
+        Math.max(BAR_LANE_MIN, start.startWidth + (start.startX - e.clientX))
+      )
+      setLaneWidth(next)
+    }
+    const stop = (): void => {
+      setLaneResizing(false)
+      laneResizeRef.current = null
+      const finalWidth = laneWidthRef.current
+      try {
+        if (finalWidth != null)
+          localStorage.setItem(BAR_LANE_KEY, String(Math.round(finalWidth)))
+      } catch {
+        // armazenamento indisponível: só não persiste
+      }
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', stop)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', stop)
+      document.body.style.userSelect = prevUserSelect
+      document.body.style.cursor = prevCursor
+    }
+  }, [laneResizing])
+
+  // Largura efetiva: automática até o usuário arrastar; depois acompanha o
+  // arrasto, mas nunca abaixo do mínimo que as colunas precisam para continuar
+  // legíveis. As etiquetas dividem o espaço igualmente e truncam o nome.
+  const autoLaneWidth = Math.max(180, columnCount * BAR_LANE_AUTO_BASE + 16)
+  const minNeededLaneWidth =
+    columnCount * (BAR_MIN_WIDTH + BAR_GAP) + BAR_LANE_PAD
+  const effectiveLaneWidth =
+    laneWidth == null
+      ? autoLaneWidth
+      : Math.max(BAR_LANE_MIN, laneWidth, minNeededLaneWidth)
+  const barSlot = (effectiveLaneWidth - BAR_LANE_PAD) / Math.max(1, columnCount)
+  const barWidth = Math.max(BAR_MIN_WIDTH, barSlot - BAR_GAP)
 
   const alpha = isDark
     ? { bg: '40', bgHover: '60', bar: 'bb' }
@@ -700,8 +807,31 @@ export function TranscriptPanel(): JSX.Element {
           </div>
 
           <div
+            onMouseDown={(e) => {
+              if (e.button !== 0) return
+              e.preventDefault()
+              laneResizeRef.current = {
+                startX: e.clientX,
+                startWidth: effectiveLaneWidth
+              }
+              setLaneResizing(true)
+            }}
+            onDoubleClick={() => {
+              setLaneWidth(null)
+              try {
+                localStorage.removeItem(BAR_LANE_KEY)
+              } catch {
+                // armazenamento indisponível: só não persiste
+              }
+            }}
+            title="Arraste para redimensionar a faixa de códigos (duplo clique restaura)"
+            className={`w-1.5 shrink-0 cursor-col-resize self-stretch hover:bg-primary/20 ${
+              laneResizing ? 'bg-primary/30' : ''
+            }`}
+          />
+          <div
             className="relative shrink-0 border-l bg-muted/30"
-            style={{ width: Math.max(180, columnCount * 150 + 16) }}
+            style={{ width: effectiveLaneWidth }}
           >
             {bars.map((bar) => (
               <div
@@ -712,17 +842,17 @@ export function TranscriptPanel(): JSX.Element {
                 className="group absolute flex h-[22px] cursor-pointer items-center gap-1 rounded px-1.5 text-xs"
                 style={{
                   top: bar.top,
-                  left: 8 + bar.column * 150,
-                  width: 142,
+                  left: BAR_LANE_PAD / 2 + bar.column * barSlot,
+                  width: barWidth,
                   backgroundColor: bar.color,
                   color: contrastText(bar.color),
                   outline: selectedCodingId === bar.codingId ? `2px solid ${bar.color}` : undefined,
                   outlineOffset: 2,
                 }}
               >
-                <span className="truncate">{bar.name}</span>
+                <BarName name={bar.name} />
                 <button
-                  className="ml-auto opacity-0 group-hover:opacity-100"
+                  className="ml-auto shrink-0 opacity-0 group-hover:opacity-100"
                   title="Remover citação"
                   onClick={() => removeCoding(bar.codingId)}
                 >
@@ -733,6 +863,9 @@ export function TranscriptPanel(): JSX.Element {
             </div>
           </div>
         </div>
+      )}
+      {laneResizing && (
+        <div className="pointer-events-none fixed inset-0 z-50 cursor-col-resize" />
       )}
 
       {pending && (
