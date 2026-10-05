@@ -3,7 +3,7 @@ import { create } from 'zustand'
 const ZOOM_KEY = 'livreanalise-zoom'
 const FONT_KEY = 'livreanalise-transcript-font'
 
-export type TranscriptFont = 'sans' | 'serif'
+export type TranscriptFont = 'sans' | 'serif' | 'dyslexic'
 
 export const ZOOM_MIN = 0.8
 export const ZOOM_MAX = 2.0
@@ -20,17 +20,22 @@ function readZoom(): number {
 }
 
 function readFont(): TranscriptFont {
-  return localStorage.getItem(FONT_KEY) === 'serif' ? 'serif' : 'sans'
+  const stored = localStorage.getItem(FONT_KEY)
+  if (stored === 'serif' || stored === 'dyslexic') return stored
+  return 'sans'
+}
+
+const TRANSCRIPT_FONTS: Record<TranscriptFont, string> = {
+  sans: 'system-ui, sans-serif',
+  serif: 'Georgia, "Times New Roman", serif',
+  // OpenDyslexic: letras com base pesada e formas distintas, desenhada para
+  // reduzir confusão entre caracteres espelhados (b/d, p/q).
+  dyslexic: "'OpenDyslexic', system-ui, sans-serif"
 }
 
 function applyFont(font: TranscriptFont): void {
   const root = document.documentElement
-  root.style.setProperty(
-    '--transcript-font',
-    font === 'serif'
-      ? 'Georgia, "Times New Roman", serif'
-      : 'system-ui, sans-serif'
-  )
+  root.style.setProperty('--transcript-font', TRANSCRIPT_FONTS[font])
 }
 
 interface ZoomState {

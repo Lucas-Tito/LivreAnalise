@@ -28,6 +28,7 @@ function App(): JSX.Element {
       else if (action === IPC.view.resetZoom) s.resetZoom()
       else if (action === IPC.view.fontSans) s.setFont('sans')
       else if (action === IPC.view.fontSerif) s.setFont('serif')
+      else if (action === IPC.view.fontDyslexic) s.setFont('dyslexic')
     })
     const onKey = (e: KeyboardEvent): void => {
       const el = e.target as HTMLElement | null

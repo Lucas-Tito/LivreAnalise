@@ -104,12 +104,14 @@ const api: Api = {
       ipcRenderer.on(IPC.view.resetZoom, handler)
       ipcRenderer.on(IPC.view.fontSans, handler)
       ipcRenderer.on(IPC.view.fontSerif, handler)
+      ipcRenderer.on(IPC.view.fontDyslexic, handler)
       return () => {
         ipcRenderer.removeListener(IPC.view.zoomIn, handler)
         ipcRenderer.removeListener(IPC.view.zoomOut, handler)
         ipcRenderer.removeListener(IPC.view.resetZoom, handler)
         ipcRenderer.removeListener(IPC.view.fontSans, handler)
         ipcRenderer.removeListener(IPC.view.fontSerif, handler)
+        ipcRenderer.removeListener(IPC.view.fontDyslexic, handler)
       }
     }
   }

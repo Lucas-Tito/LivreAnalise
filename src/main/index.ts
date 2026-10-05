@@ -65,7 +65,8 @@ function createWindow(): void {
           { label: 'Restaurar zoom', accelerator: 'CmdOrCtrl+0', click: () => send(IPC.view.resetZoom) },
           { type: 'separator' },
           { label: 'Fonte sem serifa', type: 'radio', click: () => send(IPC.view.fontSans) },
-          { label: 'Fonte com serifa', type: 'radio', click: () => send(IPC.view.fontSerif) }
+          { label: 'Fonte com serifa', type: 'radio', click: () => send(IPC.view.fontSerif) },
+          { label: 'Fonte para dislexia (OpenDyslexic)', type: 'radio', click: () => send(IPC.view.fontDyslexic) }
         ]
       }
     ])

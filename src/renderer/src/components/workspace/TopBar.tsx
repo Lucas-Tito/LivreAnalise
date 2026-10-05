@@ -108,6 +108,13 @@ export function TopBar(): JSX.Element {
           >
             Serif
           </button>
+          <button
+            className={`rounded px-1.5 py-1 text-xs ${font === 'dyslexic' ? 'bg-accent font-medium' : 'text-muted-foreground'}`}
+            onClick={() => setFont('dyslexic')}
+            title="Fonte OpenDyslexic (amigável para dislexia)"
+          >
+            Dislexia
+          </button>
         </div>
         <Button
           size="sm"

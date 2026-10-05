@@ -119,7 +119,8 @@ export const IPC = {
     zoomOut: 'view:zoom-out',
     resetZoom: 'view:zoom-reset',
     fontSans: 'view:font-sans',
-    fontSerif: 'view:font-serif'
+    fontSerif: 'view:font-serif',
+    fontDyslexic: 'view:font-dyslexic'
   }
 } as const
 
