@@ -63,4 +63,113 @@ describe.skipIf(!nativeOk)('moveCodes (integration)', () => {
     expect(() => repos.moveCodes({ ids: [g1.id], parentId: g2.id })).toThrow()
     db.closeDatabase()
   })
+
+  it('unites codes in a new group keeping citations', async () => {
+    const a = repos.createCode({ name: 'A', color: '#222' })
+    const b = repos.createCode({ name: 'B', color: '#333' })
+    const doc = repos.createDocument({
+      name: 'Doc',
+      plainText: 'abcdefghij',
+      originalFormat: 'txt',
+      sourceFilename: 'd.txt'
+    })
+    repos.createCoding({ documentId: doc.id, codeId: b.id, startPos: 2, endPos: 5 })
+
+    const group = repos.createGroupFromCodes('Meu grupo', '#111', [a.id, b.id])
+
+    const codes = repos.listCodes()
+    expect(codes.find((c) => c.id === group.id)?.parentId).toBeNull()
+    expect(codes.find((c) => c.id === a.id)?.parentId).toBe(group.id)
+    expect(codes.find((c) => c.id === b.id)?.parentId).toBe(group.id)
+    const coding = repos.listCodingsByDocument(doc.id)
+    expect(coding).toHaveLength(1)
+    expect(coding[0].codeId).toBe(b.id)
+    db.closeDatabase()
+  })
+
+  it('does not unite a group inside another group', async () => {
+    const g1 = repos.createCode({ name: 'G1', color: '#111' })
+    repos.createCode({ name: 'F1', color: '#222', parentId: g1.id })
+    const leaf = repos.createCode({ name: 'Folha', color: '#333' })
+    expect(() => repos.createGroupFromCodes('X', '#444', [g1.id, leaf.id])).toThrow()
+    const codes = repos.listCodes()
+    expect(codes.find((c) => c.id === leaf.id)?.parentId).toBeNull()
+    db.closeDatabase()
+  })
+
+  it('undoes the union as one step', async () => {
+    const history = await import('../src/main/history/stack')
+    const a = repos.createCode({ name: 'A', color: '#222' })
+    const b = repos.createCode({ name: 'B', color: '#333' })
+    history.clearAllHistory()
+    repos.createGroupFromCodes('Meu grupo', '#111', [a.id, b.id])
+    expect(repos.listCodes()).toHaveLength(3)
+
+    history.historyUndo()
+    const codes = repos.listCodes()
+    expect(codes).toHaveLength(2)
+    expect(codes.find((c) => c.id === a.id)?.parentId).toBeNull()
+    expect(codes.find((c) => c.id === b.id)?.parentId).toBeNull()
+    db.closeDatabase()
+  })
+
+  it('reorders a code among its siblings', async () => {
+    const a = repos.createCode({ name: 'A', color: '#111' })
+    const b = repos.createCode({ name: 'B', color: '#222' })
+    const c = repos.createCode({ name: 'C', color: '#333' })
+
+    // C vai para antes de A: a lista precisa deixar de ser alfabética.
+    repos.moveCodes({ ids: [c.id], parentId: null, anchorId: a.id, position: 'before' })
+
+    expect(repos.listCodes().map((x) => x.name)).toEqual(['C', 'A', 'B'])
+    db.closeDatabase()
+  })
+
+  it('moves a code into a group at the dropped position', async () => {
+    const group = repos.createCode({ name: 'Grupo', color: '#111' })
+    const first = repos.createCode({ name: 'F1', color: '#222', parentId: group.id })
+    repos.createCode({ name: 'F2', color: '#333', parentId: group.id })
+    const loose = repos.createCode({ name: 'Solto', color: '#444' })
+
+    repos.moveCodes({
+      ids: [loose.id],
+      parentId: group.id,
+      anchorId: first.id,
+      position: 'before'
+    })
+
+    const children = repos
+      .listCodes()
+      .filter((x) => x.parentId === group.id)
+      .map((x) => x.name)
+    expect(children).toEqual(['Solto', 'F1', 'F2'])
+    db.closeDatabase()
+  })
+
+  it('undoes a reorder back to the previous order', async () => {
+    const history = await import('../src/main/history/stack')
+    const a = repos.createCode({ name: 'A', color: '#111' })
+    repos.createCode({ name: 'B', color: '#222' })
+    const c = repos.createCode({ name: 'C', color: '#333' })
+    history.clearAllHistory()
+
+    repos.moveCodes({ ids: [c.id], parentId: null, anchorId: a.id, position: 'before' })
+    expect(repos.listCodes().map((x) => x.name)).toEqual(['C', 'A', 'B'])
+
+    history.historyUndo()
+    expect(repos.listCodes().map((x) => x.name)).toEqual(['A', 'B', 'C'])
+    db.closeDatabase()
+  })
+
+  it('reorders a multi-selection keeping the dragged order', async () => {
+    const a = repos.createCode({ name: 'A', color: '#111' })
+    const b = repos.createCode({ name: 'B', color: '#222' })
+    const c = repos.createCode({ name: 'C', color: '#333' })
+    const d = repos.createCode({ name: 'D', color: '#444' })
+
+    repos.moveCodes({ ids: [c.id, d.id], parentId: null, anchorId: b.id, position: 'after' })
+
+    expect(repos.listCodes().map((x) => x.name)).toEqual(['A', 'B', 'C', 'D'])
+    db.closeDatabase()
+  })
 })

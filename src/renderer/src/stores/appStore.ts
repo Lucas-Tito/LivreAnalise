@@ -8,6 +8,7 @@ import type {
   CreateCodeInput,
   CreateCollectionInput,
   CreateGroupInput,
+  CreateGroupFromCodesInput,
   CreateNoteInput,
   DocumentRecord,
   DocumentWithText,
@@ -54,9 +55,14 @@ interface AppState {
   refreshCodes: () => Promise<void>
   createCode: (input: CreateCodeInput) => Promise<Code>
   createGroup: (input: CreateGroupInput) => Promise<Code>
+  createGroupFrom: (input: CreateGroupFromCodesInput) => Promise<Code>
   updateCode: (input: UpdateCodeInput) => Promise<void>
   deleteCode: (id: number) => Promise<void>
-  moveCodes: (ids: number[], parentId: number | null) => Promise<void>
+  moveCodes: (
+    ids: number[],
+    parentId: number | null,
+    placement?: { anchorId?: number | null; position?: 'before' | 'after' | 'end' }
+  ) => Promise<void>
 
   history: HistoryState
   refreshHistory: () => Promise<void>
@@ -350,6 +356,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     return group
   },
 
+  // Une vários códigos em um grupo novo: um só comando, um só undo.
+  createGroupFrom: async (input) => {
+    const group = await window.api.codes.createGroupFrom(input)
+    await get().refreshCodes()
+    await get().refreshHistory()
+    return group
+  },
+
   updateCode: async (input) => {
     await window.api.codes.update(input)
     await get().refreshCodes()
@@ -363,8 +377,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().refreshHistory()
   },
 
-  moveCodes: async (ids, parentId) => {
-    await window.api.codes.moveMany({ ids, parentId })
+  moveCodes: async (ids, parentId, placement) => {
+    await window.api.codes.moveMany({
+      ids,
+      parentId,
+      anchorId: placement?.anchorId ?? null,
+      position: placement?.position ?? 'end'
+    })
     await get().refreshCodes()
     await get().refreshHistory()
   },

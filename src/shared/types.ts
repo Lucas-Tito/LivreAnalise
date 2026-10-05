@@ -102,12 +102,23 @@ export interface UpdateCodeInput {
 export interface MoveCodesInput {
   ids: number[]
   parentId: number | null
+  // Reordenação dentro do destino: `anchorId` é o código vizinho e `position`
+  // diz de que lado o arrastado entra. Sem anchor, o código vai para o fim.
+  anchorId?: number | null
+  position?: 'before' | 'after' | 'end'
 }
 
 export interface CreateGroupInput {
   name: string
   color: string
   codeId: number
+}
+
+// União de vários códigos em um grupo novo (arrastar um sobre o outro).
+export interface CreateGroupFromCodesInput {
+  name: string
+  color: string
+  codeIds: number[]
 }
 
 export interface CreateCollectionInput {

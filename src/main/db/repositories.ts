@@ -305,6 +305,13 @@ export function createCode(input: CreateCodeInput): Code {
     }
   }
   const guid = uuid()
+  // Nasce no fim do seu nível: com sort_order 0 ele cairia no meio da lista
+  // por ordem alfabética, não onde o usuário acabou de criar.
+  const siblings = db.select().from(codes).all() as Code[]
+  const nextOrder =
+    siblings
+      .filter((c) => c.parentId === (input.parentId ?? null))
+      .reduce((max, c) => Math.max(max, c.sortOrder), -1) + 1
   const res = db
     .insert(codes)
     .values({
@@ -312,7 +319,8 @@ export function createCode(input: CreateCodeInput): Code {
       name: input.name,
       color: input.color,
       description: input.description ?? null,
-      parentId: input.parentId ?? null
+      parentId: input.parentId ?? null,
+      sortOrder: nextOrder
     })
     .run()
   touchProject()
@@ -387,6 +395,14 @@ export function updateCode(input: UpdateCodeInput): void {
 
 // Movimentação atômica de N códigos: valida tudo antes, aplica em transação.
 // Preserva ID/GUID, citações e memberships (nunca delete+recreate).
+// Ordem dos irmãos dentro de um mesmo pai: sort_order primeiro (é o que o
+// arrasto reescreve) e nome como desempate para os códigos que nunca foram
+// movidos — todos nascem com sort_order 0.
+function siblingKey(a: Code, b: Code): number {
+  if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
+  return a.name.localeCompare(b.name, 'pt-BR')
+}
+
 export function moveCodes(input: MoveCodesInput): void {
   const db = getDb()
   const all = db.select().from(codes).all() as Code[]
@@ -395,16 +411,48 @@ export function moveCodes(input: MoveCodesInput): void {
   for (const id of unique) {
     validateParentChange(all, id, input.parentId)
   }
-  const beforeParents = new Map<number, number | null>()
-  for (const id of unique) {
-    beforeParents.set(id, all.find((c) => c.id === id)?.parentId ?? null)
+  // Uma âncora que também está sendo arrastada não pode virar referência: ela
+  // sai da lista e o vizinho real do destino é o seu antigo antecessor.
+  const anchorId =
+    input.anchorId != null && !unique.includes(input.anchorId)
+      ? input.anchorId
+      : null
+  const moving = unique
+    .map((id) => all.find((c) => c.id === id))
+    .filter((c): c is Code => c != null)
+    .sort(siblingKey)
+  const staying = all
+    .filter((c) => c.parentId === input.parentId && !unique.includes(c.id))
+    .sort(siblingKey)
+  const at = anchorId == null ? -1 : staying.findIndex((c) => c.id === anchorId)
+  const index = at === -1 ? staying.length : at + (input.position === 'after' ? 1 : 0)
+  const ordered = [...staying.slice(0, index), ...moving, ...staying.slice(index)]
+
+  // Um sort_order novo para todos os irmãos do destino: é o que faz a lista
+  // obedecer à ordem escolhida no arrasto em vez de ao alfabeto.
+  const before = new Map<number, { parentId: number | null; sortOrder: number }>()
+  for (const c of all) {
+    if (c.parentId === input.parentId || unique.includes(c.id)) {
+      before.set(c.id, { parentId: c.parentId, sortOrder: c.sortOrder })
+    }
   }
   db.transaction((tx) => {
-    for (const id of unique) {
-      tx.update(codes).set({ parentId: input.parentId }).where(eq(codes.id, id)).run()
-    }
+    ordered.forEach((code, position) => {
+      if (unique.includes(code.id)) {
+        tx.update(codes)
+          .set({ parentId: input.parentId, sortOrder: position })
+          .where(eq(codes.id, code.id))
+          .run()
+      } else if (code.sortOrder !== position) {
+        tx.update(codes)
+          .set({ sortOrder: position })
+          .where(eq(codes.id, code.id))
+          .run()
+      }
+    })
   })
   touchProject()
+  const snapshot = [...before.entries()]
   const afterParent = input.parentId
   const count = unique.length
   pushHistory({
@@ -412,8 +460,11 @@ export function moveCodes(input: MoveCodesInput): void {
     undo: () => {
       const db2 = getDb()
       db2.transaction((tx) => {
-        for (const id of unique) {
-          tx.update(codes).set({ parentId: beforeParents.get(id) ?? null }).where(eq(codes.id, id)).run()
+        for (const [id, prev] of snapshot) {
+          tx.update(codes)
+            .set({ parentId: prev.parentId, sortOrder: prev.sortOrder })
+            .where(eq(codes.id, id))
+            .run()
         }
       })
       touchProject()
@@ -421,9 +472,19 @@ export function moveCodes(input: MoveCodesInput): void {
     redo: () => {
       const db2 = getDb()
       db2.transaction((tx) => {
-        for (const id of unique) {
-          tx.update(codes).set({ parentId: afterParent }).where(eq(codes.id, id)).run()
-        }
+        ordered.forEach((code, position) => {
+          if (unique.includes(code.id)) {
+            tx.update(codes)
+              .set({ parentId: afterParent, sortOrder: position })
+              .where(eq(codes.id, code.id))
+              .run()
+          } else if (code.sortOrder !== position) {
+            tx.update(codes)
+              .set({ sortOrder: position })
+              .where(eq(codes.id, code.id))
+              .run()
+          }
+        })
       })
       touchProject()
     }
@@ -433,29 +494,65 @@ export function moveCodes(input: MoveCodesInput): void {
 // Ação composta atômica: criar grupo + reparentar o código de origem.
 // Um único comando no histórico (desfazer remove o grupo e restaura o pai).
 export function createGroupCode(name: string, color: string, codeId: number): Code {
-  const db = getDb()
-  const all = db.select().from(codes).all() as Code[]
+  const all = getDb().select().from(codes).all() as Code[]
   const origin = all.find((c) => c.id === codeId)
   if (!origin) throw new Error('Código de origem não encontrado.')
   if (origin.parentId != null || all.some((c) => c.parentId === codeId)) {
     throw new Error('Só um código solto sem filhos pode virar grupo.')
   }
+  return createGroupFromCodes(name, color, [codeId])
+}
+
+// Mesmo comando, com vários códigos: é o "unir códigos em um grupo" do arrasto.
+// Todos entram como filhos do grupo novo e o grupo nasce na raiz.
+export function createGroupFromCodes(
+  name: string,
+  color: string,
+  codeIds: number[]
+): Code {
+  const db = getDb()
+  const unique = [...new Set(codeIds)]
+  if (unique.length === 0) throw new Error('Escolha ao menos um código.')
+  const all = db.select().from(codes).all() as Code[]
+  const members = unique.map((id) => {
+    const code = all.find((c) => c.id === id)
+    if (!code) throw new Error('Código não encontrado.')
+    if (all.some((c) => c.parentId === id)) {
+      throw new Error(`"${code.name}" já é um grupo e não pode entrar em outro.`)
+    }
+    return code
+  })
   const guid = uuid()
   let group!: Code
   db.transaction((tx) => {
-    const res = tx.insert(codes).values({ guid, name, color, description: null, parentId: null }).run()
-    group = tx.select().from(codes).where(eq(codes.id, Number(res.lastInsertRowid))).get() as Code
-    tx.update(codes).set({ parentId: group.id }).where(eq(codes.id, codeId)).run()
+    const res = tx
+      .insert(codes)
+      .values({ guid, name, color, description: null, parentId: null })
+      .run()
+    group = tx
+      .select()
+      .from(codes)
+      .where(eq(codes.id, Number(res.lastInsertRowid)))
+      .get() as Code
+    members.forEach((member, position) => {
+      tx.update(codes)
+        .set({ parentId: group.id, sortOrder: position })
+        .where(eq(codes.id, member.id))
+        .run()
+    })
   })
   touchProject()
   const groupSnap = { ...group }
-  const oldParent = origin.parentId
+  const oldParents = members.map((m) => m.parentId)
+  const ids = members.map((m) => m.id)
   pushHistory({
     label: `criar grupo "${name}"`,
     undo: () => {
       const db2 = getDb()
       db2.transaction((tx) => {
-        tx.update(codes).set({ parentId: oldParent }).where(eq(codes.id, codeId)).run()
+        ids.forEach((id, index) => {
+          tx.update(codes).set({ parentId: oldParents[index] }).where(eq(codes.id, id)).run()
+        })
         tx.delete(codes).where(eq(codes.id, groupSnap.id)).run()
       })
       touchProject()
@@ -464,7 +561,12 @@ export function createGroupCode(name: string, color: string, codeId: number): Co
       const db2 = getDb()
       db2.transaction((tx) => {
         tx.insert(codes).values(groupSnap).onConflictDoNothing().run()
-        tx.update(codes).set({ parentId: groupSnap.id }).where(eq(codes.id, codeId)).run()
+        ids.forEach((id, position) => {
+          tx.update(codes)
+            .set({ parentId: groupSnap.id, sortOrder: position })
+            .where(eq(codes.id, id))
+            .run()
+        })
       })
       touchProject()
     }

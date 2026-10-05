@@ -11,6 +11,7 @@ import type {
   CreateCodingInput,
   CreateCollectionInput,
   CreateGroupInput,
+  CreateGroupFromCodesInput,
   CreateNoteInput,
   DocumentRecord,
   DocumentWithText,
@@ -56,6 +57,7 @@ export const IPC = {
     list: 'codes:list',
     create: 'codes:create',
     createGroup: 'codes:createGroup',
+    createGroupFrom: 'codes:createGroupFrom',
     update: 'codes:update',
     delete: 'codes:delete',
     moveMany: 'codes:moveMany'
@@ -147,6 +149,7 @@ export interface Api {
     list: () => Promise<CodeWithCount[]>
     create: (input: CreateCodeInput) => Promise<Code>
     createGroup: (input: CreateGroupInput) => Promise<Code>
+    createGroupFrom: (input: CreateGroupFromCodesInput) => Promise<Code>
     update: (input: UpdateCodeInput) => Promise<void>
     delete: (id: number) => Promise<void>
     moveMany: (input: MoveCodesInput) => Promise<void>
