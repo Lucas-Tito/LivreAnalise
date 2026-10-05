@@ -212,6 +212,12 @@ function member(collectionId: number, codeId: number): CollectionMember {
 }
 
 describe('buildLibraryTree', () => {
+  it('orders direct collection members by code order rather than membership order', () => {
+    const codes = [ord(2, 0), ord(1, 1)]
+    const tree = buildLibraryTree(codes, [collection(10)], [member(10, 1), member(10, 2)])
+    expect(tree.collections[0].children.map((c) => c.code.id)).toEqual([2, 1])
+  })
+
   it('nests collection -> group -> code', () => {
     const codes = [code(1), code(2, 1), code(3, 1)]
     const tree = buildLibraryTree(codes, [collection(10)], [member(10, 1)])

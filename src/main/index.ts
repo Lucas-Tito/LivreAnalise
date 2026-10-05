@@ -57,6 +57,9 @@ function createWindow(): void {
   }
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
+      ...(process.platform === 'darwin'
+        ? [{ role: 'appMenu' as const }, { role: 'editMenu' as const }]
+        : []),
       {
         label: 'View',
         submenu: [

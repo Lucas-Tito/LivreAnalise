@@ -243,6 +243,7 @@ export function buildLibraryTree<T extends Code>(
         placed.add(descendant.id)
       }
     }
+    children.sort((a, b) => siblingOrder(a.code, b.code))
     return { collection, children }
   })
 
