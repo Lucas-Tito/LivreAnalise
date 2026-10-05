@@ -92,6 +92,13 @@ interface AppState {
   navigateNoteId: number | null
   navigateToNote: (id: number) => void
   clearNavigateNote: () => void
+  // Ocorrência em foco: fica no store para o painel de trechos mostrar
+  // "2 de 7" e marcar a linha. `locateSeq` é o que dispara o scroll/piscar
+  // na transcrição — separado do id para que localizar a MESMA ocorrência de
+  // novo (F3 no fim da lista) volte a rolar, já que o id não muda.
+  locateCodingId: number | null
+  locateSeq: number
+  locateOccurrence: (coding: Coding) => Promise<void>
   editorNoteId: number | null
   openNoteEditor: (id: number | null) => void
   refreshNotes: () => Promise<void>
@@ -115,9 +122,9 @@ async function refreshAfterHistory(
     try {
       const doc = await window.api.documents.get(current.id)
       set({ currentDocument: doc })
-      if (!doc) set({ navigateNoteId: null, editorNoteId: null })
+      if (!doc) set({ navigateNoteId: null, editorNoteId: null, locateCodingId: null })
     } catch {
-      set({ currentDocument: null, codings: [], navigateNoteId: null, editorNoteId: null })
+      set({ currentDocument: null, codings: [], navigateNoteId: null, editorNoteId: null, locateCodingId: null })
     }
     await get().refreshCodings()
   } else {
@@ -154,6 +161,7 @@ function resetNotesState(): Partial<AppState> {
     documentNotes: [],
     projectNotes: [],
     navigateNoteId: null,
+    locateCodingId: null,
     editorNoteId: null
   }
 }
@@ -173,6 +181,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   documentNotes: [],
   projectNotes: [],
   navigateNoteId: null,
+  locateCodingId: null,
+  locateSeq: 0,
   editorNoteId: null,
   notesFlush: null,
   history: { canUndo: false, canRedo: false, undoLabel: null, redoLabel: null },
@@ -440,6 +450,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       projectNotes: [],
       navigateNoteId: null,
       editorNoteId: null,
+      locateCodingId: null,
       versions: []
     })
     await loadProjectData(set)
@@ -513,6 +524,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   navigateToNote: (id) => set({ navigateNoteId: id, notesPanelOpen: true }),
 
   clearNavigateNote: () => set({ navigateNoteId: null }),
+
+  // Localizar ocorrência: troca de documento primeiro (o selectDocument não
+  // mexe neste campo) e só então marca o alvo, para a transcrição rolar.
+  // O id fica guardado para o painel mostrar a posição; `locateSeq` sempre
+  // avança para o efeito da transcrição rodar mesmo repetindo a mesma.
+  locateOccurrence: async (coding) => {
+    const doc = get().currentDocument
+    if (!doc || doc.id !== coding.documentId) {
+      await get().selectDocument(coding.documentId)
+    }
+    set((s) => ({ locateCodingId: coding.id, locateSeq: s.locateSeq + 1 }))
+  },
 
   openNoteEditor: (id) => set({ editorNoteId: id, notesPanelOpen: true }),
 

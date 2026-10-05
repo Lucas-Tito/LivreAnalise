@@ -65,6 +65,8 @@ export function TranscriptPanel(): JSX.Element {
   const documentNotes = useAppStore((s) => s.documentNotes)
   const navigateNoteId = useAppStore((s) => s.navigateNoteId)
   const clearNavigateNote = useAppStore((s) => s.clearNavigateNote)
+  const locateCodingId = useAppStore((s) => s.locateCodingId)
+  const locateSeq = useAppStore((s) => s.locateSeq)
   const createNote = useAppStore((s) => s.createNote)
   const openNoteEditor = useAppStore((s) => s.openNoteEditor)
   const zoom = useZoomStore((s) => s.zoom)
@@ -85,6 +87,8 @@ export function TranscriptPanel(): JSX.Element {
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [flashNoteId, setFlashNoteId] = useState<number | null>(null)
+  // Ocorrência localizada vinda do painel de trechos: pisca como a nota.
+  const [flashCodingId, setFlashCodingId] = useState<number | null>(null)
   const [editTip, setEditTip] = useState<{
     x: number
     y: number
@@ -232,6 +236,31 @@ export function TranscriptPanel(): JSX.Element {
     () => buildLineRows(text, noteSegments),
     [text, noteSegments]
   )
+
+  // "Localizar ocorrências" do painel de códigos: rola o texto até o início
+  // da citação e pisca o trecho inteiro. O store garante que o documento da
+  // ocorrência já está aberto quando este efeito roda.
+  // Depende de locateSeq, e não de locateCodingId: localizar a mesma
+  // ocorrência de novo (F3 dando a volta) precisa rolar de novo, e o id
+  // guardando a posição não pode ser limpo aqui — é dele que o painel de
+  // trechos tira o contador "2 de 7".
+  useEffect(() => {
+    if (locateCodingId == null) return
+    const coding = codings.find((c) => c.id === locateCodingId)
+    if (!coding || !textRef.current) return
+    const anchor = resolveAnchorPos(coding.startPos, anchorPositions(lineRows))
+    const el =
+      anchor === null
+        ? null
+        : (textRef.current.querySelector(
+            `[data-pos="${anchor}"]`
+          ) as HTMLElement | null)
+    el?.scrollIntoView({ block: 'center' })
+    setFlashCodingId(coding.id)
+    const timer = setTimeout(() => setFlashCodingId(null), 2500)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locateSeq])
 
   const draftSegments = useMemo(() => {
     const previewCodings = applyCodingAdjustments(codings, text, draft)
@@ -584,7 +613,8 @@ export function TranscriptPanel(): JSX.Element {
                           const isSelected = seg.codingIds.includes(selectedCodingId ?? -1)
                           const hasNote = seg.noteIds.length > 0
                           const isFlash =
-                            flashNoteId != null && seg.noteIds.includes(flashNoteId)
+                            (flashNoteId != null && seg.noteIds.includes(flashNoteId)) ||
+                            (flashCodingId != null && seg.codingIds.includes(flashCodingId))
                           const selCoding = isSelected
                             ? codings.find((c) => c.id === selectedCodingId)
                             : null
