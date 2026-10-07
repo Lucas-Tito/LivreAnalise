@@ -178,6 +178,12 @@ export interface UpdateNoteInput {
   id: number
   title?: string | null
   body?: string
+  /**
+   * Religa uma nota de trecho desvinculada. Passar os dois marca a nota como
+   * ancorada de novo e descarta o trecho original guardado na desvinculacao.
+   */
+  startPos?: number
+  endPos?: number
 }
 
 export interface OpenProjectResult {

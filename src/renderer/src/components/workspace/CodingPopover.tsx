@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, StickyNote } from 'lucide-react'
+import { Link2, Plus, StickyNote } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { applicableCodes } from '@shared/codeTree'
 import { randomColor } from '@/lib/utils'
@@ -10,9 +10,10 @@ interface Props {
   onClose: () => void
   onApply: (codeId: number) => void
   onAddNote?: () => void
+  onReattachNote?: () => void
 }
 
-export function CodingPopover({ x, y, onClose, onApply, onAddNote }: Props): JSX.Element {
+export function CodingPopover({ x, y, onClose, onApply, onAddNote, onReattachNote }: Props): JSX.Element {
   const allCodes = useAppStore((s) => s.codes)
   const createCode = useAppStore((s) => s.createCode)
   const lastUsedCodeId = useAppStore((s) => s.lastUsedCodeId)
@@ -86,6 +87,15 @@ export function CodingPopover({ x, y, onClose, onApply, onAddNote }: Props): JSX
         >
           <StickyNote className="h-4 w-4" />
           Adicionar nota ao trecho
+        </button>
+      )}
+      {onReattachNote && (
+        <button
+          onClick={onReattachNote}
+          className="mb-1 flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-primary hover:bg-accent"
+        >
+          <Link2 className="h-4 w-4" />
+          Religar a nota aberta a este trecho
         </button>
       )}
       {showLastUsed && (

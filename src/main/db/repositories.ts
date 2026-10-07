@@ -26,7 +26,7 @@ import {
   validateParentChange
 } from '@shared/codeTree'
 import { pushHistory } from '../history/stack'
-import type { MoveCodesInput } from '@shared/types'
+import type { MoveCodesInput, NoteAnchorStatus } from '@shared/types'
 import { findConnectedCodings } from '../services/codingMerge'
 import { getDb } from './index'
 import {
@@ -1116,11 +1116,29 @@ export function createNote(input: CreateNoteInput): Note {
 export function updateNote(input: UpdateNoteInput): Note {
   const db = getDb()
   const beforeRow = (db.select().from(notes).where(eq(notes.id, input.id)).get() as typeof notes.$inferSelect)
-  const patch: { title?: string | null; body?: string; updatedAt: string } = {
+  const patch: {
+    title?: string | null
+    body?: string
+    startPos?: number
+    endPos?: number
+    anchorStatus?: NoteAnchorStatus
+    anchorText?: string | null
+    updatedAt: string
+  } = {
     updatedAt: new Date().toISOString()
   }
   if (input.title !== undefined) patch.title = input.title
   if (input.body !== undefined) patch.body = input.body
+  // Religar: ate aqui 'attached' so era escrito ao criar a nota e ao importar,
+  // entao uma nota desvinculada por uma edicao de texto nao tinha volta -- so
+  // apagar e reescrever. O trecho original guardado na desvinculacao perde o
+  // sentido assim que a ancora existe de novo.
+  if (input.startPos !== undefined && input.endPos !== undefined) {
+    patch.startPos = input.startPos
+    patch.endPos = input.endPos
+    patch.anchorStatus = 'attached'
+    patch.anchorText = null
+  }
   db.update(notes).set(patch).where(eq(notes.id, input.id)).run()
   touchProject()
   const after = getNote(input.id)
@@ -1131,11 +1149,21 @@ export function updateNote(input: UpdateNoteInput): Note {
     pushHistory({
       label: `editar nota`,
       undo: () => {
-        getDb().update(notes).set({ title: b.title, body: b.body, updatedAt: b.updatedAt }).where(eq(notes.id, b.id)).run()
+        // a ancora vai junto: desfazer um religamento precisa devolver a nota
+        // ao estado desvinculado, com o trecho original que ela guardava
+        getDb().update(notes).set({
+          title: b.title, body: b.body, updatedAt: b.updatedAt,
+          startPos: b.startPos, endPos: b.endPos,
+          anchorStatus: b.anchorStatus, anchorText: b.anchorText
+        }).where(eq(notes.id, b.id)).run()
         touchProject()
       },
       redo: () => {
-        getDb().update(notes).set({ title: a.title, body: a.body, updatedAt: a.updatedAt }).where(eq(notes.id, a.id)).run()
+        getDb().update(notes).set({
+          title: a.title, body: a.body, updatedAt: a.updatedAt,
+          startPos: a.startPos, endPos: a.endPos,
+          anchorStatus: a.anchorStatus, anchorText: a.anchorText
+        }).where(eq(notes.id, a.id)).run()
         touchProject()
       }
     })

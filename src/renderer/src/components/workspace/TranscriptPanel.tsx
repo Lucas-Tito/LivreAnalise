@@ -100,6 +100,9 @@ export function TranscriptPanel(): JSX.Element {
   const removeCoding = useAppStore((s) => s.removeCoding)
   const updateDocumentText = useAppStore((s) => s.updateDocumentText)
   const documentNotes = useAppStore((s) => s.documentNotes)
+  const projectNotes = useAppStore((s) => s.projectNotes)
+  const editorNoteId = useAppStore((s) => s.editorNoteId)
+  const updateNote = useAppStore((s) => s.updateNote)
   const navigateNoteId = useAppStore((s) => s.navigateNoteId)
   const clearNavigateNote = useAppStore((s) => s.clearNavigateNote)
   const locateCodingId = useAppStore((s) => s.locateCodingId)
@@ -499,6 +502,26 @@ export function TranscriptPanel(): JSX.Element {
     openNoteEditor(note.id)
   }
 
+  // Nota de trecho desvinculada so tinha saida por desfazer ou apagar: 'attached'
+  // nunca era reescrito depois da criacao. Com o editor aberto numa nota assim,
+  // selecionar um trecho deste documento oferece religar.
+  const notaParaReligar =
+    editorNoteId != null && currentDocument != null
+      ? (documentNotes.find((n) => n.id === editorNoteId) ??
+          projectNotes.find((n) => n.id === editorNoteId))
+      : undefined
+  const podeReligar =
+    notaParaReligar?.scope === 'excerpt' &&
+    notaParaReligar.anchorStatus === 'detached' &&
+    notaParaReligar.documentId === currentDocument?.id
+
+  const reattachPendingNote = async (): Promise<void> => {
+    if (!pending || !podeReligar || !notaParaReligar) return
+    await updateNote({ id: notaParaReligar.id, startPos: pending.start, endPos: pending.end })
+    setPending(null)
+    window.getSelection()?.removeAllRanges()
+  }
+
   const startEditing = (): void => {
     setPending(null)
     setDraft(text)
@@ -877,6 +900,7 @@ export function TranscriptPanel(): JSX.Element {
           onClose={() => setPending(null)}
           onApply={applyCode}
           onAddNote={() => void addNoteForPending()}
+          onReattachNote={podeReligar ? () => void reattachPendingNote() : undefined}
         />
       )}
     </div>
