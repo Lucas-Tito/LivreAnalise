@@ -348,12 +348,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteDocument: async (id) => {
+    // Descobre a nota aberta no editor ANTES de mexer no estado: depois do
+    // refresh ela sumiu da lista e nao da mais para saber de que documento era.
+    const editorId = get().editorNoteId
+    const editada = [...get().documentNotes, ...get().projectNotes].find((n) => n.id === editorId)
+
     await window.api.documents.delete(id)
     const current = get().currentDocument
     if (current && current.id === id) {
-      set({ currentDocument: null, codings: [] })
+      set({ currentDocument: null, codings: [], documentNotes: [] })
+    }
+    // O cascade do banco apaga as notas do documento, mas o store continuava
+    // com elas: o contador somava notas inexistentes, a lista mostrava notas
+    // fantasmas, e o editor podia ficar aberto sobre uma nota que ja nao existe.
+    if (editada && editada.documentId === id) {
+      set({ editorNoteId: null, navigateNoteId: null })
     }
     await get().refreshDocuments()
+    await get().refreshNotes()
     await get().refreshCodes()
     await get().refreshHistory()
   },
