@@ -13,6 +13,7 @@ import {
 import { useAppStore } from '@/stores/appStore'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { aposSalvar, mesmoConteudo } from '@/lib/noteAutosave'
 import type { Note } from '@shared/types'
 
 const AUTOSAVE_DELAY = 800
@@ -88,12 +89,33 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savingRef = useRef(false)
 
+  const updateNoteRef = useRef(updateNote)
+  updateNoteRef.current = updateNote
+
   useEffect(() => {
     setTitle(note.title ?? '')
     setBody(note.body)
     stateRef.current = { title: note.title ?? '', body: note.body }
     savedRef.current = { title: note.title ?? '', body: note.body }
     setStatus('saved')
+    // A limpeza grava o que ficou pendente da nota ANTERIOR: ela roda antes do
+    // efeito da nota nova e tambem na desmontagem, entao cobre trocar de nota e
+    // fechar o painel. Antes o timer era so cancelado, e as teclas digitadas nos
+    // ultimos 800ms iam embora sem aviso.
+    const idDesteEfeito = note.id
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      const naTela = stateRef.current
+      if (mesmoConteudo(naTela, savedRef.current)) return
+      void updateNoteRef.current({
+        id: idDesteEfeito,
+        title: naTela.title.trim() === '' ? null : naTela.title,
+        body: naTela.body
+      })
+    }
   }, [note.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveNow = useCallback(async (): Promise<void> => {
@@ -102,7 +124,7 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
       timerRef.current = null
     }
     const { title: t, body: b } = stateRef.current
-    if (t === savedRef.current.title && b === savedRef.current.body) {
+    if (mesmoConteudo({ title: t, body: b }, savedRef.current)) {
       setStatus('saved')
       return
     }
@@ -116,8 +138,14 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
         body: b
       })
       savedRef.current = { title: updated.title ?? '', body: updated.body }
-      stateRef.current = { ...savedRef.current }
-      setStatus('saved')
+      // o texto da tela nunca e sobrescrito: o que foi digitado durante o IPC
+      // continua valendo e vira um save novo, em vez de sumir como "Salvo"
+      const { status: proximo, reagendar } = aposSalvar(stateRef.current, savedRef.current)
+      setStatus(proximo)
+      if (reagendar) {
+        if (timerRef.current) clearTimeout(timerRef.current)
+        timerRef.current = setTimeout(() => void saveRef.current(), AUTOSAVE_DELAY)
+      }
     } catch {
       setStatus('error')
     } finally {
@@ -132,12 +160,6 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
     return () => registerNotesFlush(null)
   }, [registerNotesFlush])
 
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    },
-    []
-  )
 
   const handleChange = (t: string, b: string): void => {
     setTitle(t)
