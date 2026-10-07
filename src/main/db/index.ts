@@ -21,10 +21,25 @@ function applySchema(raw: Database.Database): void {
   migrateDatabase(raw)
 }
 
+// O projeto atual so e fechado depois que o novo abriu e migrou. Fechar antes
+// deixava o app sem banco quando a abertura falhava -- arquivo corrompido, ou a
+// guarda de "projeto de uma versao mais nova" -- enquanto a tela seguia
+// mostrando o projeto anterior, e toda acao dali em diante dava "Nenhum projeto
+// aberto".
 export function openDatabase(path: string): ProjectDb {
-  closeDatabase()
   const raw = new Database(path)
-  applySchema(raw)
+  try {
+    applySchema(raw)
+  } catch (err) {
+    // o handle novo nao entra em `active`, entao ninguem mais o fecharia
+    try {
+      raw.close()
+    } catch {
+      // ignore close errors
+    }
+    throw err
+  }
+  closeDatabase()
   const db = drizzle(raw, { schema }) as ProjectDb
   active = { db, raw, path }
   return db
