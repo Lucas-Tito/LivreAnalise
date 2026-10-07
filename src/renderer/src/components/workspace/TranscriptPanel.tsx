@@ -31,6 +31,7 @@ interface Bar {
   name: string
   top: number
   column: number
+  columnSpan: number
 }
 
 const BAR_LANE_KEY = 'transcriptCodesWidth'
@@ -211,7 +212,6 @@ export function TranscriptPanel(): JSX.Element {
       ? autoLaneWidth
       : Math.max(BAR_LANE_MIN, laneWidth, minNeededLaneWidth)
   const barSlot = (effectiveLaneWidth - BAR_LANE_PAD) / Math.max(1, columnCount)
-  const barWidth = Math.max(BAR_MIN_WIDTH, barSlot - BAR_GAP)
 
   const alpha = isDark
     ? { bg: '40', bgHover: '60', bar: 'bb' }
@@ -434,7 +434,7 @@ export function TranscriptPanel(): JSX.Element {
           top
         }
       })
-      .filter((b): b is Omit<Bar, 'column'> => b !== null)
+      .filter((b): b is Omit<Bar, 'column' | 'columnSpan'> => b !== null)
 
     const layout = packBarColumns(raw, columnFloorRef.current)
     columnFloorRef.current = layout.columnCount
@@ -843,7 +843,7 @@ export function TranscriptPanel(): JSX.Element {
                 style={{
                   top: bar.top,
                   left: BAR_LANE_PAD / 2 + bar.column * barSlot,
-                  width: barWidth,
+                  width: Math.max(BAR_MIN_WIDTH, barSlot * bar.columnSpan - BAR_GAP),
                   backgroundColor: bar.color,
                   color: contrastText(bar.color),
                   outline: selectedCodingId === bar.codingId ? `2px solid ${bar.color}` : undefined,
