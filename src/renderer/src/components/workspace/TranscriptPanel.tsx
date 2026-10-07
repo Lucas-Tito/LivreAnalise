@@ -402,7 +402,9 @@ export function TranscriptPanel(): JSX.Element {
     setEditTip(null)
   }
 
-  useEffect(() => {
+  // Reinicia antes do efeito de medição para não reter as colunas do documento
+  // anterior, inclusive quando o próximo tem o mesmo texto ou nenhuma citação.
+  useLayoutEffect(() => {
     columnFloorRef.current = 1
     setColumnCount(1)
   }, [currentDocument?.id])
@@ -458,7 +460,7 @@ export function TranscriptPanel(): JSX.Element {
     // posicoes medidas ficam obsoletas e as etiquetas descem junto com o erro.
     ro.observe(textEl)
     return () => ro.disconnect()
-  }, [measure, text, zoom])
+  }, [measure, text, zoom, currentDocument?.id])
 
   const handleMouseUp = (): void => {
     if (dragging) return

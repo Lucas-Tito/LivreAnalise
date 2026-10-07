@@ -314,16 +314,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectDocument: async (id) => {
     await get().notesFlush?.()
     const doc = await window.api.documents.get(id)
-    set({ currentDocument: doc, navigateNoteId: null, editorNoteId: null })
-    if (doc) {
-      const [codings, documentNotes] = await Promise.all([
-        window.api.codings.listByDocument(doc.id),
-        window.api.notes.listByDocument(doc.id)
-      ])
-      set({ codings, documentNotes })
-    } else {
-      set({ codings: [], documentNotes: [] })
-    }
+    const [codings, documentNotes] = doc
+      ? await Promise.all([
+          window.api.codings.listByDocument(doc.id),
+          window.api.notes.listByDocument(doc.id)
+        ])
+      : [[], []]
+    // Publica tudo junto: medir o texto novo com as citações do documento
+    // anterior pode criar colunas extras e deixar a faixa de códigos enorme.
+    set({ currentDocument: doc, codings, documentNotes, navigateNoteId: null, editorNoteId: null })
   },
 
   renameDocument: async (id, name) => {
