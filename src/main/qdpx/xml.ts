@@ -266,9 +266,13 @@ export function parseQde(xml: string): ParseResult {
 
   const notes: QdpxNote[] = asArray<any>(project.Notes?.Note).map((note) => {
     const guid = note['@_guid']
-    const plainTextPath: string | undefined =
-      note['@_plainTextPath'] ?? note['@_richTextPath']
+    // So texto puro, igual aos documentos. O richTextPath aponta para um RTF:
+    // lido como string ele entrega a marcacao crua ("{\\rtf1\\ansi...") como se
+    // fosse o texto da pessoa. Melhor avisar que o memo nao veio do que mostrar
+    // lixo no lugar dele.
+    const plainTextPath: string | undefined = note['@_plainTextPath']
     if (plainTextPath) sourcePaths.set(`note:${guid}`, plainTextPath)
+    else if (note['@_richTextPath']) skipped.push('Memo em RTF (conteudo nao importado)')
     return {
       guid,
       name: note['@_name'] ?? null,
