@@ -5,6 +5,7 @@ import type {
   ParsedQdpx,
   QdpxCode,
   QdpxDocument,
+  QdpxNote,
   QdpxSet,
   QdpxProject,
   QdpxSelection,
@@ -18,7 +19,9 @@ const ARRAY_ELEMENTS = new Set([
   'Set',
   'MemberCode',
   'Coding',
-  'User'
+  'User',
+  'Note',
+  'NoteRef'
 ])
 
 interface XmlCodeNode {
@@ -82,17 +85,52 @@ export function buildQde(project: QdpxProject): string {
                 '@_plainTextPath': `internal://${doc.guid}.txt`,
                 ...(doc.selections.length > 0
                   ? {
-                      PlainTextSelection: doc.selections.map((sel) => ({
-                        '@_guid': sel.guid,
-                        '@_startPosition': String(sel.startPosition),
-                        '@_endPosition': String(sel.endPosition),
-                        Coding: sel.codeGuids.map((codeGuid) => ({
-                          '@_guid': uuid(),
-                          CodeRef: { '@_targetGUID': codeGuid }
-                        }))
+                      PlainTextSelection: doc.selections.map((sel) => {
+                        const noteGuids = sel.noteGuids ?? []
+                        const codeGuids = sel.codeGuids ?? []
+                        return {
+                          '@_guid': sel.guid,
+                          '@_startPosition': String(sel.startPosition),
+                          '@_endPosition': String(sel.endPosition),
+                          ...(codeGuids.length > 0
+                            ? {
+                                Coding: codeGuids.map((codeGuid) => ({
+                                  '@_guid': uuid(),
+                                  CodeRef: { '@_targetGUID': codeGuid }
+                                }))
+                              }
+                            : {}),
+                          ...(noteGuids.length > 0
+                            ? {
+                                NoteRef: noteGuids.map((guid) => ({
+                                  '@_targetGUID': guid
+                                }))
+                              }
+                            : {})
+                        }
+                      })
+                    }
+                  : {}),
+                ...((doc.noteGuids ?? []).length > 0
+                  ? {
+                      NoteRef: (doc.noteGuids ?? []).map((guid) => ({
+                        '@_targetGUID': guid
                       }))
                     }
                   : {})
+              }))
+            }
+          }
+        : {}),
+      // Ordem do XSD: Notes entre Sources e Sets.
+      ...((project.notes ?? []).length > 0
+        ? {
+            Notes: {
+              Note: (project.notes ?? []).map((note) => ({
+                '@_guid': note.guid,
+                ...(note.name ? { '@_name': note.name } : {}),
+                ...(note.description ? { Description: note.description } : {}),
+                PlainTextContent: note.plainText
               }))
             }
           }
@@ -113,6 +151,13 @@ export function buildQde(project: QdpxProject): string {
                   : {})
               }))
             }
+          }
+        : {}),
+      ...((project.projectNoteGuids ?? []).length > 0
+        ? {
+            NoteRef: (project.projectNoteGuids ?? []).map((guid) => ({
+              '@_targetGUID': guid
+            }))
           }
         : {})
     }
@@ -141,6 +186,9 @@ export function parseQde(xml: string): ParseResult {
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
+    // Sem isso, '0123' vira número 123 e descrições/nomes numéricos se perdem
+    // (o código só aceita string; posições já usam Number() explícito).
+    parseTagValue: false,
     isArray: (name) => ARRAY_ELEMENTS.has(name)
   })
   const parsed = parser.parse(xml)
@@ -199,18 +247,56 @@ export function parseQde(xml: string): ParseResult {
         endPosition: Number(sel['@_endPosition']),
         codeGuids: asArray<any>(sel.Coding)
           .map((coding) => coding.CodeRef?.['@_targetGUID'])
+          .filter(Boolean),
+        noteGuids: asArray<any>(sel.NoteRef)
+          .map((ref) => ref['@_targetGUID'])
           .filter(Boolean)
       }))
       return {
         guid,
         name: source['@_name'] ?? 'Documento',
         plainText: inline,
-        selections
+        selections,
+        noteGuids: asArray<any>(source.NoteRef)
+          .map((ref: any) => ref['@_targetGUID'])
+          .filter(Boolean)
       }
     }
   )
 
-  for (const key of ['Notes', 'Links', 'Cases', 'Variables', 'Graphs']) {
+  let memosRtf = 0
+  const notes: QdpxNote[] = asArray<any>(project.Notes?.Note).map((note) => {
+    const guid = note['@_guid']
+    // So texto puro, igual aos documentos. O richTextPath aponta para um RTF:
+    // lido como string ele entrega a marcacao crua ("{\\rtf1\\ansi...") como se
+    // fosse o texto da pessoa. Melhor avisar que o memo nao veio do que mostrar
+    // lixo no lugar dele.
+    const plainTextPath: string | undefined = note['@_plainTextPath']
+    if (plainTextPath) sourcePaths.set(`note:${guid}`, plainTextPath)
+    else if (note['@_richTextPath']) memosRtf += 1
+    return {
+      guid,
+      name: note['@_name'] ?? null,
+      plainText: typeof note.PlainTextContent === 'string' ? note.PlainTextContent : '',
+      description: typeof note.Description === 'string' ? note.Description : null
+    }
+  })
+
+  // Uma linha por memo poluía a lista de ignorados: um .qdpx com 30 memos RTF
+  // produzia 30 linhas idênticas.
+  if (memosRtf > 0) {
+    skipped.push(
+      memosRtf === 1
+        ? 'Memo em RTF (conteúdo não importado)'
+        : `Memos em RTF: ${memosRtf} (conteúdo não importado)`
+    )
+  }
+
+  const projectNoteGuids: string[] = asArray<any>(project.NoteRef)
+    .map((ref: any) => ref['@_targetGUID'])
+    .filter(Boolean)
+
+  for (const key of ['Links', 'Cases', 'Variables', 'Graphs']) {
     if (project[key]) skipped.push(key)
   }
   for (const key of ['PDFSource', 'AudioSource', 'VideoSource', 'PictureSource']) {
@@ -218,7 +304,7 @@ export function parseQde(xml: string): ParseResult {
   }
 
   return {
-    project: { name: project['@_name'] ?? 'Projeto', users, codes, groups, documents },
+    project: { name: project['@_name'] ?? 'Projeto', users, codes, groups, documents, notes, projectNoteGuids },
     skipped,
     sourcePaths
   }

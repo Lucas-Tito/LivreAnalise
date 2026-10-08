@@ -7,14 +7,21 @@ import type {
   Coding,
   CreateCodeInput,
   CreateCollectionInput,
+  CreateGroupInput,
+  CreateGroupFromCodesInput,
+  CreateNoteInput,
   DocumentRecord,
   DocumentWithText,
+  Note,
   ProjectMeta,
   RecentProjectWithStats,
   RenameProjectResult,
   UpdateCodeInput,
-  UpdateCollectionInput
+  UpdateCollectionInput,
+  UpdateNoteInput
 } from '@shared/types'
+import type { HistoryState } from '@shared/ipc'
+import type { ProjectVersion } from '@shared/projectVersions'
 
 interface AppState {
   project: ProjectMeta | null
@@ -40,36 +47,133 @@ interface AppState {
 
   refreshDocuments: () => Promise<void>
   importDocuments: () => Promise<void>
-  selectDocument: (id: number) => Promise<void>
+  selectDocument: (id: number) => Promise<boolean>
   renameDocument: (id: number, name: string) => Promise<void>
   updateDocumentText: (id: number, text: string) => Promise<void>
   deleteDocument: (id: number) => Promise<void>
 
   refreshCodes: () => Promise<void>
   createCode: (input: CreateCodeInput) => Promise<Code>
+  createGroup: (input: CreateGroupInput) => Promise<Code>
+  createGroupFrom: (input: CreateGroupFromCodesInput) => Promise<Code>
   updateCode: (input: UpdateCodeInput) => Promise<void>
   deleteCode: (id: number) => Promise<void>
+  moveCodes: (
+    ids: number[],
+    parentId: number | null,
+    placement?: { anchorId?: number | null; position?: 'before' | 'after' | 'end' }
+  ) => Promise<void>
+
+  history: HistoryState
+  refreshHistory: () => Promise<void>
+  undo: () => Promise<string | null>
+  redo: () => Promise<string | null>
+
+  versions: ProjectVersion[]
+  refreshVersions: () => Promise<void>
+  createVersion: (label: string | null) => Promise<void>
+  deleteVersion: (id: string) => Promise<void>
+  restoreVersion: (id: string) => Promise<void>
 
   refreshCollections: () => Promise<void>
   createCollection: (input: CreateCollectionInput) => Promise<Collection>
   updateCollection: (input: UpdateCollectionInput) => Promise<void>
   deleteCollection: (id: number) => Promise<void>
+  addCollectionMember: (collectionId: number, codeId: number) => Promise<void>
+  removeCollectionMember: (collectionId: number, codeId: number) => Promise<void>
 
   refreshCodings: () => Promise<void>
   addCoding: (codeId: number, startPos: number, endPos: number) => Promise<void>
   updateCoding: (id: number, startPos: number, endPos: number) => Promise<void>
   removeCoding: (id: number) => Promise<void>
   setLastUsedCode: (id: number) => void
+
+  notesPanelOpen: boolean
+  toggleNotesPanel: () => void
+  documentNotes: Note[]
+  projectNotes: Note[]
+  navigateNoteId: number | null
+  navigateToNote: (id: number) => void
+  clearNavigateNote: () => void
+  // Ocorrência em foco: fica no store para o painel de trechos mostrar
+  // "2 de 7" e marcar a linha. `locateSeq` é o que dispara o scroll/piscar
+  // na transcrição — separado do id para que localizar a MESMA ocorrência de
+  // novo (F3 no fim da lista) volte a rolar, já que o id não muda.
+  locateCodingId: number | null
+  locateSeq: number
+  locateOccurrence: (coding: Coding) => Promise<boolean>
+  editorNoteId: number | null
+  openNoteEditor: (id: number | null) => void
+  refreshNotes: () => Promise<void>
+  createNote: (input: CreateNoteInput) => Promise<Note>
+  updateNote: (input: UpdateNoteInput) => Promise<Note>
+  deleteNote: (id: number) => Promise<void>
+  notesFlush: (() => Promise<void>) | null
+  registerNotesFlush: (fn: (() => Promise<void>) | null) => void
+}
+
+async function refreshAfterHistory(
+  get: () => AppState,
+  set: (partial: Partial<AppState>) => void
+): Promise<void> {
+  const editorId = get().editorNoteId
+  const editedNote = [...get().documentNotes, ...get().projectNotes].find((n) => n.id === editorId)
+  await get().refreshDocuments()
+  await get().refreshCodes()
+  await get().refreshCollections()
+  const current = get().currentDocument
+  if (current) {
+    // Recarrega texto + citações + notas do documento aberto.
+    try {
+      const doc = await window.api.documents.get(current.id)
+      set({ currentDocument: doc })
+      if (!doc) set({ navigateNoteId: null, editorNoteId: null, locateCodingId: null })
+    } catch {
+      set({ currentDocument: null, codings: [], navigateNoteId: null, editorNoteId: null, locateCodingId: null })
+    }
+    await get().refreshCodings()
+  } else {
+    set({ codings: [] })
+  }
+  await get().refreshNotes()
+  const restoredNote = [...get().documentNotes, ...get().projectNotes].find((n) => n.id === editorId)
+  if (editedNote && (!restoredNote || editedNote.title !== restoredNote.title || editedNote.body !== restoredNote.body)) {
+    // O editor tem um rascunho local: fecha quando o histórico muda seu conteúdo.
+    set({ editorNoteId: null })
+  }
+  await get().refreshHistory()
 }
 
 async function loadProjectData(set: (partial: Partial<AppState>) => void): Promise<void> {
-  const [documents, codes, collections, collectionMembers] = await Promise.all([
-    window.api.documents.list(),
-    window.api.codes.list(),
-    window.api.collections.list(),
-    window.api.collections.allMembers()
-  ])
-  set({ documents, codes, collections, collectionMembers })
+  const [documents, codes, collections, collectionMembers, projectNotes] =
+    await Promise.all([
+      window.api.documents.list(),
+      window.api.codes.list(),
+      window.api.collections.list(),
+      window.api.collections.allMembers(),
+      window.api.notes.listProject()
+    ])
+  set({ documents, codes, collections, collectionMembers, projectNotes })
+  try {
+    set({ history: await window.api.history.state() })
+  } catch {
+    // sem projeto aberto o histórico não existe
+  }
+  try {
+    set({ versions: await window.api.versions.list() })
+  } catch {
+    set({ versions: [] })
+  }
+}
+
+function resetNotesState(): Partial<AppState> {
+  return {
+    documentNotes: [],
+    projectNotes: [],
+    navigateNoteId: null,
+    locateCodingId: null,
+    editorNoteId: null
+  }
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -83,6 +187,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   codings: [],
   lastUsedCodeId: null,
   busy: false,
+  notesPanelOpen: false,
+  documentNotes: [],
+  projectNotes: [],
+  navigateNoteId: null,
+  locateCodingId: null,
+  locateSeq: 0,
+  editorNoteId: null,
+  notesFlush: null,
+  history: { canUndo: false, canRedo: false, undoLabel: null, redoLabel: null },
+  versions: [],
 
   loadRecents: async () => {
     const recents = await window.api.project.recents()
@@ -112,6 +226,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   createProject: async () => {
     const result = await window.api.project.create()
     if (!result) return
+    await get().notesFlush?.()
     set({
       project: result.meta,
       currentDocument: null,
@@ -119,7 +234,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       documents: [],
       codes: [],
       collections: [],
-      collectionMembers: []
+      collectionMembers: [],
+      ...resetNotesState()
     })
     await loadProjectData(set)
     await get().loadRecents()
@@ -128,7 +244,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   openProject: async () => {
     const result = await window.api.project.open()
     if (!result) return
-    set({ project: result.meta, currentDocument: null, codings: [] })
+    await get().notesFlush?.()
+    set({ project: result.meta, currentDocument: null, codings: [], ...resetNotesState() })
     await loadProjectData(set)
     await get().loadRecents()
   },
@@ -136,7 +253,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   openRecent: async (path) => {
     const result = await window.api.project.openPath(path)
     if (!result) return
-    set({ project: result.meta, currentDocument: null, codings: [] })
+    await get().notesFlush?.()
+    set({ project: result.meta, currentDocument: null, codings: [], ...resetNotesState() })
     await loadProjectData(set)
     await get().loadRecents()
   },
@@ -144,6 +262,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   importQdpxAsProject: async () => {
     const result = await window.api.qdpx.importAsProject()
     if (!result) return
+    await get().notesFlush?.()
     set({
       project: result.meta,
       currentDocument: null,
@@ -151,13 +270,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       documents: [],
       codes: [],
       collections: [],
-      collectionMembers: []
+      collectionMembers: [],
+      ...resetNotesState()
     })
     await loadProjectData(set)
     await get().loadRecents()
+    const skipped = result.report.skipped
+    if (skipped.length > 0) {
+      alert(`Importado com ${result.report.codes} códigos, ${result.report.documents} documentos, ${result.report.codings} citações e ${result.report.notes} notas.\n\nIgnorado:\n- ${skipped.join('\n- ')}`)
+    }
   },
 
   closeProject: async () => {
+    await get().notesFlush?.()
     await window.api.project.close()
     set({
       project: null,
@@ -166,7 +291,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       codes: [],
       collections: [],
       collectionMembers: [],
-      codings: []
+      codings: [],
+      ...resetNotesState()
     })
     await get().loadRecents()
   },
@@ -180,20 +306,27 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await window.api.documents.import()
       await get().refreshDocuments()
+      await get().refreshHistory()
     } finally {
       set({ busy: false })
     }
   },
 
   selectDocument: async (id) => {
+    await get().notesFlush?.()
     const doc = await window.api.documents.get(id)
-    set({ currentDocument: doc })
-    if (doc) {
-      const codings = await window.api.codings.listByDocument(doc.id)
-      set({ codings })
-    } else {
-      set({ codings: [] })
-    }
+    // Documento apagado: manter o que esta aberto. Publicar `null` aqui
+    // esvaziava a tela e fazia a pessoa perder o documento que estava lendo,
+    // por causa de um clique num item de lista desatualizada.
+    if (!doc) return false
+    const [codings, documentNotes] = await Promise.all([
+      window.api.codings.listByDocument(doc.id),
+      window.api.notes.listByDocument(doc.id)
+    ])
+    // Publica tudo junto: medir o texto novo com as citações do documento
+    // anterior pode criar colunas extras e deixar a faixa de códigos enorme.
+    set({ currentDocument: doc, codings, documentNotes, navigateNoteId: null, editorNoteId: null })
+    return true
   },
 
   renameDocument: async (id, name) => {
@@ -203,9 +336,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (current && current.id === id) {
       set({ currentDocument: { ...current, name } })
     }
+    await get().refreshHistory()
   },
 
   updateDocumentText: async (id, text) => {
+    await get().notesFlush?.()
     await window.api.documents.updateText(id, text)
     await get().refreshDocuments()
     const current = get().currentDocument
@@ -213,16 +348,30 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().selectDocument(id)
     }
     await get().refreshCodes()
+    await get().refreshHistory()
   },
 
   deleteDocument: async (id) => {
+    // Descobre a nota aberta no editor ANTES de mexer no estado: depois do
+    // refresh ela sumiu da lista e nao da mais para saber de que documento era.
+    const editorId = get().editorNoteId
+    const editada = [...get().documentNotes, ...get().projectNotes].find((n) => n.id === editorId)
+
     await window.api.documents.delete(id)
     const current = get().currentDocument
     if (current && current.id === id) {
-      set({ currentDocument: null, codings: [] })
+      set({ currentDocument: null, codings: [], documentNotes: [] })
+    }
+    // O cascade do banco apaga as notas do documento, mas o store continuava
+    // com elas: o contador somava notas inexistentes, a lista mostrava notas
+    // fantasmas, e o editor podia ficar aberto sobre uma nota que ja nao existe.
+    if (editada && editada.documentId === id) {
+      set({ editorNoteId: null, navigateNoteId: null })
     }
     await get().refreshDocuments()
+    await get().refreshNotes()
     await get().refreshCodes()
+    await get().refreshHistory()
   },
 
   refreshCodes: async () => {
@@ -232,18 +381,112 @@ export const useAppStore = create<AppState>((set, get) => ({
   createCode: async (input) => {
     const code = await window.api.codes.create(input)
     await get().refreshCodes()
+    await get().refreshHistory()
     return code
+  },
+
+  createGroup: async (input) => {
+    const group = await window.api.codes.createGroup(input)
+    await get().refreshCodes()
+    await get().refreshHistory()
+    return group
+  },
+
+  // Une vários códigos em um grupo novo: um só comando, um só undo.
+  createGroupFrom: async (input) => {
+    const group = await window.api.codes.createGroupFrom(input)
+    await get().refreshCodes()
+    await get().refreshHistory()
+    return group
   },
 
   updateCode: async (input) => {
     await window.api.codes.update(input)
     await get().refreshCodes()
+    await get().refreshHistory()
   },
 
   deleteCode: async (id) => {
     await window.api.codes.delete(id)
     await get().refreshCodes()
     await get().refreshCodings()
+    await get().refreshHistory()
+  },
+
+  moveCodes: async (ids, parentId, placement) => {
+    await window.api.codes.moveMany({
+      ids,
+      parentId,
+      anchorId: placement?.anchorId ?? null,
+      position: placement?.position ?? 'end'
+    })
+    await get().refreshCodes()
+    await get().refreshHistory()
+  },
+
+  refreshHistory: async () => {
+    try {
+      set({ history: await window.api.history.state() })
+    } catch {
+      set({ history: { canUndo: false, canRedo: false, undoLabel: null, redoLabel: null } })
+    }
+  },
+
+  undo: async () => {
+    await get().notesFlush?.()
+    const label = await window.api.history.undo()
+    await refreshAfterHistory(get, set)
+    return label
+  },
+
+  redo: async () => {
+    await get().notesFlush?.()
+    const label = await window.api.history.redo()
+    await refreshAfterHistory(get, set)
+    return label
+  },
+
+  refreshVersions: async () => {
+    try {
+      set({ versions: await window.api.versions.list() })
+    } catch {
+      set({ versions: [] })
+    }
+  },
+
+  createVersion: async (label) => {
+    await get().notesFlush?.()
+    await window.api.versions.create(label)
+    await get().refreshVersions()
+  },
+
+  deleteVersion: async (id) => {
+    await window.api.versions.delete(id)
+    await get().refreshVersions()
+  },
+
+  restoreVersion: async (id) => {
+    await get().notesFlush?.()
+    const result = await window.api.versions.restore(id)
+    if (!result) return
+    set({
+      project: result.meta,
+      currentDocument: null,
+      codings: [],
+      documents: [],
+      codes: [],
+      collections: [],
+      collectionMembers: [],
+      documentNotes: [],
+      projectNotes: [],
+      navigateNoteId: null,
+      editorNoteId: null,
+      locateCodingId: null,
+      versions: []
+    })
+    await loadProjectData(set)
+    await get().refreshVersions()
+    await get().loadRecents()
   },
 
   refreshCollections: async () => {
@@ -257,17 +500,32 @@ export const useAppStore = create<AppState>((set, get) => ({
   createCollection: async (input) => {
     const collection = await window.api.collections.create(input)
     await get().refreshCollections()
+    await get().refreshHistory()
     return collection
   },
 
   updateCollection: async (input) => {
     await window.api.collections.update(input)
     await get().refreshCollections()
+    await get().refreshHistory()
   },
 
   deleteCollection: async (id) => {
     await window.api.collections.delete(id)
     await get().refreshCollections()
+    await get().refreshHistory()
+  },
+
+  addCollectionMember: async (collectionId, codeId) => {
+    await window.api.collections.addMember(collectionId, codeId)
+    await get().refreshCollections()
+    await get().refreshHistory()
+  },
+
+  removeCollectionMember: async (collectionId, codeId) => {
+    await window.api.collections.removeMember(collectionId, codeId)
+    await get().refreshCollections()
+    await get().refreshHistory()
   },
 
   refreshCodings: async () => {
@@ -286,18 +544,83 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ lastUsedCodeId: codeId })
     await get().refreshCodings()
     await get().refreshCodes()
+    await get().refreshHistory()
   },
 
   updateCoding: async (id, startPos, endPos) => {
     await window.api.codings.update({ id, startPos, endPos })
     await get().refreshCodings()
+    await get().refreshHistory()
   },
 
   removeCoding: async (id) => {
     await window.api.codings.delete(id)
     await get().refreshCodings()
     await get().refreshCodes()
+    await get().refreshHistory()
   },
 
-  setLastUsedCode: (id) => set({ lastUsedCodeId: id })
+  setLastUsedCode: (id) => set({ lastUsedCodeId: id }),
+
+  toggleNotesPanel: () => set({ notesPanelOpen: !get().notesPanelOpen }),
+
+  navigateToNote: (id) => set({ navigateNoteId: id, notesPanelOpen: true }),
+
+  clearNavigateNote: () => set({ navigateNoteId: null }),
+
+  // Localizar ocorrência: troca de documento primeiro (o selectDocument não
+  // mexe neste campo) e só então marca o alvo, para a transcrição rolar.
+  // O id fica guardado para o painel mostrar a posição; `locateSeq` sempre
+  // avança para o efeito da transcrição rodar mesmo repetindo a mesma.
+  locateOccurrence: async (coding) => {
+    const doc = get().currentDocument
+    if (!doc || doc.id !== coding.documentId) {
+      // devolve false em vez de marcar um alvo que a transcricao nao vai achar:
+      // sem isto o clique nao rolava, nao piscava e nao dizia nada
+      if (!(await get().selectDocument(coding.documentId))) return false
+    }
+    set((s) => ({ locateCodingId: coding.id, locateSeq: s.locateSeq + 1 }))
+    return true
+  },
+
+  openNoteEditor: (id) => set({ editorNoteId: id, notesPanelOpen: true }),
+
+  refreshNotes: async () => {
+    const doc = get().currentDocument
+    const [documentNotes, projectNotes] = await Promise.all([
+      doc ? window.api.notes.listByDocument(doc.id) : Promise.resolve([]),
+      window.api.notes.listProject()
+    ])
+    set({ documentNotes, projectNotes })
+  },
+
+  createNote: async (input) => {
+    const note = await window.api.notes.create(input)
+    await get().refreshNotes()
+    await get().refreshHistory()
+    return note
+  },
+
+  updateNote: async (input) => {
+    const note = await window.api.notes.update(input)
+    const patch = (list: Note[]): Note[] =>
+      list.map((n) => (n.id === note.id ? note : n))
+    set({
+      documentNotes: patch(get().documentNotes),
+      projectNotes: patch(get().projectNotes)
+    })
+    await get().refreshHistory()
+    return note
+  },
+
+  deleteNote: async (id) => {
+    await window.api.notes.delete(id)
+    set({
+      documentNotes: get().documentNotes.filter((n) => n.id !== id),
+      projectNotes: get().projectNotes.filter((n) => n.id !== id)
+    })
+    await get().refreshHistory()
+  },
+
+  registerNotesFlush: (fn) => set({ notesFlush: fn })
 }))

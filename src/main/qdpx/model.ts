@@ -11,6 +11,7 @@ export interface QdpxSelection {
   startPosition: number
   endPosition: number
   codeGuids: string[]
+  noteGuids: string[]
 }
 
 export interface QdpxDocument {
@@ -18,6 +19,14 @@ export interface QdpxDocument {
   name: string
   plainText: string
   selections: QdpxSelection[]
+  noteGuids: string[]
+}
+
+export interface QdpxNote {
+  guid: string
+  name: string | null
+  plainText: string
+  description: string | null
 }
 
 export interface QdpxSet {
@@ -38,6 +47,8 @@ export interface QdpxProject {
   codes: QdpxCode[]
   groups: QdpxSet[]
   documents: QdpxDocument[]
+  notes: QdpxNote[]
+  projectNoteGuids: string[]
 }
 
 export interface ParsedQdpx {

@@ -96,6 +96,27 @@ export const codings = sqliteTable(
   })
 )
 
+export const notes = sqliteTable('notes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  guid: text('guid').notNull().unique(),
+  title: text('title'),
+  body: text('body').notNull().default(''),
+  scope: text('scope').notNull(),
+  documentId: integer('document_id').references(() => documents.id, {
+    onDelete: 'cascade'
+  }),
+  startPos: integer('start_pos'),
+  endPos: integer('end_pos'),
+  anchorStatus: text('anchor_status').notNull().default('attached'),
+  anchorText: text('anchor_text'),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  updatedAt: text('updated_at')
+    .notNull()
+    .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
+})
+
 export type ProjectMetaRow = typeof projectMeta.$inferSelect
 export type DocumentRow = typeof documents.$inferSelect
 export type CodeRow = typeof codes.$inferSelect

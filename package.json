@@ -1,6 +1,6 @@
 {
   "name": "livreanalise",
-  "version": "0.2.0",
+  "version": "0.6.0",
   "description": "Codificação qualitativa de documentos, com os projetos no seu computador",
   "main": "./out/main/index.js",
   "author": "LivreAnalise",
@@ -30,6 +30,7 @@
     "dist:win": "electron-vite build && electron-builder --win"
   },
   "dependencies": {
+    "@fontsource/opendyslexic": "^5.3.0",
     "better-sqlite3": "^12.2.0",
     "drizzle-orm": "^0.38.4",
     "fast-xml-parser": "^4.5.1",
@@ -70,5 +71,9 @@
     "vite": "^6.0.7",
     "vitest": "^2.1.8",
     "zustand": "^5.0.3"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true,
+    "better-sqlite3@12.11.1": true
   }
 }

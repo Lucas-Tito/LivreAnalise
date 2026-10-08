@@ -1,14 +1,24 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { FileText, Pencil, Save, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, FileText, Pencil, Save, Search, Trash2, X } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
+import { useZoomStore } from '@/stores/zoomStore'
 import {
   anchorPositions,
   buildLineRows,
   computeSegments,
+  markNoteAnchors,
+  markSearchHits,
   markPendingSelection,
   resolveAnchorPos
 } from '@shared/segments'
-import { packBarColumns } from '@/lib/barLayout'
+import {
+  clampLaneWidth,
+  laneBounds,
+  larguraGuardada,
+  packBarColumns,
+  type LaneConfig
+} from '@/lib/barLayout'
+import { acharOcorrencias } from '@shared/busca'
 import { applyCodingAdjustments } from '@shared/editAdjust'
 import { contrastText, formatCount } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -29,8 +39,55 @@ interface Bar {
   name: string
   top: number
   column: number
+  columnSpan: number
 }
 
+const BAR_LANE_KEY = 'transcriptCodesWidth'
+const BAR_LANE_MIN = 120
+const BAR_LANE_MAX = 640
+const BAR_LANE_AUTO_BASE = 150
+const BAR_LANE_PAD = 16
+const BAR_GAP = 8
+const BAR_MIN_WIDTH = 72
+
+// As medidas da faixa num lugar so: passar por parametro evita o barLayout
+// repetir os numeros e discordar em silencio quando uma delas mudar.
+const LANE: LaneConfig = {
+  minimoPorColuna: BAR_MIN_WIDTH + BAR_GAP,
+  padding: BAR_LANE_PAD,
+  autoPorColuna: BAR_LANE_AUTO_BASE,
+  tetoPadrao: BAR_LANE_MAX,
+  pisoAbsoluto: BAR_LANE_MIN
+}
+
+// Nome da etiqueta com tooltip nativo só quando o texto está cortado: o
+// `title` incondicional mostrava dica até em nomes curtos, poluindo o hover.
+function BarName({ name }: { name: string }): JSX.Element {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [truncated, setTruncated] = useState(false)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const check = (): void => {
+      setTruncated(el.scrollWidth > el.clientWidth + 1)
+    }
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [name])
+
+  return (
+    <span
+      ref={ref}
+      className="min-w-0 flex-1 truncate"
+      title={truncated ? name : undefined}
+    >
+      {name}
+    </span>
+  )
+}
 
 function resolveOffset(node: Node, offset: number): number | null {
   if (node.nodeType === Node.TEXT_NODE) {
@@ -60,6 +117,17 @@ export function TranscriptPanel(): JSX.Element {
   const updateCoding = useAppStore((s) => s.updateCoding)
   const removeCoding = useAppStore((s) => s.removeCoding)
   const updateDocumentText = useAppStore((s) => s.updateDocumentText)
+  const documentNotes = useAppStore((s) => s.documentNotes)
+  const projectNotes = useAppStore((s) => s.projectNotes)
+  const editorNoteId = useAppStore((s) => s.editorNoteId)
+  const updateNote = useAppStore((s) => s.updateNote)
+  const navigateNoteId = useAppStore((s) => s.navigateNoteId)
+  const clearNavigateNote = useAppStore((s) => s.clearNavigateNote)
+  const locateCodingId = useAppStore((s) => s.locateCodingId)
+  const locateSeq = useAppStore((s) => s.locateSeq)
+  const createNote = useAppStore((s) => s.createNote)
+  const openNoteEditor = useAppStore((s) => s.openNoteEditor)
+  const zoom = useZoomStore((s) => s.zoom)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
@@ -69,13 +137,37 @@ export function TranscriptPanel(): JSX.Element {
   const [bars, setBars] = useState<Bar[]>([])
   const [columnCount, setColumnCount] = useState(1)
   const columnFloorRef = useRef(1)
+  const [laneWidth, setLaneWidth] = useState<number | null>(() => {
+    try {
+      return larguraGuardada(localStorage.getItem(BAR_LANE_KEY), LANE)
+    } catch {
+      return null
+    }
+  })
+  const [laneResizing, setLaneResizing] = useState(false)
+  const laneResizeRef = useRef<{ startX: number; startWidth: number } | null>(
+    null
+  )
+  const laneWidthRef = useRef<number | null>(laneWidth)
+  laneWidthRef.current = laneWidth
   const [hoverCoding, setHoverCoding] = useState<number | null>(null)
   const [selectedCodingId, setSelectedCodingId] = useState<number | null>(null)
+  // Busca no texto: Ctrl+F abre, Enter/F3 anda, Esc fecha. Os destaques entram
+  // pelo mesmo pipeline de segmentos das codificacoes e das notas, para os tres
+  // conviverem no mesmo trecho sem um apagar o outro.
+  const [buscaAberta, setBuscaAberta] = useState(false)
+  const [termo, setTermo] = useState('')
+  const [hitAtual, setHitAtual] = useState(0)
+  const [buscaSeq, setBuscaSeq] = useState(0)
+  const buscaInputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState<{ codingId: number; end: 'start' | 'end' } | null>(null)
   const [dragPreviewPos, setDragPreviewPos] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
+  const [flashNoteId, setFlashNoteId] = useState<number | null>(null)
+  // Ocorrência localizada vinda do painel de trechos: pisca como a nota.
+  const [flashCodingId, setFlashCodingId] = useState<number | null>(null)
   const [editTip, setEditTip] = useState<{
     x: number
     y: number
@@ -92,6 +184,72 @@ export function TranscriptPanel(): JSX.Element {
     obs.observe(document.documentElement, { attributeFilter: ['class'] })
     return () => obs.disconnect()
   }, [])
+
+  // Arrasto do divisor: a faixa fica à direita, então mover o mouse para a
+  // esquerda alarga (startX - clientX positivo) e para a direita estreita.
+  // O overlay é pointer-events-none (para não quebrar o duplo clique), então
+  // a seleção de texto durante o arrasto é bloqueada via body.
+  useEffect(() => {
+    if (!laneResizing) return
+    const prevUserSelect = document.body.style.userSelect
+    const prevCursor = document.body.style.cursor
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'col-resize'
+    const persistir = (): void => {
+      const finalWidth = laneWidthRef.current
+      try {
+        if (finalWidth != null)
+          localStorage.setItem(BAR_LANE_KEY, String(Math.round(finalWidth)))
+      } catch {
+        // armazenamento indisponível: só não persiste
+      }
+    }
+    const stop = (): void => {
+      setLaneResizing(false)
+      laneResizeRef.current = null
+      persistir()
+    }
+    const onMove = (e: MouseEvent): void => {
+      const start = laneResizeRef.current
+      if (!start) return
+      // Soltar o botão fora da janela não entrega mouseup: sem isto o arrasto
+      // ficava preso e a faixa seguia o ponteiro no retorno, sem botão nenhum.
+      if (e.buttons === 0) {
+        stop()
+        return
+      }
+      setLaneWidth(
+        clampLaneWidth(
+          start.startWidth + (start.startX - e.clientX),
+          columnCount,
+          LANE,
+          start.startWidth
+        )
+      )
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', stop)
+    // mesma guarda do arrasto de códigos: perder o foco encerra o gesto
+    window.addEventListener('blur', stop)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', stop)
+      window.removeEventListener('blur', stop)
+      document.body.style.userSelect = prevUserSelect
+      document.body.style.cursor = prevCursor
+      // desmontar no meio do arrasto nao pode descartar a largura arrastada
+      persistir()
+    }
+  }, [laneResizing, columnCount])
+
+  // Largura efetiva: automática até o usuário arrastar; depois acompanha o
+  // arrasto, mas nunca abaixo do mínimo que as colunas precisam para continuar
+  // legíveis. As etiquetas dividem o espaço igualmente e truncam o nome.
+  const autoLaneWidth = Math.max(180, columnCount * BAR_LANE_AUTO_BASE + 16)
+  const minNeededLaneWidth = laneBounds(columnCount, LANE).minimo
+  const effectiveLaneWidth =
+    laneWidth == null ? autoLaneWidth : Math.max(minNeededLaneWidth, laneWidth)
+  const barSlot = (effectiveLaneWidth - BAR_LANE_PAD) / Math.max(1, columnCount)
 
   const alpha = isDark
     ? { bg: '40', bgHover: '60', bar: 'bb' }
@@ -142,6 +300,46 @@ export function TranscriptPanel(): JSX.Element {
 
   const text = currentDocument?.plainText ?? ''
 
+  // Âncoras de notas de trecho: sublinhado pontilhado discreto, sem ocupar
+  // a margem direita (que pertence às etiquetas dos códigos).
+  const noteAnchors = useMemo(
+    () =>
+      documentNotes
+        .filter(
+          (n): n is typeof n & { startPos: number; endPos: number } =>
+            n.scope === 'excerpt' &&
+            n.anchorStatus === 'attached' &&
+            n.startPos != null &&
+            n.endPos != null
+        )
+        .map((n) => ({ id: n.id, start: n.startPos, end: n.endPos })),
+    [documentNotes]
+  )
+
+  useEffect(() => {
+    if (navigateNoteId == null) return
+    const note = documentNotes.find((n) => n.id === navigateNoteId)
+    if (note?.scope !== 'excerpt' || note.startPos == null || !textRef.current) {
+      clearNavigateNote()
+      return
+    }
+    const spans = Array.from(
+      textRef.current.querySelectorAll<HTMLElement>('[data-pos]')
+    )
+    let target: HTMLElement | null = null
+    for (const el of spans) {
+      const pos = Number(el.getAttribute('data-pos'))
+      if (Number.isNaN(pos)) continue
+      if (pos <= note.startPos) target = el
+      else break
+    }
+    target?.scrollIntoView({ block: 'center' })
+    setFlashNoteId(note.id)
+    clearNavigateNote()
+    const timer = setTimeout(() => setFlashNoteId(null), 2500)
+    return () => clearTimeout(timer)
+  }, [navigateNoteId, documentNotes, clearNavigateNote])
+
   const previewCodings = useMemo(() => {
     if (!dragging || dragPreviewPos == null) return codings
     return codings.map((c) => {
@@ -168,15 +366,108 @@ export function TranscriptPanel(): JSX.Element {
     () => markPendingSelection(dragging ? previewSegments : segments, pending),
     [dragging, previewSegments, segments, pending]
   )
+  // Divide os segmentos nas fronteiras das notas para que o sublinhado
+  // cubra exatamente a seleção anotada, não o parágrafo inteiro.
+  const noteSegments = useMemo(
+    () => markNoteAnchors(displaySegments, noteAnchors),
+    [displaySegments, noteAnchors]
+  )
   const quoteCount = codings.length
   const codesUsedInDoc = useMemo(
     () => new Set(codings.map((c) => c.codeId)).size,
     [codings]
   )
-  const lineRows = useMemo(
-    () => buildLineRows(text, displaySegments),
-    [text, displaySegments]
+  const hits = useMemo(
+    () =>
+      buscaAberta
+        ? acharOcorrencias(text, termo).map((o, i) => ({ id: i, ...o }))
+        : [],
+    [text, termo, buscaAberta]
   )
+  const hitSegments = useMemo(() => markSearchHits(noteSegments, hits), [noteSegments, hits])
+  const lineRows = useMemo(
+    () => buildLineRows(text, hitSegments),
+    [text, hitSegments]
+  )
+
+  // "Localizar ocorrências" do painel de códigos: rola o texto até o início
+  // da citação e pisca o trecho inteiro. O store garante que o documento da
+  // ocorrência já está aberto quando este efeito roda.
+  // Depende de locateSeq, e não de locateCodingId: localizar a mesma
+  // ocorrência de novo (F3 dando a volta) precisa rolar de novo, e o id
+  // guardando a posição não pode ser limpo aqui — é dele que o painel de
+  // trechos tira o contador "2 de 7".
+  useEffect(() => {
+    if (locateCodingId == null) return
+    const coding = codings.find((c) => c.id === locateCodingId)
+    if (!coding || !textRef.current) return
+    const anchor = resolveAnchorPos(coding.startPos, anchorPositions(lineRows))
+    const el =
+      anchor === null
+        ? null
+        : (textRef.current.querySelector(
+            `[data-pos="${anchor}"]`
+          ) as HTMLElement | null)
+    el?.scrollIntoView({ block: 'center' })
+    setFlashCodingId(coding.id)
+    const timer = setTimeout(() => setFlashCodingId(null), 2500)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locateSeq])
+
+  const irParaHit = (dir: 1 | -1): void => {
+    if (hits.length === 0) return
+    setHitAtual((atual) => (atual + dir + hits.length) % hits.length)
+    setBuscaSeq((n) => n + 1)
+  }
+
+  // O listener e em `window`, entao o atalho vale com o foco em qualquer campo:
+  // Ctrl+F nao compete com a digitacao. Esc so fecha quando a busca esta aberta,
+  // para nao sequestrar o Esc de dialogo nenhum. Nao dispara no modo de edicao,
+  // onde a barra nao existe e a busca ficaria pendente sem aparecer.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        if (editing) return
+        e.preventDefault()
+        setBuscaAberta(true)
+        setTimeout(() => buscaInputRef.current?.select(), 0)
+        return
+      }
+      if (!buscaAberta) return
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setBuscaAberta(false)
+        setTermo('')
+        return
+      }
+      if (e.key === 'F3') {
+        e.preventDefault()
+        irParaHit(e.shiftKey ? -1 : 1)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buscaAberta, hits.length, editing])
+
+  // Termo novo recomeca do primeiro achado, senao o contador diria "7 de 2".
+  useEffect(() => {
+    setHitAtual(0)
+    if (termo.trim() !== '') setBuscaSeq((n) => n + 1)
+  }, [termo])
+
+  useEffect(() => {
+    if (!buscaAberta || hits.length === 0 || !textRef.current) return
+    const hit = hits[Math.min(hitAtual, hits.length - 1)]
+    const anchor = resolveAnchorPos(hit.start, anchorPositions(lineRows))
+    const el =
+      anchor === null
+        ? null
+        : (textRef.current.querySelector(`[data-pos="${anchor}"]`) as HTMLElement | null)
+    el?.scrollIntoView({ block: 'center' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buscaSeq])
 
   const draftSegments = useMemo(() => {
     const previewCodings = applyCodingAdjustments(codings, text, draft)
@@ -211,7 +502,9 @@ export function TranscriptPanel(): JSX.Element {
     setEditTip(null)
   }
 
-  useEffect(() => {
+  // Reinicia antes do efeito de medição para não reter as colunas do documento
+  // anterior, inclusive quando o próximo tem o mesmo texto ou nenhuma citação.
+  useLayoutEffect(() => {
     columnFloorRef.current = 1
     setColumnCount(1)
   }, [currentDocument?.id])
@@ -243,7 +536,7 @@ export function TranscriptPanel(): JSX.Element {
           top
         }
       })
-      .filter((b): b is Omit<Bar, 'column'> => b !== null)
+      .filter((b): b is Omit<Bar, 'column' | 'columnSpan'> => b !== null)
 
     const layout = packBarColumns(raw, columnFloorRef.current)
     columnFloorRef.current = layout.columnCount
@@ -267,7 +560,7 @@ export function TranscriptPanel(): JSX.Element {
     // posicoes medidas ficam obsoletas e as etiquetas descem junto com o erro.
     ro.observe(textEl)
     return () => ro.disconnect()
-  }, [measure, text])
+  }, [measure, text, zoom, currentDocument?.id])
 
   const handleMouseUp = (): void => {
     if (dragging) return
@@ -289,6 +582,43 @@ export function TranscriptPanel(): JSX.Element {
   const applyCode = async (codeId: number): Promise<void> => {
     if (!pending) return
     await addCoding(codeId, pending.start, pending.end)
+    setPending(null)
+    window.getSelection()?.removeAllRanges()
+  }
+
+  const addNoteForPending = async (): Promise<void> => {
+    if (!pending || !currentDocument) return
+    const note = await createNote({
+      scope: 'excerpt',
+      documentId: currentDocument.id,
+      startPos: pending.start,
+      endPos: pending.end
+    })
+    setPending(null)
+    window.getSelection()?.removeAllRanges()
+    openNoteEditor(note.id)
+  }
+
+  // Nota de trecho desvinculada so tinha saida por desfazer ou apagar: 'attached'
+  // nunca era reescrito depois da criacao. Com o editor aberto numa nota assim,
+  // selecionar um trecho deste documento oferece religar.
+  const notaParaReligar =
+    editorNoteId != null && currentDocument != null
+      ? (documentNotes.find((n) => n.id === editorNoteId) ??
+          projectNotes.find((n) => n.id === editorNoteId))
+      : undefined
+  // Vale para qualquer nota que ainda tenha o trecho original guardado, nao so
+  // para as marcadas como desvinculadas: a nota que volta de um .qdpx chega como
+  // nota de documento e, pelo criterio antigo, nunca receberia a oferta.
+  const podeReligar =
+    notaParaReligar != null &&
+    notaParaReligar.scope !== 'project' &&
+    notaParaReligar.anchorText != null &&
+    notaParaReligar.documentId === currentDocument?.id
+
+  const reattachPendingNote = async (): Promise<void> => {
+    if (!pending || !podeReligar || !notaParaReligar) return
+    await updateNote({ id: notaParaReligar.id, startPos: pending.start, endPos: pending.end })
     setPending(null)
     window.getSelection()?.removeAllRanges()
   }
@@ -356,13 +686,70 @@ export function TranscriptPanel(): JSX.Element {
         </div>
       </div>
 
+      {buscaAberta && !editing && (
+        <div className="flex items-center gap-2 border-b bg-muted/30 px-3 py-1.5">
+          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <input
+            ref={buscaInputRef}
+            autoFocus
+            value={termo}
+            onChange={(e) => setTermo(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                irParaHit(e.shiftKey ? -1 : 1)
+              }
+            }}
+            placeholder="Buscar no documento (ignora acento e maiúscula)"
+            className="h-7 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {termo.trim() === ''
+              ? ''
+              : hits.length === 0
+                ? 'nada encontrado'
+                : `${Math.min(hitAtual, hits.length - 1) + 1} de ${hits.length}`}
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={hits.length === 0}
+            onClick={() => irParaHit(-1)}
+            title="Anterior (Shift+Enter)"
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={hits.length === 0}
+            onClick={() => irParaHit(1)}
+            title="Próxima (Enter ou F3)"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setBuscaAberta(false)
+              setTermo('')
+            }}
+            title="Fechar (Esc)"
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+
       {editing ? (
         <div className="flex flex-1 flex-col overflow-hidden p-4">
-          {codings.length > 0 && (
+          {(codings.length > 0 || documentNotes.length > 0) && (
             <p className="mb-2 text-xs text-amber-500">
-              Os trechos citados aparecem realcados. Editar o texto pode
-              reposicionar ou remover citações automaticamente conforme o
-              trecho alterado.
+              Os trechos citados aparecem realçados. Editar o texto reposiciona
+              citações e notas automaticamente. Quando a edição desfaz o trecho,
+              ele é reencontrado se ainda existir no documento; se não, a citação
+              é removida e a nota fica desvinculada, guardando o trecho original.
             </p>
           )}
           <div
@@ -373,7 +760,12 @@ export function TranscriptPanel(): JSX.Element {
             <div
               ref={backdropRef}
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-sm leading-7"
+              className="pointer-events-none absolute inset-0 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] p-3 font-mono"
+              style={{
+                fontSize: `calc(0.875rem * ${zoom})`,
+                lineHeight: `calc(1.75rem * ${zoom})`,
+                fontFamily: 'var(--transcript-font)'
+              }}
             >
               {draftSegments.map((seg) => {
                 const segText = draft.slice(seg.start, seg.end)
@@ -414,8 +806,13 @@ export function TranscriptPanel(): JSX.Element {
               onChange={(e) => setDraft(e.target.value)}
               onScroll={syncScroll}
               spellCheck={false}
-              className="absolute inset-0 resize-none overflow-auto whitespace-pre-wrap break-words bg-transparent p-3 font-mono text-sm leading-7 text-transparent caret-foreground outline-none"
-              style={{ color: 'transparent' }}
+              className="absolute inset-0 resize-none overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] bg-transparent p-3 font-mono text-transparent caret-foreground outline-none"
+              style={{
+                color: 'transparent',
+                fontSize: `calc(0.875rem * ${zoom})`,
+                lineHeight: `calc(1.75rem * ${zoom})`,
+                fontFamily: 'var(--transcript-font)'
+              }}
             />
             {editTip && (
               <div
@@ -438,7 +835,12 @@ export function TranscriptPanel(): JSX.Element {
           <div
             ref={textRef}
             onMouseUp={handleMouseUp}
-            className="transcript flex-1 py-5 text-[15px] leading-7"
+            className="transcript min-w-0 flex-1 py-5"
+            style={{
+              fontSize: `calc(15px * ${zoom})`,
+              lineHeight: `calc(1.75rem * ${zoom})`,
+              fontFamily: 'var(--transcript-font)'
+            }}
           >
             {segments.length === 0 ? (
               <div className="flex">
@@ -449,10 +851,13 @@ export function TranscriptPanel(): JSX.Element {
               lineRows.map((row) => {
                 return (
                   <div key={row.index} className="flex">
-                    <div className="w-12 shrink-0 select-none pr-3 text-right text-xs leading-7 text-muted-foreground/40">
+                    <div
+                      className="w-12 shrink-0 select-none pr-3 text-right text-xs text-muted-foreground/40"
+                      style={{ lineHeight: `calc(1.75rem * ${zoom})` }}
+                    >
                       {row.index + 1}
                     </div>
-                    <div className="flex-1 whitespace-pre-wrap break-words pr-6">
+                    <div className="min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere] pr-6">
                       {row.spans.length === 0 ? (
                         <span data-pos={row.start}>
                           {text.slice(row.start, row.end) || '\u200b'}
@@ -462,12 +867,41 @@ export function TranscriptPanel(): JSX.Element {
                           const segStart = seg.start
                           const segEnd = seg.end
                           const segText = seg.text
+                          const ehHit = (seg.hitIds?.length ?? 0) > 0
+                          const ehHitAtual =
+                            ehHit && seg.hitIds!.includes(Math.min(hitAtual, hits.length - 1))
+                          // fundo da busca por cima da cor do codigo: box-shadow
+                          // interno nao disputa o backgroundColor do trecho
+                          const estiloBusca = ehHit
+                            ? {
+                                boxShadow: ehHitAtual
+                                  ? 'inset 0 0 0 999px rgba(250, 204, 21, 0.55)'
+                                  : 'inset 0 0 0 999px rgba(250, 204, 21, 0.25)',
+                                borderRadius: 2
+                              }
+                            : undefined
                           if (seg.codingIds.length === 0) {
+                            const hasNote = seg.noteIds.length > 0
+                            const isFlash =
+                              flashNoteId != null && seg.noteIds.includes(flashNoteId)
                             return (
                               <span
                                 key={`${segStart}-${seg.isPending}`}
                                 data-pos={segStart}
                                 className={seg.isPending ? 'pending-selection' : undefined}
+                                title={hasNote ? 'Trecho com nota' : undefined}
+                                style={{
+                                  ...(hasNote
+                                    ? {
+                                        textDecoration: 'underline dotted',
+                                        textUnderlineOffset: 3,
+                                        backgroundColor: isFlash
+                                          ? 'rgba(250, 204, 21, 0.35)'
+                                          : undefined
+                                      }
+                                    : {}),
+                                  ...estiloBusca
+                                }}
                               >
                                 {segText}
                               </span>
@@ -481,6 +915,10 @@ export function TranscriptPanel(): JSX.Element {
                             : '#888'
                           const isHover = seg.codingIds.includes(hoverCoding ?? -1)
                           const isSelected = seg.codingIds.includes(selectedCodingId ?? -1)
+                          const hasNote = seg.noteIds.length > 0
+                          const isFlash =
+                            (flashNoteId != null && seg.noteIds.includes(flashNoteId)) ||
+                            (flashCodingId != null && seg.codingIds.includes(flashCodingId))
                           const selCoding = isSelected
                             ? codings.find((c) => c.id === selectedCodingId)
                             : null
@@ -503,18 +941,34 @@ export function TranscriptPanel(): JSX.Element {
                               key={`${segStart}-${seg.isPending}`}
                               data-pos={segStart}
                               className={seg.isPending ? 'pending-selection-coded' : undefined}
-                              title={seg.codingIds
-                                .map((id) => {
-                                  const cd = codings.find((c) => c.id === id)
-                                  return cd ? codeMap.get(cd.codeId)?.name : ''
-                                })
+                              title={[
+                                seg.codingIds
+                                  .map((id) => {
+                                    const cd = codings.find((c) => c.id === id)
+                                    return cd ? codeMap.get(cd.codeId)?.name : ''
+                                  })
+                                  .filter(Boolean)
+                                  .join(', '),
+                                hasNote ? 'tem nota' : ''
+                              ]
                                 .filter(Boolean)
-                                .join(', ')}
+                                .join(' · ')}
                               style={{
-                                backgroundColor: `${topColor}${isHover || isSelected ? alpha.bgHover : alpha.bg}`,
-                                boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}${isSelected ? `, 0 0 0 1px ${topColor}66` : ''}`,
+                                backgroundColor: isFlash
+                                  ? 'rgba(250, 204, 21, 0.35)'
+                                  : `${topColor}${isHover || isSelected ? alpha.bgHover : alpha.bg}`,
+                                // o flood da busca vai DEPOIS da barra do código
+                                // na lista: sombra anterior desenha por cima, e a
+                                // barra precisa continuar visível no trecho achado
+                                boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}${isSelected ? `, 0 0 0 1px ${topColor}66` : ''}${
+                                  ehHit
+                                    ? `, inset 0 0 0 999px rgba(250, 204, 21, ${ehHitAtual ? '0.45' : '0.2'})`
+                                    : ''
+                                }`,
                                 borderRadius: 2,
                                 cursor: 'pointer',
+                                textDecoration: hasNote ? 'underline dotted' : undefined,
+                                textUnderlineOffset: hasNote ? 3 : undefined,
                               }}
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -557,8 +1011,31 @@ export function TranscriptPanel(): JSX.Element {
           </div>
 
           <div
+            onMouseDown={(e) => {
+              if (e.button !== 0) return
+              e.preventDefault()
+              laneResizeRef.current = {
+                startX: e.clientX,
+                startWidth: effectiveLaneWidth
+              }
+              setLaneResizing(true)
+            }}
+            onDoubleClick={() => {
+              setLaneWidth(null)
+              try {
+                localStorage.removeItem(BAR_LANE_KEY)
+              } catch {
+                // armazenamento indisponível: só não persiste
+              }
+            }}
+            title="Arraste para redimensionar a faixa de códigos (duplo clique restaura)"
+            className={`w-1.5 shrink-0 cursor-col-resize self-stretch hover:bg-primary/20 ${
+              laneResizing ? 'bg-primary/30' : ''
+            }`}
+          />
+          <div
             className="relative shrink-0 border-l bg-muted/30"
-            style={{ width: Math.max(180, columnCount * 150 + 16) }}
+            style={{ width: effectiveLaneWidth }}
           >
             {bars.map((bar) => (
               <div
@@ -569,19 +1046,24 @@ export function TranscriptPanel(): JSX.Element {
                 className="group absolute flex h-[22px] cursor-pointer items-center gap-1 rounded px-1.5 text-xs"
                 style={{
                   top: bar.top,
-                  left: 8 + bar.column * 150,
-                  width: 142,
+                  left: BAR_LANE_PAD / 2 + bar.column * barSlot,
+                  width: Math.max(BAR_MIN_WIDTH, barSlot * bar.columnSpan - BAR_GAP),
                   backgroundColor: bar.color,
                   color: contrastText(bar.color),
                   outline: selectedCodingId === bar.codingId ? `2px solid ${bar.color}` : undefined,
                   outlineOffset: 2,
                 }}
               >
-                <span className="truncate">{bar.name}</span>
+                <BarName name={bar.name} />
                 <button
-                  className="ml-auto opacity-0 group-hover:opacity-100"
+                  className="ml-auto shrink-0 opacity-0 group-hover:opacity-100"
                   title="Remover citação"
-                  onClick={() => removeCoding(bar.codingId)}
+                  onClick={(e) => {
+                    // sem isto o clique sobe para a etiqueta e marca como
+                    // selecionada a citação que acabou de ser removida
+                    e.stopPropagation()
+                    removeCoding(bar.codingId)
+                  }}
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -598,6 +1080,8 @@ export function TranscriptPanel(): JSX.Element {
           y={pending.y}
           onClose={() => setPending(null)}
           onApply={applyCode}
+          onAddNote={() => void addNoteForPending()}
+          onReattachNote={podeReligar ? () => void reattachPendingNote() : undefined}
         />
       )}
     </div>

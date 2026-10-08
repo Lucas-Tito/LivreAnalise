@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { casaBusca } from '@shared/busca'
 import {
   Dialog,
   DialogContent,
@@ -18,6 +19,8 @@ interface Props {
 
 export function CollectionMembersDialog({ collection, onOpenChange }: Props): JSX.Element {
   const codes = useAppStore((s) => s.codes)
+  const addCollectionMember = useAppStore((s) => s.addCollectionMember)
+  const removeCollectionMember = useAppStore((s) => s.removeCollectionMember)
   const [members, setMembers] = useState<Set<number>>(new Set())
   const [filter, setFilter] = useState('')
 
@@ -31,20 +34,20 @@ export function CollectionMembersDialog({ collection, onOpenChange }: Props): JS
   const toggle = async (codeId: number): Promise<void> => {
     if (!collection) return
     if (members.has(codeId)) {
-      await window.api.collections.removeMember(collection.id, codeId)
+      await removeCollectionMember(collection.id, codeId)
       setMembers((prev) => {
         const next = new Set(prev)
         next.delete(codeId)
         return next
       })
     } else {
-      await window.api.collections.addMember(collection.id, codeId)
+      await addCollectionMember(collection.id, codeId)
       setMembers((prev) => new Set(prev).add(codeId))
     }
   }
 
   const filtered = codes.filter((c) =>
-    c.name.toLowerCase().includes(filter.toLowerCase())
+    casaBusca(c.name, filter)
   )
 
   return (

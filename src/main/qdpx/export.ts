@@ -1,4 +1,5 @@
 import { writeFile } from 'fs/promises'
+import { v4 as uuid } from 'uuid'
 import type { ExportResult } from '@shared/types'
 import {
   getDocument,
@@ -6,11 +7,14 @@ import {
   listCodingsByDocument,
   listDocuments,
   listCollectionMembers,
-  listCollections
+  listCollections,
+  listNotesByDocument,
+  listProjectNotes
 } from '../db/repositories'
 import type {
   QdpxCode,
   QdpxDocument,
+  QdpxNote,
   QdpxSet,
   QdpxProject,
   QdpxSelection
@@ -59,7 +63,8 @@ export function buildProjectFromDb(projectName: string): {
           guid: coding.guid,
           startPosition: coding.startPos,
           endPosition: coding.endPos,
-          codeGuids: [codeGuid]
+          codeGuids: [codeGuid],
+          noteGuids: []
         })
       }
     }
@@ -67,9 +72,52 @@ export function buildProjectFromDb(projectName: string): {
       guid: docRecord.guid,
       name: docRecord.name,
       plainText: doc?.plainText ?? '',
-      selections: Array.from(groupedBySpan.values())
+      selections: Array.from(groupedBySpan.values()),
+      noteGuids: []
     }
   })
+
+  // Notas: projeto → Project/NoteRef; documento → TextSource/NoteRef;
+  // trecho attached → NoteRef na seleção (reusa seleção codificada no mesmo
+  // span ou cria seleção só-nota). Detached rebaixa com aviso, nunca some.
+  const qdpxNotes: QdpxNote[] = []
+  const projectNoteGuids: string[] = []
+  const docById = new Map(qdpxDocuments.map((d) => [d.guid, d]))
+  for (const note of listProjectNotes()) {
+    qdpxNotes.push({ guid: note.guid, name: note.title, plainText: note.body, description: note.anchorText })
+    projectNoteGuids.push(note.guid)
+  }
+  for (const docRecord of listDocuments()) {
+    const qdpxDoc = docById.get(docRecord.guid)
+    if (!qdpxDoc) continue
+    // listNotesByDocument nunca devolve scope 'project' (só document/excerpt).
+    for (const note of listNotesByDocument(docRecord.id)) {
+      if (note.scope === 'document' || note.anchorStatus === 'detached' || note.startPos == null || note.endPos == null) {
+        if (note.scope === 'excerpt' && note.anchorStatus === 'detached') {
+          warnings.push(`Nota "${note.title ?? 'sem título'}" perdeu a âncora e foi exportada no documento "${docRecord.name}".`)
+        }
+        qdpxNotes.push({ guid: note.guid, name: note.title, plainText: note.body, description: note.anchorText })
+        qdpxDoc.noteGuids.push(note.guid)
+        continue
+      }
+      const key = `${note.startPos}-${note.endPos}`
+      const sel = qdpxDoc.selections.find((s) => `${s.startPosition}-${s.endPosition}` === key)
+      qdpxNotes.push({ guid: note.guid, name: note.title, plainText: note.body, description: null })
+      if (sel) sel.noteGuids.push(note.guid)
+      else {
+        qdpxDoc.selections.push({
+          // GUID proprio: no REFI-QDA o guid identifica o objeto no projeto
+          // inteiro, e a selecao e um objeto diferente da nota. Reusar o guid da
+          // nota punha dois objetos com a mesma matricula no mesmo arquivo.
+          guid: uuid(),
+          startPosition: note.startPos,
+          endPosition: note.endPos,
+          codeGuids: [],
+          noteGuids: [note.guid]
+        })
+      }
+    }
+  }
 
   return {
     project: {
@@ -77,7 +125,9 @@ export function buildProjectFromDb(projectName: string): {
       users: [],
       codes: qdpxCodes,
       groups: qdpxSets,
-      documents: qdpxDocuments
+      documents: qdpxDocuments,
+      notes: qdpxNotes,
+      projectNoteGuids
     },
     warnings
   }

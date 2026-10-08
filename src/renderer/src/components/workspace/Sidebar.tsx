@@ -13,7 +13,9 @@ const DEFAULT_WIDTH = 288
 const WIDTH_KEY = 'sidebarWidth'
 
 interface Props {
-  onViewCode: (code: CodeWithCount) => void
+  // null fecha o detalhe: o arrasto usa isso para não deixar painel nenhum em
+  // cima da lista enquanto o código está em movimento.
+  onViewCode: (code: CodeWithCount | null) => void
 }
 
 export function Sidebar({ onViewCode }: Props): JSX.Element {

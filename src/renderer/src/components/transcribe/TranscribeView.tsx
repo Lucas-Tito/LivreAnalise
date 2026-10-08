@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { mensagemDeErro } from '@/lib/erros'
 import {
   ArrowLeft,
   AudioLines,
@@ -111,6 +112,13 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
     setStage({ kind: 'confirm', modelId, bytes })
   }
 
+  // O Electron prefixa o erro do main com "Error invoking remote method
+  // 'transcription:...'": esse detalhe de IPC nao ajuda ninguem na tela.
+  // O main serializa com toString(), entao sobra ainda o "Error:" original.
+  const showFailure = (e: unknown): void => {
+    setStage({ kind: 'error', message: mensagemDeErro(e) })
+  }
+
   const runTranscription = async (): Promise<void> => {
     if (!mediaPath) return
     setSegments([])
@@ -122,7 +130,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
         binaryPath: binaryPath || null
       })
     } catch (e) {
-      setStage({ kind: 'error', message: (e as Error).message })
+      showFailure(e)
     }
   }
 
@@ -137,7 +145,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
       await refreshEnv()
       await runTranscription()
     } catch (e) {
-      setStage({ kind: 'error', message: (e as Error).message })
+      showFailure(e)
     }
   }
 
@@ -147,7 +155,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
       await refreshEnv()
       setStage({ kind: 'idle' })
     } catch (e) {
-      setStage({ kind: 'error', message: (e as Error).message })
+      showFailure(e)
     }
   }
 

@@ -3,6 +3,9 @@
 @tailwind utilities;
 
 :root {
+    /* rede de seguranca: o valor real vem do zoomStore no import, mas sem um
+       padrao aqui qualquer falha de leitura deixaria o texto sem familia */
+    --transcript-font: system-ui, sans-serif;
   --background: 0 0% 100%;
   --foreground: 222.2 84% 4.9%;
   --card: 0 0% 100%;
@@ -82,4 +85,149 @@ body {
 .transcript .pending-selection-coded {
   outline: 2px solid hsl(var(--primary) / 0.55);
   outline-offset: -2px;
+}
+
+/* Aba de códigos — três destinos de arrasto bem distintos:
+   1. bordas: barra de inserção acima/abaixo (sobe ou desce de nível);
+   2. centro: o alvo vira um recipiente (agrupa);
+   3. fundo: 1º nível. */
+
+.code-insert-before::before,
+.code-insert-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.18);
+  animation: code-insert-in 180ms cubic-bezier(0.2, 0.9, 0.2, 1);
+  pointer-events: none;
+}
+
+.code-insert-before::before {
+  top: -3px;
+}
+
+.code-insert-after::after {
+  bottom: -3px;
+}
+
+@keyframes code-insert-in {
+  from {
+    transform: scaleX(0.2);
+    opacity: 0;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
+/* Agrupar: fundo cheio + anel, e um respiro na escala para decir "aqui dentro". */
+.code-drop-inside {
+  background-color: hsl(var(--primary) / 0.14);
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.75);
+  animation: code-nest-in 220ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+/* Criar grupo novo: apenas a borda pontilhada. Sem preenchimento, sem anel e
+   sem animação de "pop" — o destino se marca por contorno, e quem pulsa é a
+   etiqueta que segue o cursor. */
+.code-drop-group {
+  outline: 2px dashed hsl(var(--primary));
+  outline-offset: 1px;
+  background-color: transparent;
+}
+
+/* Já está aqui: a mesma posição de inserção, mas em tom neutro — o soltar
+   não vai mudar nada, então o destino não veste o azul de "vai mover". Vem
+   depois das regras de inserir/agrupar para sobrescrevê-las. */
+.code-drop-same.code-insert-before::before,
+.code-drop-same.code-insert-after::after {
+  background: hsl(var(--muted-foreground) / 0.55);
+  box-shadow: none;
+  animation: none;
+}
+
+.code-drop-same.code-drop-inside {
+  background-color: hsl(var(--muted) / 0.4);
+  box-shadow: 0 0 0 2px hsl(var(--muted-foreground) / 0.35);
+  animation: none;
+}
+
+@keyframes code-nest-in {
+  0% {
+    transform: scale(1);
+  }
+  55% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1.015);
+  }
+}
+
+/* Enquanto se arrasta, o cursor não pode voltar a "mãozinha" nem Selection. */
+body.code-dragging,
+body.code-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/* Etiqueta do arrasto: criada no body, movida por transform, tingida pela
+   intenção (subir/descer são azuis; criar grupo fica na cor do primaries). */
+.code-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.25);
+  transform: translate3d(-9999px, -9999px, 0);
+  pointer-events: none;
+  transition:
+    background-color 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+.code-drag-ghost[data-intent='group'] {
+  background: hsl(var(--primary));
+  box-shadow:
+    0 0 0 2px hsl(var(--primary) / 0.45),
+    0 6px 18px rgb(0 0 0 / 0.3);
+}
+
+.code-drag-ghost[data-intent='inside'] {
+  background: hsl(var(--primary) / 0.92);
+}
+
+.code-drag-ghost[data-intent='up'],
+.code-drag-ghost[data-intent='down'] {
+  background: transparent;
+  color: hsl(var(--foreground));
+  box-shadow: none;
+  border: 1px dashed hsl(var(--primary) / 0.8);
+  padding: 3px 9px;
+}
+
+.code-drag-ghost[data-intent='same'] {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  box-shadow: none;
+  border: 1px dashed hsl(var(--muted-foreground) / 0.6);
+  padding: 3px 9px;
 }

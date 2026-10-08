@@ -113,3 +113,49 @@ export function applyCodingAdjustments<T extends AdjustableCoding>(
       return update ? { ...c, startPos: update.startPos, endPos: update.endPos } : c
     })
 }
+
+/**
+ * Tamanho minimo do trecho para ele poder ser reencontrado automaticamente.
+ * Casar por texto e heuristica: "sim" aparece uma vez sozinha em algum lugar
+ * que nao tem nada a ver com a marcacao original.
+ */
+export const MIN_RELOCALIZE_LEN = 20
+
+export interface Relocalizacao {
+  startPos: number
+  endPos: number
+}
+
+function ocorrencias(agulha: string, palheiro: string, limite: number): number[] {
+  const achados: number[] = []
+  let i = palheiro.indexOf(agulha)
+  // avanca de 1 em 1 para contar tambem ocorrencias sobrepostas: duas e
+  // ambiguo de qualquer jeito, e parar no limite evita varrer texto enorme
+  while (i !== -1 && achados.length < limite) {
+    achados.push(i)
+    i = palheiro.indexOf(agulha, i + 1)
+  }
+  return achados
+}
+
+/**
+ * Procura no texto novo o trecho que a edicao destruiu.
+ *
+ * Mover um paragrafo de lugar apaga as posicoes mas preserva o texto; antes
+ * disto a citacao era apagada e a nota desvinculada, mesmo com o trecho
+ * inteiro ainda ali. So vale quando ha UMA ocorrencia: duas nao da para
+ * escolher sem perguntar, e perguntar no meio de uma edicao atrapalha mais do
+ * que ajuda -- nesse caso a oferta manual continua valendo.
+ */
+export function relocalizarTrecho(
+  trecho: string,
+  textoNovo: string,
+  minimo: number = MIN_RELOCALIZE_LEN
+): Relocalizacao | null {
+  // conta caractere util: em transcricao um trecho pode ter 30 caracteres e
+  // quase todos serem quebra de linha, e aí ele nao distingue nada
+  if (trecho.replace(/\s+/g, '').length < minimo) return null
+  const achados = ocorrencias(trecho, textoNovo, 2)
+  if (achados.length !== 1) return null
+  return { startPos: achados[0], endPos: achados[0] + trecho.length }
+}

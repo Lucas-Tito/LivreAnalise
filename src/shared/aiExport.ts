@@ -1,10 +1,11 @@
 import { buildLibraryTree, type CodeNode } from './codeTree'
 import { computeSegments } from './segments'
-import type { Code, Coding, Collection, CollectionMember } from './types'
+import type { Code, Coding, Collection, CollectionMember, Note } from './types'
 
 export type AiExportScope = 'structure' | 'document' | 'full'
 
 export interface AiExportDocument {
+  id?: number
   name: string
   plainText: string
   codings: Coding[]
@@ -20,6 +21,11 @@ export interface AiExportInput {
   // contagem de uso dos códigos: vale em todos os escopos, inclusive no que não
   // leva texto nenhum
   allCodings: Coding[]
+  // opt-in explícito: notas entram como comentário do pesquisador, nunca
+  // escondidas no escopo "só estrutura" sem aviso
+  includeNotes?: boolean
+  projectNotes?: Note[]
+  notesByDocument?: Map<number, Note[]> | Record<number, Note[]>
 }
 
 const AVISO =
@@ -109,6 +115,96 @@ export function buildDocumentSection(
   return `## Documento: ${documento.name}\n\n${partes.join('')}`
 }
 
+function notesForDocument(
+  notesByDocument: Map<number, Note[]> | Record<number, Note[]>,
+  documentId: number
+): Note[] {
+  if (notesByDocument instanceof Map) return notesByDocument.get(documentId) ?? []
+  return (notesByDocument as Record<number, Note[]>)[documentId] ?? []
+}
+
+const NOTA_MAX = 2000
+
+/**
+ * O export ensina a IA a ler a estrutura ("## Documento:", «trecho» [CODIGO]).
+ * Uma nota que contenha esse padrao forja a estrutura e desloca tudo que vem
+ * depois para o documento errado -- e nao precisa de ma fe: basta o pesquisador
+ * ter escrito um memo sobre a propria ferramenta.
+ */
+export function sanearNota(texto: string): string {
+  const cortado =
+    texto.length > NOTA_MAX ? `${texto.slice(0, NOTA_MAX)}… (nota truncada)` : texto
+  return cortado
+    // cabecalho no comeco de linha e o que define secao no arquivo
+    .replace(/^(\s*)(#{1,6})(\s)/gm, '$1\u200b$2$3')
+    // as aspas angulares delimitam trecho codificado
+    .replace(/[«»]/g, '"')
+    .replace(/\r?\n/g, ' ')
+}
+
+function linhaDaNota(nota: Note, texto: string | null): string {
+  const titulo = nota.title ? `${sanearNota(nota.title)} — ` : ''
+  const corpo = sanearNota(nota.body)
+  if (nota.scope === 'excerpt' && nota.anchorStatus === 'attached' && nota.startPos != null && nota.endPos != null && texto != null) {
+    // o trecho vem do documento e pode ter quebra de linha: sem sanear, a linha
+    // do item partia em duas e o resto aparecia solto, fora de qualquer nota
+    const trecho = sanearNota(texto.slice(nota.startPos, nota.endPos))
+    return `- [trecho ${nota.startPos}–${nota.endPos} «${trecho}»] ${titulo}${corpo}`
+  }
+  if (nota.scope === 'excerpt' && nota.anchorStatus === 'detached') {
+    const original = nota.anchorText
+      ? ` (âncora perdida, texto original: «${sanearNota(nota.anchorText)}»)`
+      : ' (âncora perdida)'
+    return `- [trecho desvinculado] ${titulo}${corpo}${original}`
+  }
+  if (nota.scope === 'document') return `- [documento] ${titulo}${corpo}`
+  return `- ${titulo}${corpo}`
+}
+
+// Notas como comentário do pesquisador: marcadas, por documento + globais.
+// No escopo "só estrutura" com opt-in, só contagem/títulos — nunca o corpo.
+export function buildNotesSection(
+  scope: AiExportScope,
+  projectNotes: Note[],
+  documentNotes: Note[],
+  documentName: string | null,
+  texto: string | null
+): string {
+  const linhas = [
+    scope === 'structure'
+      ? '## Notas do pesquisador (só títulos — escopo estrutura)'
+      : documentName
+        ? `## Notas do pesquisador — ${documentName}`
+        : '## Notas do pesquisador'
+  ]
+  linhas.push('')
+  linhas.push('_Comentário do pesquisador, não fala de participante._')
+  linhas.push('')
+  if (scope === 'structure') {
+    if (projectNotes.length === 0 && documentNotes.length === 0) {
+      linhas.push('_(nenhuma)_')
+    } else {
+      linhas.push(`Notas de projeto: ${projectNotes.length}`)
+      for (const n of projectNotes) linhas.push(`- ${n.title ?? '(sem título)'}`)
+      if (documentNotes.length > 0) {
+        linhas.push(`Notas de documentos/trechos: ${documentNotes.length} (títulos omitidos no escopo estrutura)`)
+      }
+    }
+    return linhas.join('\n')
+  }
+  if (documentNotes.length === 0 && (documentName || projectNotes.length === 0)) {
+    linhas.push('_(nenhuma)_')
+    return linhas.join('\n')
+  }
+  for (const n of documentNotes) linhas.push(linhaDaNota(n, texto))
+  if (!documentName && projectNotes.length > 0) {
+    linhas.push('', '### Notas do projeto')
+    linhas.push('')
+    for (const n of projectNotes) linhas.push(linhaDaNota(n, null))
+  }
+  return linhas.join('\n')
+}
+
 export function buildAiExport(input: AiExportInput): string {
   const blocos: string[] = [
     `# ${input.projectName} — exportação para IA`,
@@ -119,6 +215,9 @@ export function buildAiExport(input: AiExportInput): string {
 
   if (input.scope !== 'structure') {
     blocos.push(LEGENDA, '')
+  }
+  if (input.includeNotes && input.scope !== 'structure') {
+    blocos.push('Notas do pesquisador vêm em seção própria, marcadas como comentário do pesquisador.', '')
   }
 
   blocos.push(
@@ -132,6 +231,32 @@ export function buildAiExport(input: AiExportInput): string {
 
   for (const documento of input.documents) {
     blocos.push('', buildDocumentSection(documento, input.codes))
+    if (input.includeNotes && documento.id != null) {
+      blocos.push(
+        '',
+        buildNotesSection(
+          input.scope,
+          [],
+          notesForDocument(input.notesByDocument ?? {}, documento.id),
+          documento.name,
+          documento.plainText
+        )
+      )
+    }
+  }
+
+  if (input.includeNotes && input.scope === 'full' && (input.projectNotes ?? []).length > 0) {
+    blocos.push('', buildNotesSection(input.scope, input.projectNotes ?? [], [], null, null))
+  }
+
+  if (input.includeNotes && input.scope === 'structure') {
+    const docNotes: Note[] = []
+    const source = input.notesByDocument ?? {}
+    const all = source instanceof Map
+      ? [...source.values()].flat()
+      : Object.values(source).flat()
+    docNotes.push(...all)
+    blocos.push('', buildNotesSection(input.scope, input.projectNotes ?? [], docNotes, null, null))
   }
 
   return blocos.join('\n').trimEnd() + '\n'
@@ -170,7 +295,8 @@ Três regras do modelo que o esquema não deixa óbvias:
    substr(d.plain_text, c.start_pos + 1, c.end_pos - c.start_pos)
 
 Tabelas: project_meta, documents(plain_text), codes(parent_id), code_groups,
-code_group_members(group_id, code_id), codings(document_id, code_id, start_pos, end_pos)
+code_group_members(group_id, code_id), codings(document_id, code_id, start_pos, end_pos),
+notes(scope, document_id, start_pos, end_pos, anchor_status)
 
 Consultas de exemplo:
 
