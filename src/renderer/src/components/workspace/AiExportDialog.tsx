@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Check,
   Copy,
@@ -61,6 +61,7 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
   const currentDocument = useAppStore((s) => s.currentDocument)
   const [scope, setScope] = useState<AiExportScope>('structure')
   const [includeNotes, setIncludeNotes] = useState(false)
+  const tocouNotas = useRef(false)
   const [exportando, setExportando] = useState(false)
   const [salvoEm, setSalvoEm] = useState<string | null>(null)
   const [instrucoes, setInstrucoes] = useState('')
@@ -74,11 +75,17 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
       setCopiado(false)
       setMostrarCli(false)
       setMostrarArquivo(true)
-    } else {
-      // Opt-in explícito: ligado em documento/completo, desligado em estrutura.
-      setIncludeNotes(scope !== 'structure')
+      tocouNotas.current = false
     }
   }, [open])
+
+  // O padrão segue o escopo — ligado em documento/completo, desligado em
+  // estrutura —, mas para de seguir assim que a pessoa mexe no checkbox. Antes
+  // o efeito dependia só de `open`: abrir em "estrutura" e depois escolher
+  // "Documento" exportava sem nota nenhuma, em silêncio.
+  useEffect(() => {
+    if (open && !tocouNotas.current) setIncludeNotes(scope !== 'structure')
+  }, [open, scope])
 
   useEffect(() => {
     if (mostrarCli && !instrucoes) {
@@ -194,7 +201,10 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
               type="checkbox"
               className="mt-0.5"
               checked={includeNotes}
-              onChange={(e) => setIncludeNotes(e.target.checked)}
+              onChange={(e) => {
+                tocouNotas.current = true
+                setIncludeNotes(e.target.checked)
+              }}
             />
             <span>
               Incluir notas como comentário do pesquisador
