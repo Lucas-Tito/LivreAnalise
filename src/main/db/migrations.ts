@@ -51,18 +51,22 @@ export interface MigrateOptions {
 
 /**
  * Garante o schema e aplica as migrações pendentes na abertura do projeto.
- * - Banco novo ou legado (sem carimbo): o DDL idempotente já deixa tudo no
- *   estado atual, então basta carimbar. Nenhum dado é tocado.
- * - Banco desatualizado: aplica cada migração pendente em uma única
- *   transação; se qualquer uma falhar, nada é aplicado e a versão não muda.
- * - Banco de um app mais novo: recusa a abertura em vez de corromper.
+ *
+ * - Nada é escrito antes das checagens: um banco de um app mais novo é recusado
+ *   com o arquivo intacto.
+ * - Banco legado (sem carimbo) conta como versão 1 e passa pelo mesmo pipeline
+ *   dos demais, em vez de ser carimbado direto no alvo.
+ * - As migrações pendentes e o carimbo da versão vão na MESMA transação: se
+ *   qualquer uma falhar, nada é aplicado e a versão não muda.
  */
 export function migrateDatabase(raw: Database.Database, options?: MigrateOptions): void {
   const migrations = options?.migrations ?? MIGRATIONS
   const target = options?.targetVersion ?? CURRENT_SCHEMA_VERSION
 
-  raw.exec(SCHEMA_DDL)
-
+  // Nada e escrito no arquivo antes das checagens. O `exec(SCHEMA_DDL)` ficava
+  // antes delas, entao a recusa que promete "nao corromper" ja tinha escrito:
+  // num projeto de um app mais novo, onde uma tabela tivesse sido renomeada, o
+  // `CREATE TABLE IF NOT EXISTS` recriava a antiga, vazia, antes do erro.
   const seen = new Set<number>()
   for (const m of migrations) {
     if (seen.has(m.version)) {
@@ -71,24 +75,34 @@ export function migrateDatabase(raw: Database.Database, options?: MigrateOptions
     seen.add(m.version)
   }
 
-  const current = getSchemaVersion(raw)
-  if (current > target) {
+  const stamped = getSchemaVersion(raw)
+  if (stamped > target) {
     throw new Error(
-      `O projeto foi criado por uma versão mais nova do aplicativo (schema ${current}, esperado ${target}). Atualize o LivreAnalise para abri-lo.`
+      `O projeto foi criado por uma versão mais nova do aplicativo (schema ${stamped}, esperado ${target}). Atualize o LivreAnalise para abri-lo.`
     )
   }
-  if (current === 0 || current === target) {
-    setSchemaVersion(raw, target)
-    return
-  }
+
+  raw.exec(SCHEMA_DDL)
+
+  // Banco legado nao tem carimbo (0) e corresponde a versao 1. Tratar como 1,
+  // em vez de carimbar direto no alvo, faz ele passar pelo mesmo pipeline de
+  // todo mundo: carimbar e pular as migracoes so funciona enquanto cada uma
+  // for um CREATE espelhado no DDL, acoplamento que nada no codigo garante --
+  // o primeiro ALTER TABLE deixaria o projeto MAIS ANTIGO sem a coluna nova.
+  const current = stamped === 0 ? 1 : stamped
 
   const pending = migrations
     .filter((m) => m.version > current && m.version <= target)
     .sort((a, b) => a.version - b.version)
 
+  // O carimbo entra na MESMA transacao das migracoes. Fora dela havia uma
+  // janela entre o commit e o carimbo: queda de energia ali fazia tudo rodar de
+  // novo na abertura seguinte. Hoje e inofensivo (a unica migracao e um CREATE
+  // IF NOT EXISTS), mas a primeira que tiver INSERT ou UPDATE duplicaria dado.
+  // `PRAGMA user_version` e transacional: volta no rollback junto com o resto.
   const apply = raw.transaction((list: Migration[]) => {
     for (const m of list) m.up(raw)
+    setSchemaVersion(raw, target)
   })
   apply(pending)
-  setSchemaVersion(raw, target)
 }

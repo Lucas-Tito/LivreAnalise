@@ -186,6 +186,55 @@ describe.skipIf(!nativeOk)('migrações do schema', () => {
     }
   })
 
+  // A recusa prometia "não corromper", mas o DDL rodava antes dela: num projeto
+  // de um app mais novo, onde uma tabela tivesse sido renomeada, o
+  // CREATE TABLE IF NOT EXISTS recriava a antiga, vazia, antes do erro aparecer.
+  it('recusa projeto de app mais novo sem escrever no arquivo', () => {
+    const path = join(tempDir, 'futuro.liva')
+    const raw = new Database!(path)
+    raw.pragma('user_version = 99')
+    const antes = raw
+      .prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'table'")
+      .get() as { n: number }
+
+    expect(() => migrate.migrateDatabase(raw)).toThrow(/versão mais nova/i)
+
+    const depois = raw
+      .prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'table'")
+      .get() as { n: number }
+    expect(depois.n).toBe(antes.n)
+    raw.close()
+  })
+
+  // Carimbar o legado direto no alvo e pular as migrações só funciona enquanto
+  // cada uma for um CREATE espelhado no DDL. No primeiro ALTER TABLE, o projeto
+  // MAIS ANTIGO seria o único a ficar sem a coluna nova.
+  it('roda as migrações pendentes num banco legado, em vez de só carimbar', () => {
+    const path = join(tempDir, 'legado.liva')
+    const raw = new Database!(path)
+    raw.exec(migrateTestDdl())
+    expect(migrate.getSchemaVersion(raw)).toBe(0)
+
+    const rodou: number[] = []
+    migrate.migrateDatabase(raw, {
+      targetVersion: 2,
+      migrations: [
+        {
+          version: 2,
+          description: 'de mentira, só para ver se roda',
+          up: (db) => {
+            rodou.push(2)
+            db.exec('CREATE TABLE IF NOT EXISTS prova (id INTEGER PRIMARY KEY)')
+          }
+        }
+      ]
+    })
+
+    expect(rodou).toEqual([2])
+    expect(migrate.getSchemaVersion(raw)).toBe(2)
+    raw.close()
+  })
+
   // DDL mínimo com as tabelas usadas nestes testes, sem carimbo de versão:
   // simula o banco criado pelas versões antigas do app.
   function migrateTestDdl(): string {
