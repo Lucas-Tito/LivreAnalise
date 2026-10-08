@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { mensagemDeErro } from '@/lib/erros'
 import {
   ArrowLeft,
   AudioLines,
@@ -115,11 +116,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
   // 'transcription:...'": esse detalhe de IPC nao ajuda ninguem na tela.
   // O main serializa com toString(), entao sobra ainda o "Error:" original.
   const showFailure = (e: unknown): void => {
-    const message = (e as Error).message.replace(
-      /^Error invoking remote method '[^']+':\s*(?:\w*Error:\s*)?/,
-      ''
-    )
-    setStage({ kind: 'error', message })
+    setStage({ kind: 'error', message: mensagemDeErro(e) })
   }
 
   const runTranscription = async (): Promise<void> => {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { mensagemDeErro } from '@/lib/erros'
 import { History, RotateCcw } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { Button } from '@/components/ui/button'
@@ -39,7 +40,7 @@ export function VersionsDialog({ open, onOpenChange }: Props): JSX.Element {
       await createVersion(label.trim() || null)
       setLabel('')
     } catch (e) {
-      setError((e as Error).message)
+      setError(mensagemDeErro(e))
     } finally {
       setWorking(false)
     }
@@ -53,7 +54,7 @@ export function VersionsDialog({ open, onOpenChange }: Props): JSX.Element {
       await restoreVersion(id)
       onOpenChange(false)
     } catch (e) {
-      setError((e as Error).message)
+      setError(mensagemDeErro(e))
     } finally {
       setWorking(false)
     }

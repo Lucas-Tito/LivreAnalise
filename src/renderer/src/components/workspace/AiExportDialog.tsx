@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/popover'
 import { useAppStore } from '@/stores/appStore'
 import { cn } from '@/lib/utils'
+import { mensagemDeErro } from '@/lib/erros'
 import type { AiExportScope } from '@shared/aiExport'
 
 interface Props {
@@ -96,7 +97,7 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
       )
       if (resultado) setSalvoEm(resultado.path)
     } catch (e) {
-      alert(`Erro ao exportar: ${(e as Error).message}`)
+      alert(`Erro ao exportar: ${mensagemDeErro(e)}`)
     } finally {
       setExportando(false)
     }

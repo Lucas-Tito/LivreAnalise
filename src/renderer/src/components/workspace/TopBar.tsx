@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BookText, Download, History, Loader2, Redo2, Sparkles, StickyNote, Undo2 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
+import { mensagemDeErro } from '@/lib/erros'
 import { useZoomStore } from '@/stores/zoomStore'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -38,7 +39,7 @@ export function TopBar(): JSX.Element {
         alert(`Projeto exportado para:\n${result.path}${warn}`)
       }
     } catch (e) {
-      alert(`Erro ao exportar: ${(e as Error).message}`)
+      alert(`Erro ao exportar: ${mensagemDeErro(e)}`)
     } finally {
       setWorking(false)
     }
