@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { casaBusca } from '@shared/busca'
 import {
   Dialog,
   DialogContent,
@@ -46,7 +47,7 @@ export function CollectionMembersDialog({ collection, onOpenChange }: Props): JS
   }
 
   const filtered = codes.filter((c) =>
-    c.name.toLowerCase().includes(filter.toLowerCase())
+    casaBusca(c.name, filter)
   )
 
   return (

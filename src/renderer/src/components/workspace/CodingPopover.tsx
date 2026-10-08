@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { casaBusca, mesmoTermo } from '@shared/busca'
 import { Link2, Plus, StickyNote } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { applicableCodes } from '@shared/codeTree'
@@ -34,7 +35,7 @@ export function CodingPopover({ x, y, onClose, onApply, onAddNote, onReattachNot
   const codes = useMemo(() => applicableCodes(allCodes), [allCodes])
 
   const filtered = codes.filter((c) =>
-    c.name.toLowerCase().includes(filter.toLowerCase())
+    casaBusca(c.name, filter)
   )
   const lastUsed = codes.find((c) => c.id === lastUsedCodeId)
   const showLastUsed = lastUsed != null && filter === ''
@@ -42,7 +43,7 @@ export function CodingPopover({ x, y, onClose, onApply, onAddNote, onReattachNot
     ? filtered.filter((c) => c.id !== lastUsedCodeId)
     : filtered
   const exactMatch = allCodes.some(
-    (c) => c.name.toLowerCase() === filter.trim().toLowerCase()
+    (c) => mesmoTermo(c.name, filter)
   )
 
   const handleCreate = async (): Promise<void> => {

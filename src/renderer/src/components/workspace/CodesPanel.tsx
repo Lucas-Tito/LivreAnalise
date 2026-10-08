@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { casaBusca } from '@shared/busca'
 import {
   ChevronDown,
   ChevronRight,
@@ -757,7 +758,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
 
   const destinations = useMemo(() => groupDestinations(codes), [codes])
   const filteredDestinations = destinations.filter((c) =>
-    c.name.toLowerCase().includes(moveFilter.toLowerCase())
+    casaBusca(c.name, moveFilter)
   )
 
   const renderCode = (

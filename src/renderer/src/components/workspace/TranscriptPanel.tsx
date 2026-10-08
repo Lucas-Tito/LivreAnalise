@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { FileText, Pencil, Save, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, FileText, Pencil, Save, Search, Trash2, X } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { useZoomStore } from '@/stores/zoomStore'
 import {
@@ -7,10 +7,12 @@ import {
   buildLineRows,
   computeSegments,
   markNoteAnchors,
+  markSearchHits,
   markPendingSelection,
   resolveAnchorPos
 } from '@shared/segments'
 import { clampLaneWidth, laneBounds, packBarColumns } from '@/lib/barLayout'
+import { acharOcorrencias } from '@shared/busca'
 import { applyCodingAdjustments } from '@shared/editAdjust'
 import { contrastText, formatCount } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -139,6 +141,14 @@ export function TranscriptPanel(): JSX.Element {
   laneWidthRef.current = laneWidth
   const [hoverCoding, setHoverCoding] = useState<number | null>(null)
   const [selectedCodingId, setSelectedCodingId] = useState<number | null>(null)
+  // Busca no texto: Ctrl+F abre, Enter/F3 anda, Esc fecha. Os destaques entram
+  // pelo mesmo pipeline de segmentos das codificacoes e das notas, para os tres
+  // conviverem no mesmo trecho sem um apagar o outro.
+  const [buscaAberta, setBuscaAberta] = useState(false)
+  const [termo, setTermo] = useState('')
+  const [hitAtual, setHitAtual] = useState(0)
+  const [buscaSeq, setBuscaSeq] = useState(0)
+  const buscaInputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState<{ codingId: number; end: 'start' | 'end' } | null>(null)
   const [dragPreviewPos, setDragPreviewPos] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
@@ -357,9 +367,17 @@ export function TranscriptPanel(): JSX.Element {
     () => new Set(codings.map((c) => c.codeId)).size,
     [codings]
   )
+  const hits = useMemo(
+    () =>
+      buscaAberta
+        ? acharOcorrencias(text, termo).map((o, i) => ({ id: i, ...o }))
+        : [],
+    [text, termo, buscaAberta]
+  )
+  const hitSegments = useMemo(() => markSearchHits(noteSegments, hits), [noteSegments, hits])
   const lineRows = useMemo(
-    () => buildLineRows(text, noteSegments),
-    [text, noteSegments]
+    () => buildLineRows(text, hitSegments),
+    [text, hitSegments]
   )
 
   // "Localizar ocorrências" do painel de códigos: rola o texto até o início
@@ -386,6 +404,58 @@ export function TranscriptPanel(): JSX.Element {
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locateSeq])
+
+  const irParaHit = (dir: 1 | -1): void => {
+    if (hits.length === 0) return
+    setHitAtual((atual) => (atual + dir + hits.length) % hits.length)
+    setBuscaSeq((n) => n + 1)
+  }
+
+  // Ctrl+F vale no painel inteiro, inclusive com o foco num campo: o atalho nao
+  // compete com a digitacao. Esc so fecha quando a busca esta aberta, para nao
+  // sequestrar o Esc de dialogo nenhum.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        setBuscaAberta(true)
+        setTimeout(() => buscaInputRef.current?.select(), 0)
+        return
+      }
+      if (!buscaAberta) return
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setBuscaAberta(false)
+        setTermo('')
+        return
+      }
+      if (e.key === 'F3') {
+        e.preventDefault()
+        irParaHit(e.shiftKey ? -1 : 1)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buscaAberta, hits.length])
+
+  // Termo novo recomeca do primeiro achado, senao o contador diria "7 de 2".
+  useEffect(() => {
+    setHitAtual(0)
+    if (termo.trim() !== '') setBuscaSeq((n) => n + 1)
+  }, [termo])
+
+  useEffect(() => {
+    if (!buscaAberta || hits.length === 0 || !textRef.current) return
+    const hit = hits[Math.min(hitAtual, hits.length - 1)]
+    const anchor = resolveAnchorPos(hit.start, anchorPositions(lineRows))
+    const el =
+      anchor === null
+        ? null
+        : (textRef.current.querySelector(`[data-pos="${anchor}"]`) as HTMLElement | null)
+    el?.scrollIntoView({ block: 'center' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buscaSeq])
 
   const draftSegments = useMemo(() => {
     const previewCodings = applyCodingAdjustments(codings, text, draft)
@@ -604,6 +674,62 @@ export function TranscriptPanel(): JSX.Element {
         </div>
       </div>
 
+      {buscaAberta && !editing && (
+        <div className="flex items-center gap-2 border-b bg-muted/30 px-3 py-1.5">
+          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <input
+            ref={buscaInputRef}
+            autoFocus
+            value={termo}
+            onChange={(e) => setTermo(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                irParaHit(e.shiftKey ? -1 : 1)
+              }
+            }}
+            placeholder="Buscar no documento (ignora acento e maiúscula)"
+            className="h-7 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {termo.trim() === ''
+              ? ''
+              : hits.length === 0
+                ? 'nada encontrado'
+                : `${Math.min(hitAtual, hits.length - 1) + 1} de ${hits.length}`}
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={hits.length === 0}
+            onClick={() => irParaHit(-1)}
+            title="Anterior (Shift+Enter)"
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={hits.length === 0}
+            onClick={() => irParaHit(1)}
+            title="Próxima (Enter ou F3)"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setBuscaAberta(false)
+              setTermo('')
+            }}
+            title="Fechar (Esc)"
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+
       {editing ? (
         <div className="flex flex-1 flex-col overflow-hidden p-4">
           {(codings.length > 0 || documentNotes.length > 0) && (
@@ -729,6 +855,19 @@ export function TranscriptPanel(): JSX.Element {
                           const segStart = seg.start
                           const segEnd = seg.end
                           const segText = seg.text
+                          const ehHit = (seg.hitIds?.length ?? 0) > 0
+                          const ehHitAtual =
+                            ehHit && seg.hitIds!.includes(Math.min(hitAtual, hits.length - 1))
+                          // fundo da busca por cima da cor do codigo: box-shadow
+                          // interno nao disputa o backgroundColor do trecho
+                          const estiloBusca = ehHit
+                            ? {
+                                boxShadow: ehHitAtual
+                                  ? 'inset 0 0 0 999px rgba(250, 204, 21, 0.55)'
+                                  : 'inset 0 0 0 999px rgba(250, 204, 21, 0.25)',
+                                borderRadius: 2
+                              }
+                            : undefined
                           if (seg.codingIds.length === 0) {
                             const hasNote = seg.noteIds.length > 0
                             const isFlash =
@@ -739,8 +878,8 @@ export function TranscriptPanel(): JSX.Element {
                                 data-pos={segStart}
                                 className={seg.isPending ? 'pending-selection' : undefined}
                                 title={hasNote ? 'Trecho com nota' : undefined}
-                                style={
-                                  hasNote
+                                style={{
+                                  ...(hasNote
                                     ? {
                                         textDecoration: 'underline dotted',
                                         textUnderlineOffset: 3,
@@ -748,8 +887,9 @@ export function TranscriptPanel(): JSX.Element {
                                           ? 'rgba(250, 204, 21, 0.35)'
                                           : undefined
                                       }
-                                    : undefined
-                                }
+                                    : {}),
+                                  ...estiloBusca
+                                }}
                               >
                                 {segText}
                               </span>
@@ -805,7 +945,14 @@ export function TranscriptPanel(): JSX.Element {
                                 backgroundColor: isFlash
                                   ? 'rgba(250, 204, 21, 0.35)'
                                   : `${topColor}${isHover || isSelected ? alpha.bgHover : alpha.bg}`,
-                                boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}${isSelected ? `, 0 0 0 1px ${topColor}66` : ''}`,
+                                // o flood da busca vai DEPOIS da barra do código
+                                // na lista: sombra anterior desenha por cima, e a
+                                // barra precisa continuar visível no trecho achado
+                                boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}${isSelected ? `, 0 0 0 1px ${topColor}66` : ''}${
+                                  ehHit
+                                    ? `, inset 0 0 0 999px rgba(250, 204, 21, ${ehHitAtual ? '0.45' : '0.2'})`
+                                    : ''
+                                }`,
                                 borderRadius: 2,
                                 cursor: 'pointer',
                                 textDecoration: hasNote ? 'underline dotted' : undefined,

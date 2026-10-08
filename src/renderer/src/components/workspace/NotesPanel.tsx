@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { casaBusca } from '@shared/busca'
 import {
   ArrowLeft,
   FileText,
@@ -292,11 +293,8 @@ export function NotesPanel(): JSX.Element {
   const editingNote = allNotes.find((n) => n.id === editorNoteId) ?? null
 
   const matches = (n: Note): boolean => {
-    const f = filter.trim().toLowerCase()
-    if (!f) return true
-    return (
-      (n.title ?? '').toLowerCase().includes(f) || n.body.toLowerCase().includes(f)
-    )
+    if (filter.trim() === '') return true
+    return casaBusca(n.title ?? '', filter) || casaBusca(n.body, filter)
   }
 
   const docScoped = documentNotes.filter(

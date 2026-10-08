@@ -130,9 +130,15 @@ export function TopBar(): JSX.Element {
           <Sparkles className="h-4 w-4" />
           Exportar para IA
         </Button>
-        <Button size="sm" variant="outline" onClick={() => setVersoes(true)} title="Checkpoints do projeto (restaurar abre uma cópia)">
+        {/* só o ícone: a barra ficou apertada com dois "Exportar" ao lado */}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setVersoes(true)}
+          aria-label="Versões do projeto"
+          title="Versões do projeto — checkpoints (restaurar abre uma cópia)"
+        >
           <History className="h-4 w-4" />
-          Versões
         </Button>
         <Button
           size="sm"
