@@ -98,3 +98,50 @@ describe('apagar documento', () => {
     expect(useAppStore.getState().editorNoteId).toBe(2)
   })
 })
+
+// Clicar num trecho de documento apagado (lista de ocorrências desatualizada)
+// trocava o documento aberto por nada: a pessoa perdia o que estava lendo por
+// causa de um item velho numa lista, sem ter pedido para fechar coisa nenhuma.
+describe('localizar ocorrência de documento apagado', () => {
+  const getDocument = vi.fn()
+
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true)
+    useAppStore.setState({ currentDocument: entrevista })
+    getDocument.mockReset().mockResolvedValue(null)
+    vi.stubGlobal('window', {
+      api: {
+        documents: { get: getDocument },
+        codings: { listByDocument: vi.fn() },
+        notes: { listByDocument: vi.fn() }
+      }
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const trecho = {
+    id: 7,
+    guid: 'coding-7',
+    documentId: 99,
+    codeId: 1,
+    startPos: 0,
+    endPos: 10,
+    createdAt: '2026-10-07'
+  }
+
+  it('não fecha o documento que está aberto', async () => {
+    await useAppStore.getState().locateOccurrence(trecho)
+
+    expect(useAppStore.getState().currentDocument).toEqual(entrevista)
+  })
+
+  it('avisa que não deu, em vez de marcar um alvo inexistente', async () => {
+    const ok = await useAppStore.getState().locateOccurrence(trecho)
+
+    expect(ok).toBe(false)
+    expect(useAppStore.getState().locateCodingId).toBeNull()
+  })
+})

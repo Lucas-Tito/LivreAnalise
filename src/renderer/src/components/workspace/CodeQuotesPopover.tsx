@@ -23,21 +23,51 @@ export function CodeQuotesPopover({ code, onOpenChange }: Props): JSX.Element {
   const [escopo, setEscopo] = useState<'documento' | 'projeto'>('projeto')
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const documents = useAppStore((s) => s.documents)
+  const codes = useAppStore((s) => s.codes)
+  const [aviso, setAviso] = useState<string | null>(null)
   const currentDocument = useAppStore((s) => s.currentDocument)
   const locateCodingId = useAppStore((s) => s.locateCodingId)
   const locateOccurrence = useAppStore((s) => s.locateOccurrence)
 
+  // `codes` muda a cada mutacao de citacao (o usageCount vem junto no refresh),
+  // entao serve de sinal para a lista se refazer. Sem isto ela era uma
+  // fotografia: apagar uma citacao deixava o contador e o item antigos ali, e
+  // clicar no item apagado nao rolava, nao piscava e nao dizia nada.
   useEffect(() => {
-    if (code) {
-      window.api.codings.listByCode(code.id).then(setQuotes)
-      setAnchorEl(
-        document.querySelector<HTMLElement>(`[data-code-row="${code.id}"]`)
-      )
-    } else {
+    if (!code) {
       setQuotes([])
-      setAnchorEl(null)
+      return
     }
+    let vivo = true
+    window.api.codings.listByCode(code.id).then((lista) => {
+      if (vivo) setQuotes(lista)
+    })
+    return () => {
+      vivo = false
+    }
+  }, [code, codes])
+
+  useEffect(() => {
+    setAviso(null)
+    setAnchorEl(
+      code ? document.querySelector<HTMLElement>(`[data-code-row="${code.id}"]`) : null
+    )
   }, [code])
+
+  // 3) A linha do codigo pode sair do DOM com o popover aberto: recolher o
+  // grupo, ou trocar para a aba Documentos, desmonta a lista inteira. Elemento
+  // desmontado devolve um retangulo zerado, e zero e posicao valida -- o painel
+  // saltava para o canto superior esquerdo e continuava aberto, apontando para
+  // nada. Sem a linha ele perdeu o referencial, entao fecha.
+  useEffect(() => {
+    if (!code || !anchorEl) return
+    const checar = (): void => {
+      if (!anchorEl.isConnected) onOpenChange(false)
+    }
+    const obs = new MutationObserver(checar)
+    obs.observe(document.body, { childList: true, subtree: true })
+    return () => obs.disconnect()
+  }, [code, anchorEl, onOpenChange])
 
   // Âncora virtual: o popover nasce apontando para a linha do código, sem
   // precisar envolver o item da lista em um trigger.
@@ -92,7 +122,10 @@ export function CodeQuotesPopover({ code, onOpenChange }: Props): JSX.Element {
             ? 0
             : visiveis.length - 1
           : (atual + dir + visiveis.length) % visiveis.length
-      void useAppStore.getState().locateOccurrence(visiveis[proximo])
+      void useAppStore
+        .getState()
+        .locateOccurrence(visiveis[proximo])
+        .then((ok) => setAviso(ok ? null : 'Esse trecho não existe mais: o documento foi apagado.'))
     },
     [visiveis]
   )
@@ -212,6 +245,12 @@ useEffect(() => {
           </p>
         )}
 
+        {aviso && (
+          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+            {aviso}
+          </p>
+        )}
+
         <div className="max-h-[50vh] space-y-2 overflow-auto">
           {quotes.length === 0 ? (
             <p className="py-4 text-center text-xs text-muted-foreground">
@@ -230,7 +269,9 @@ useEffect(() => {
                 key={q.id}
                 title="Localizar no texto"
                 onClick={() => {
-                  void locateOccurrence(q)
+                  void locateOccurrence(q).then((ok) => {
+                    setAviso(ok ? null : 'Esse trecho não existe mais: o documento foi apagado.')
+                  })
                 }}
                 className={cn(
                   'block w-full rounded-md border p-2 text-left text-xs transition-colors hover:bg-accent',

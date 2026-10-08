@@ -47,7 +47,7 @@ interface AppState {
 
   refreshDocuments: () => Promise<void>
   importDocuments: () => Promise<void>
-  selectDocument: (id: number) => Promise<void>
+  selectDocument: (id: number) => Promise<boolean>
   renameDocument: (id: number, name: string) => Promise<void>
   updateDocumentText: (id: number, text: string) => Promise<void>
   deleteDocument: (id: number) => Promise<void>
@@ -100,7 +100,7 @@ interface AppState {
   // novo (F3 no fim da lista) volte a rolar, já que o id não muda.
   locateCodingId: number | null
   locateSeq: number
-  locateOccurrence: (coding: Coding) => Promise<void>
+  locateOccurrence: (coding: Coding) => Promise<boolean>
   editorNoteId: number | null
   openNoteEditor: (id: number | null) => void
   refreshNotes: () => Promise<void>
@@ -314,6 +314,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectDocument: async (id) => {
     await get().notesFlush?.()
     const doc = await window.api.documents.get(id)
+    // Documento apagado: manter o que esta aberto. Publicar `null` aqui
+    // esvaziava a tela e fazia a pessoa perder o documento que estava lendo,
+    // por causa de um clique num item de lista desatualizada.
+    if (!doc) return false
     const [codings, documentNotes] = doc
       ? await Promise.all([
           window.api.codings.listByDocument(doc.id),
@@ -323,6 +327,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Publica tudo junto: medir o texto novo com as citações do documento
     // anterior pode criar colunas extras e deixar a faixa de códigos enorme.
     set({ currentDocument: doc, codings, documentNotes, navigateNoteId: null, editorNoteId: null })
+    return true
   },
 
   renameDocument: async (id, name) => {
@@ -566,9 +571,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   locateOccurrence: async (coding) => {
     const doc = get().currentDocument
     if (!doc || doc.id !== coding.documentId) {
-      await get().selectDocument(coding.documentId)
+      // devolve false em vez de marcar um alvo que a transcricao nao vai achar:
+      // sem isto o clique nao rolava, nao piscava e nao dizia nada
+      if (!(await get().selectDocument(coding.documentId))) return false
     }
     set((s) => ({ locateCodingId: coding.id, locateSeq: s.locateSeq + 1 }))
+    return true
   },
 
   openNoteEditor: (id) => set({ editorNoteId: id, notesPanelOpen: true }),
