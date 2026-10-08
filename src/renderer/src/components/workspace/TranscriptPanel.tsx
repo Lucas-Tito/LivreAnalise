@@ -10,7 +10,7 @@ import {
   markPendingSelection,
   resolveAnchorPos
 } from '@shared/segments'
-import { packBarColumns } from '@/lib/barLayout'
+import { clampLaneWidth, laneBounds, packBarColumns } from '@/lib/barLayout'
 import { applyCodingAdjustments } from '@shared/editAdjust'
 import { contrastText, formatCount } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -174,18 +174,7 @@ export function TranscriptPanel(): JSX.Element {
     const prevCursor = document.body.style.cursor
     document.body.style.userSelect = 'none'
     document.body.style.cursor = 'col-resize'
-    const onMove = (e: MouseEvent): void => {
-      const start = laneResizeRef.current
-      if (!start) return
-      const next = Math.min(
-        BAR_LANE_MAX,
-        Math.max(BAR_LANE_MIN, start.startWidth + (start.startX - e.clientX))
-      )
-      setLaneWidth(next)
-    }
-    const stop = (): void => {
-      setLaneResizing(false)
-      laneResizeRef.current = null
+    const persistir = (): void => {
       const finalWidth = laneWidthRef.current
       try {
         if (finalWidth != null)
@@ -194,26 +183,52 @@ export function TranscriptPanel(): JSX.Element {
         // armazenamento indisponível: só não persiste
       }
     }
+    const stop = (): void => {
+      setLaneResizing(false)
+      laneResizeRef.current = null
+      persistir()
+    }
+    const onMove = (e: MouseEvent): void => {
+      const start = laneResizeRef.current
+      if (!start) return
+      // Soltar o botão fora da janela não entrega mouseup: sem isto o arrasto
+      // ficava preso e a faixa seguia o ponteiro no retorno, sem botão nenhum.
+      if (e.buttons === 0) {
+        stop()
+        return
+      }
+      setLaneWidth(
+        clampLaneWidth(
+          start.startWidth + (start.startX - e.clientX),
+          columnCount,
+          BAR_LANE_MAX,
+          BAR_LANE_MIN,
+          start.startWidth
+        )
+      )
+    }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', stop)
+    // mesma guarda do arrasto de códigos: perder o foco encerra o gesto
+    window.addEventListener('blur', stop)
     return () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', stop)
+      window.removeEventListener('blur', stop)
       document.body.style.userSelect = prevUserSelect
       document.body.style.cursor = prevCursor
+      // desmontar no meio do arrasto nao pode descartar a largura arrastada
+      persistir()
     }
-  }, [laneResizing])
+  }, [laneResizing, columnCount])
 
   // Largura efetiva: automática até o usuário arrastar; depois acompanha o
   // arrasto, mas nunca abaixo do mínimo que as colunas precisam para continuar
   // legíveis. As etiquetas dividem o espaço igualmente e truncam o nome.
   const autoLaneWidth = Math.max(180, columnCount * BAR_LANE_AUTO_BASE + 16)
-  const minNeededLaneWidth =
-    columnCount * (BAR_MIN_WIDTH + BAR_GAP) + BAR_LANE_PAD
+  const minNeededLaneWidth = laneBounds(columnCount, BAR_LANE_MAX, BAR_LANE_MIN).minimo
   const effectiveLaneWidth =
-    laneWidth == null
-      ? autoLaneWidth
-      : Math.max(BAR_LANE_MIN, laneWidth, minNeededLaneWidth)
+    laneWidth == null ? autoLaneWidth : Math.max(minNeededLaneWidth, laneWidth)
   const barSlot = (effectiveLaneWidth - BAR_LANE_PAD) / Math.max(1, columnCount)
 
   const alpha = isDark
@@ -879,7 +894,12 @@ export function TranscriptPanel(): JSX.Element {
                 <button
                   className="ml-auto shrink-0 opacity-0 group-hover:opacity-100"
                   title="Remover citação"
-                  onClick={() => removeCoding(bar.codingId)}
+                  onClick={(e) => {
+                    // sem isto o clique sobe para a etiqueta e marca como
+                    // selecionada a citação que acabou de ser removida
+                    e.stopPropagation()
+                    removeCoding(bar.codingId)
+                  }}
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -888,9 +908,6 @@ export function TranscriptPanel(): JSX.Element {
             </div>
           </div>
         </div>
-      )}
-      {laneResizing && (
-        <div className="pointer-events-none fixed inset-0 z-50 cursor-col-resize" />
       )}
 
       {pending && (
