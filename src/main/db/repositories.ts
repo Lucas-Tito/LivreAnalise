@@ -1156,7 +1156,14 @@ export function createNote(input: CreateNoteInput): Note {
 
 export function updateNote(input: UpdateNoteInput): Note {
   const db = getDb()
-  const beforeRow = (db.select().from(notes).where(eq(notes.id, input.id)).get() as typeof notes.$inferSelect)
+  // O cast mentia: `.get()` devolve undefined quando nao ha linha, e o getNote
+  // la embaixo quebrava com "Cannot read properties of undefined". Apagar o
+  // documento com o editor de nota aberto fazia todo autosave rejeitar e o
+  // painel travar em erro permanente.
+  const beforeRow = db.select().from(notes).where(eq(notes.id, input.id)).get() as
+    | typeof notes.$inferSelect
+    | undefined
+  if (!beforeRow) throw new Error('Essa nota não existe mais.')
   const patch: {
     title?: string | null
     body?: string
@@ -1193,6 +1200,9 @@ export function updateNote(input: UpdateNoteInput): Note {
   if (b) {
     pushHistory({
       label: `editar nota`,
+      // o autosave grava a cada pausa de digitacao: sem isto um memo longo
+      // enchia a pilha de 100 e enterrava as acoes de verdade
+      coalesceKey: `nota:${b.id}`,
       undo: () => {
         // a ancora vai junto: desfazer um religamento precisa devolver a nota
         // ao estado desvinculado, com o trecho original que ela guardava

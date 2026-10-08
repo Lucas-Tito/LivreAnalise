@@ -166,3 +166,35 @@ describe.skipIf(!nativeOk)('posições de uma nota desvinculada', () => {
     expect(nota.anchorText).toBe('cde')
   })
 })
+
+// `.get()` devolve undefined quando não há linha, e o cast escondia isso: o
+// getNote seguinte quebrava com "Cannot read properties of undefined". Apagar o
+// documento com o editor de nota aberto fazia todo autosave rejeitar e o painel
+// travar em erro permanente, repetindo o mesmo no Ctrl+S.
+describe.skipIf(!nativeOk)('editar nota que não existe mais', () => {
+  let db: typeof import('../src/main/db')
+  let repos: typeof import('../src/main/db/repositories')
+
+  beforeEach(async () => {
+    db = await import('../src/main/db')
+    repos = await import('../src/main/db/repositories')
+    db.openDatabase(':memory:')
+  })
+
+  it('devolve um erro legível em vez de TypeError', () => {
+    expect(() => repos.updateNote({ id: 9999, body: 'x' })).toThrow(/não existe mais/i)
+  })
+
+  it('o cascade do documento não deixa o autosave quebrar com erro cru', () => {
+    const doc = repos.createDocument({
+      name: 'Entrevista',
+      plainText: 'abcdefghij',
+      originalFormat: 'txt',
+      sourceFilename: 'e.txt'
+    })
+    const note = repos.createNote({ scope: 'document', documentId: doc.id, body: 'x' })
+    repos.deleteDocument(doc.id)
+
+    expect(() => repos.updateNote({ id: note.id, body: 'y' })).toThrow(/não existe mais/i)
+  })
+})
