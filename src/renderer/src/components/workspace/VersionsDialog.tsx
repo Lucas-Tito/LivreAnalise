@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { mensagemDeErro } from '@/lib/erros'
-import { History, RotateCcw } from 'lucide-react'
+import { History, RotateCcw, Trash2 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,6 +11,8 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { formatBytes } from '@/lib/utils'
+import type { ProjectVersion } from '@shared/projectVersions'
 
 interface Props {
   open: boolean
@@ -21,6 +23,7 @@ export function VersionsDialog({ open, onOpenChange }: Props): JSX.Element {
   const versions = useAppStore((s) => s.versions)
   const createVersion = useAppStore((s) => s.createVersion)
   const restoreVersion = useAppStore((s) => s.restoreVersion)
+  const deleteVersion = useAppStore((s) => s.deleteVersion)
   const refreshVersions = useAppStore((s) => s.refreshVersions)
   const [label, setLabel] = useState('')
   const [working, setWorking] = useState(false)
@@ -41,6 +44,20 @@ export function VersionsDialog({ open, onOpenChange }: Props): JSX.Element {
       setLabel('')
     } catch (e) {
       setError(mensagemDeErro(e))
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  const handleDelete = async (v: ProjectVersion): Promise<void> => {
+    const quando = new Date(v.createdAt).toLocaleString()
+    if (!window.confirm(`Apagar o checkpoint de ${quando}? A cópia sai do disco e não volta.`)) return
+    setWorking(true)
+    setError(null)
+    try {
+      await deleteVersion(v.id)
+    } catch (e) {
+      setError(mensagemDeErro(e, 'Não foi possível apagar o checkpoint.'))
     } finally {
       setWorking(false)
     }
@@ -97,7 +114,7 @@ export function VersionsDialog({ open, onOpenChange }: Props): JSX.Element {
                       {v.label ?? (v.kind === 'auto' ? 'Automática' : 'Checkpoint')}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(v.createdAt).toLocaleString()} · {v.kind === 'auto' ? 'auto' : 'manual'} · app {v.appVersion} · schema {v.schemaVersion}
+                      {new Date(v.createdAt).toLocaleString()} · {v.kind === 'auto' ? 'auto' : 'manual'} · {formatBytes(v.sizeBytes)} · app {v.appVersion} · schema {v.schemaVersion}
                     </p>
                   </div>
                   <Button
@@ -108,6 +125,15 @@ export function VersionsDialog({ open, onOpenChange }: Props): JSX.Element {
                     title="Abre a cópia como novo projeto (nunca sobrescreve o atual)"
                   >
                     <RotateCcw className="h-3.5 w-3.5" /> Restaurar cópia
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={working}
+                    onClick={() => void handleDelete(v)}
+                    title="Apagar este checkpoint do disco"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </li>
               ))}

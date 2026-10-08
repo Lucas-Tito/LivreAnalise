@@ -8,6 +8,7 @@ import { ensureMeta } from './project'
 import { pushRecent } from '../services/recents'
 import {
   createVersionSnapshot,
+  deleteVersion,
   pruneVersions,
   readManifest,
   resolveVersionFile,
@@ -30,6 +31,15 @@ export function registerVersionHandlers(): void {
   ipcMain.handle(IPC.versions.prune, async () => pruneVersions(requireActivePath()))
 
   // Restaurar sempre como nova cópia: nunca sobrescreve o arquivo aberto.
+  // Apagar checkpoint pela interface: a poda automatica so mexe nos
+  // automaticos (guarda 10), entao os manuais acumulavam para sempre e cada um
+  // e uma copia integral do projeto.
+  ipcMain.handle(IPC.versions.delete, (_e, id: string) => {
+    const activePath = requireActivePath()
+    deleteVersion(activePath, id)
+    return readManifest(activePath)
+  })
+
   ipcMain.handle(IPC.versions.restore, async (_e, id: string) => {
     const activePath = requireActivePath()
     const source = resolveVersionFile(activePath, id)

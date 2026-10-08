@@ -95,6 +95,7 @@ const api: Api = {
     list: () => ipcRenderer.invoke(IPC.versions.list),
     create: (label) => ipcRenderer.invoke(IPC.versions.create, label),
     prune: () => ipcRenderer.invoke(IPC.versions.prune),
+    delete: (id: string) => ipcRenderer.invoke(IPC.versions.delete, id),
     restore: (id) => ipcRenderer.invoke(IPC.versions.restore, id),
     onChanged: (listener) => {
       const handler = (): void => listener()

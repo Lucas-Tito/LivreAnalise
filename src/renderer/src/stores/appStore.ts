@@ -72,6 +72,7 @@ interface AppState {
   versions: ProjectVersion[]
   refreshVersions: () => Promise<void>
   createVersion: (label: string | null) => Promise<void>
+  deleteVersion: (id: string) => Promise<void>
   restoreVersion: (id: string) => Promise<void>
 
   refreshCollections: () => Promise<void>
@@ -458,6 +459,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   createVersion: async (label) => {
     await get().notesFlush?.()
     await window.api.versions.create(label)
+    await get().refreshVersions()
+  },
+
+  deleteVersion: async (id) => {
+    await window.api.versions.delete(id)
     await get().refreshVersions()
   },
 

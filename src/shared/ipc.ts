@@ -114,6 +114,7 @@ export const IPC = {
     list: 'versions:list',
     create: 'versions:create',
     prune: 'versions:prune',
+    delete: 'versions:delete',
     restore: 'versions:restore',
     changed: 'versions:changed'
   },
@@ -216,6 +217,7 @@ export interface Api {
     list: () => Promise<ProjectVersion[]>
     create: (label: string | null) => Promise<ProjectVersion>
     prune: () => Promise<ProjectVersion[]>
+    delete: (id: string) => Promise<ProjectVersion[]>
     restore: (id: string) => Promise<OpenProjectResult | null>
     onChanged: (listener: () => void) => () => void
   }

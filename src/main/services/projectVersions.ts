@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { basename, join } from 'path'
+import Database from 'better-sqlite3'
 import { v4 as uuid } from 'uuid'
 import { APP_VERSION } from '@shared/version'
 import type { ProjectVersion, ProjectVersionKind } from '@shared/projectVersions'
@@ -9,6 +10,65 @@ import { sanitizeProjectFileName } from './projectPath'
 
 const MANIFEST = 'manifest.json'
 export const MAX_AUTO_VERSIONS = 10
+
+/**
+ * Copia o `.liva` ANTES de abrir, quando ele ainda vai ser migrado.
+ *
+ * O checkpoint automatico da abertura roda depois do openDatabase, ou seja
+ * depois da migracao: o snapshot mais antigo de qualquer projeto ja era o
+ * estado migrado, e nao existia copia pre-migracao em lugar nenhum. A rede de
+ * protecao nao cobria justamente a operacao mais arriscada do app.
+ *
+ * Aqui o banco ainda nao esta aberto -- sem conexao e sem WAL ativo, copiar o
+ * arquivo e seguro, e e o unico momento em que e. Devolve a versao registrada,
+ * ou null quando nao havia nada a fazer.
+ */
+export function snapshotBeforeMigration(projectPath: string): ProjectVersion | null {
+  if (!existsSync(projectPath)) return null
+  let schema = 0
+  try {
+    const raw = new Database(projectPath, { readonly: true })
+    schema = (raw.pragma('user_version') as Array<{ user_version: number }>)[0].user_version
+    raw.close()
+  } catch {
+    // arquivo ilegivel: quem vai reclamar com mensagem decente e a abertura
+    return null
+  }
+  // Condicionado de proposito: projeto ja na versao certa nao gera copia, senao
+  // a retencao de 10 automaticos seria gasta a cada abertura.
+  if (schema >= CURRENT_SCHEMA_VERSION) return null
+
+  const dir = versionsDir(projectPath)
+  mkdirSync(dir, { recursive: true })
+  const when = new Date()
+  const file = fileNameFor('auto', 'antes de migrar', when)
+  const dest = join(dir, file)
+  copyFileSync(projectPath, dest)
+  const entry: ProjectVersion = {
+    id: uuid(),
+    file,
+    createdAt: when.toISOString(),
+    kind: 'auto',
+    label: 'antes de migrar',
+    appVersion: APP_VERSION,
+    schemaVersion: schema,
+    projectName: basename(projectPath).replace(/\.liva$/i, ''),
+    sizeBytes: statSync(dest).size
+  }
+  writeManifest(projectPath, [...readManifest(projectPath), entry])
+  pruneVersions(projectPath)
+  return entry
+}
+
+/** Apaga um checkpoint pelo id, arquivo e entrada do manifesto. */
+export function deleteVersion(projectPath: string, id: string): boolean {
+  const entries = readManifest(projectPath)
+  const alvo = entries.find((e) => e.id === id)
+  if (!alvo) return false
+  rmSync(join(versionsDir(projectPath), alvo.file), { force: true })
+  writeManifest(projectPath, entries.filter((e) => e.id !== id))
+  return true
+}
 
 export function versionsDir(projectPath: string): string {
   return `${projectPath}-versoes`

@@ -19,7 +19,7 @@ import { pushRecent, readRecents } from '../services/recents'
 import { renameProject, trashProject } from '../services/projectFile'
 import { readProjectStats } from '../db/projectStats'
 import { clearHistoryFor } from '../history/stack'
-import { createVersionSnapshot } from '../services/projectVersions'
+import { createVersionSnapshot, snapshotBeforeMigration } from '../services/projectVersions'
 
 const PROJECT_EXT = 'liva'
 
@@ -119,6 +119,14 @@ export function registerProjectHandlers(): void {
 function openProjectPath(path: string): OpenProjectResult | null {
   const prev = getActivePath()
   if (prev) clearHistoryFor(prev)
+  // Antes de abrir (e portanto antes de migrar): so faz copia quando o arquivo
+  // esta atrasado. Melhor esforco -- se falhar, a abertura segue, porque
+  // recusar abrir o projeto por causa do backup seria pior que nao ter backup.
+  try {
+    snapshotBeforeMigration(path)
+  } catch (err) {
+    console.error(`[versoes] copia pre-migracao falhou: ${(err as Error)?.message ?? err}`)
+  }
   openDatabase(path)
   const name = basename(path).replace(/\.liva$/i, '')
   const meta = ensureMeta(name)
