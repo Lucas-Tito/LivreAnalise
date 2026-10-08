@@ -186,6 +186,44 @@ describe.skipIf(!nativeOk)('migrações do schema', () => {
     }
   })
 
+  it('migra um projeto legado completo sem perder código, citação nem coleção', () => {
+    const path = join(tempDir, 'completo.liva')
+    const raw = new Database!(path)
+    povoarLegado(raw)
+    raw.close()
+
+    db.openDatabase(path)
+
+    // integridade do arquivo antes de olhar o conteúdo
+    expect(db.getRaw().pragma('integrity_check')[0]).toEqual({ integrity_check: 'ok' })
+    expect(migrate.getSchemaVersion(db.getRaw())).toBe(migrate.CURRENT_SCHEMA_VERSION)
+
+    const codigos = repos.listCodes()
+    expect(codigos.map((c) => c.name)).toEqual(['EMOÇÕES', 'medo'])
+    // grupo é derivado: o pai continua pai depois de migrar
+    expect(codigos.find((c) => c.name === 'medo')?.parentId).toBe(
+      codigos.find((c) => c.name === 'EMOÇÕES')?.id
+    )
+    // e o contador de uso vem das citações que sobreviveram
+    expect(codigos.find((c) => c.name === 'medo')?.usageCount).toBe(2)
+
+    const doc = repos.listDocuments()[0]
+    expect(doc.name).toBe('Entrevista')
+    expect(repos.listCodingsByDocument(doc.id)).toHaveLength(2)
+
+    const colecoes = repos.listCollections()
+    expect(colecoes.map((c) => c.name)).toEqual(['Conceituação'])
+    expect(repos.listCollectionMembers(colecoes[0].id)).toEqual([
+      codigos.find((c) => c.name === 'EMOÇÕES')?.id
+    ])
+
+    // a tabela nova existe e é usável no projeto migrado
+    expect(repos.listProjectNotes()).toHaveLength(0)
+    repos.createNote({ scope: 'project', body: 'escrita depois de migrar' })
+    expect(repos.listProjectNotes()).toHaveLength(1)
+    db.closeDatabase()
+  })
+
   // A recusa prometia "não corromper", mas o DDL rodava antes dela: num projeto
   // de um app mais novo, onde uma tabela tivesse sido renomeada, o
   // CREATE TABLE IF NOT EXISTS recriava a antiga, vazia, antes do erro aparecer.
@@ -256,6 +294,61 @@ describe.skipIf(!nativeOk)('migrações do schema', () => {
       source_filename TEXT,
       char_count INTEGER NOT NULL DEFAULT 0,
       imported_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-    );`
+    );
+    CREATE TABLE codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guid TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      color TEXT NOT NULL DEFAULT '#2563eb',
+      description TEXT,
+      parent_id INTEGER,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE TABLE code_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guid TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE code_group_members (
+      group_id INTEGER NOT NULL REFERENCES code_groups(id) ON DELETE CASCADE,
+      code_id INTEGER NOT NULL REFERENCES codes(id) ON DELETE CASCADE,
+      PRIMARY KEY (group_id, code_id)
+    );
+    CREATE TABLE codings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guid TEXT NOT NULL UNIQUE,
+      document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      code_id INTEGER NOT NULL REFERENCES codes(id) ON DELETE CASCADE,
+      start_pos INTEGER NOT NULL,
+      end_pos INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX codings_unique_span
+      ON codings (document_id, code_id, start_pos, end_pos);`
+  }
+
+  // O que a migração protege é o trabalho de meses da pessoa, e o cenário
+  // legado só tinha project_meta e documents: as tabelas de maior risco — e
+  // `codings`, com índice único — ficavam sem trava. Aqui o projeto legado vai
+  // completo, com grupo (código pai), coleção, membro e duas citações.
+  function povoarLegado(raw: InstanceType<NonNullable<typeof Database>>): void {
+    raw.exec(migrateTestDdl())
+    raw.exec(`
+      INSERT INTO project_meta (guid, name, app_version) VALUES ('g-proj', 'Legado', '0.1.0');
+      INSERT INTO documents (guid, name, plain_text, original_format, char_count)
+        VALUES ('g-doc', 'Entrevista', '0123456789abcdef', 'txt', 16);
+      INSERT INTO codes (guid, name, color, sort_order) VALUES ('g-pai', 'EMOÇÕES', '#f00', 0);
+      INSERT INTO codes (guid, name, color, parent_id, sort_order)
+        VALUES ('g-filho', 'medo', '#0f0', 1, 0);
+      INSERT INTO code_groups (guid, name) VALUES ('g-col', 'Conceituação');
+      INSERT INTO code_group_members (group_id, code_id) VALUES (1, 1);
+      INSERT INTO codings (guid, document_id, code_id, start_pos, end_pos)
+        VALUES ('g-cod1', 1, 2, 0, 4);
+      INSERT INTO codings (guid, document_id, code_id, start_pos, end_pos)
+        VALUES ('g-cod2', 1, 2, 6, 10);
+    `)
   }
 })

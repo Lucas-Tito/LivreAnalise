@@ -161,15 +161,36 @@ describe.skipIf(!nativeOk)('moveCodes (integration)', () => {
     db.closeDatabase()
   })
 
-  it('reorders a multi-selection keeping the dragged order', async () => {
+  // A versão anterior movia [C,D] para depois de B, que já era a ordem corrente:
+  // o isNoopMove devolvia true, o moveCodes saía sem tocar no banco, e a
+  // asserção descrevia o ponto de partida — passava com o moveCodes comentado.
+  //
+  // E o nome prometia a coisa errada: o computeMoveOrder faz `.sort(siblingOrder)`
+  // na seleção, então o que se preserva é a ordem VISUAL dos códigos, não a
+  // ordem em que foram clicados. Isso é deliberado e é a propriedade que vale
+  // travar: arrastar um grupo de códigos não embaralha quem estava em cima.
+  it('reorders a multi-selection keeping their visible order', async () => {
     const a = repos.createCode({ name: 'A', color: '#111' })
-    const b = repos.createCode({ name: 'B', color: '#222' })
+    repos.createCode({ name: 'B', color: '#222' })
     const c = repos.createCode({ name: 'C', color: '#333' })
     const d = repos.createCode({ name: 'D', color: '#444' })
 
-    repos.moveCodes({ ids: [c.id, d.id], parentId: null, anchorId: b.id, position: 'after' })
+    repos.moveCodes({ ids: [d.id, c.id], parentId: null, anchorId: a.id, position: 'after' })
 
-    expect(repos.listCodes().map((x) => x.name)).toEqual(['A', 'B', 'C', 'D'])
+    // C continua antes de D, embora D tenha sido o primeiro da seleção
+    expect(repos.listCodes().map((x) => x.name)).toEqual(['A', 'C', 'D', 'B'])
+    db.closeDatabase()
+  })
+
+  it('a ordem dos cliques não muda o resultado', async () => {
+    const a = repos.createCode({ name: 'A', color: '#111' })
+    repos.createCode({ name: 'B', color: '#222' })
+    const c = repos.createCode({ name: 'C', color: '#333' })
+    const d = repos.createCode({ name: 'D', color: '#444' })
+
+    repos.moveCodes({ ids: [c.id, d.id], parentId: null, anchorId: a.id, position: 'after' })
+
+    expect(repos.listCodes().map((x) => x.name)).toEqual(['A', 'C', 'D', 'B'])
     db.closeDatabase()
   })
 
