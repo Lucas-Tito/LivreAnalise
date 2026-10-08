@@ -521,11 +521,19 @@ export function createGroupFromCodes(
     return code
   })
   const guid = uuid()
+  // O grupo nasce onde os membros estavam, nao no comeco da lista. Sem isto ele
+  // caia no DEFAULT 0 do schema e saltava para o topo, longe do gesto que o
+  // criou -- o mesmo descuido que o createCode evita de proposito logo acima.
+  const naRaiz = members.filter((m) => m.parentId === null)
+  const sortOrder =
+    naRaiz.length > 0
+      ? Math.min(...naRaiz.map((m) => m.sortOrder))
+      : all.filter((c) => c.parentId === null).reduce((max, c) => Math.max(max, c.sortOrder), -1) + 1
   let group!: Code
   db.transaction((tx) => {
     const res = tx
       .insert(codes)
-      .values({ guid, name, color, description: null, parentId: null })
+      .values({ guid, name, color, description: null, parentId: null, sortOrder })
       .run()
     group = tx
       .select()
