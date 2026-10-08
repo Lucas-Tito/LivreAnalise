@@ -92,17 +92,14 @@ export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
 
             {/* Amostra com a fonte escolhida: ver a letra é o que decide a
                 escolha, e comparar três nomes não diz nada. Usa a mesma
-                variável CSS que a transcrição (`--transcript-font`), e a frase
-                carrega os pares que a OpenDyslexic existe para desambiguar
-                (b/d em "abdicou", p/q em "prazo"/"quem") além dos acentos do
-                português. */}
+                variável CSS que a transcrição (`--transcript-font`). */}
             <div
               className="rounded-md border bg-muted/30 p-3 text-sm leading-7"
               style={{ fontFamily: 'var(--transcript-font)' }}
             >
               <p>
-                Depois do prazo, abdicou da dúvida: pôs à prova quem bebia pouco e
-                dizia que já pagou.
+                Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
+                eiusmod tempor incididunt ut labore et dolore magna aliqua.
               </p>
             </div>
           </section>
