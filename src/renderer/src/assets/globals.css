@@ -3,6 +3,9 @@
 @tailwind utilities;
 
 :root {
+    /* rede de seguranca: o valor real vem do zoomStore no import, mas sem um
+       padrao aqui qualquer falha de leitura deixaria o texto sem familia */
+    --transcript-font: system-ui, sans-serif;
   --background: 0 0% 100%;
   --foreground: 222.2 84% 4.9%;
   --card: 0 0% 100%;

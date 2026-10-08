@@ -123,7 +123,8 @@ export const IPC = {
     resetZoom: 'view:zoom-reset',
     fontSans: 'view:font-sans',
     fontSerif: 'view:font-serif',
-    fontDyslexic: 'view:font-dyslexic'
+    fontDyslexic: 'view:font-dyslexic',
+    fontChanged: 'view:font-changed'
   }
 } as const
 
@@ -203,6 +204,7 @@ export interface Api {
     importAsProject: () => Promise<(OpenProjectResult & { report: ImportReport }) | null>
   }
   view: {
+    notifyFont: (font: string) => void
     onAction: (listener: (action: string) => void) => () => void
   }
   history: {

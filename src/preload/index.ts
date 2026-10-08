@@ -103,6 +103,8 @@ const api: Api = {
     }
   },
   view: {
+    // o menu da janela precisa saber qual fonte esta ativa para marcar o radio
+    notifyFont: (font: string) => ipcRenderer.send(IPC.view.fontChanged, font),
     onAction: (listener) => {
       const handler = (_e: unknown, action: string): void => listener(action)
       ipcRenderer.on(IPC.view.zoomIn, handler)

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron'
 import { join } from 'path'
 import { closeDatabase } from './db'
 import { registerIpcHandlers } from './ipc'
@@ -15,6 +15,23 @@ for (const stream of [process.stdout, process.stderr]) {
     if (err.code !== 'EPIPE') throw err
   })
 }
+
+const FONT_ITEM = {
+  sans: 'view-font-sans',
+  serif: 'view-font-serif',
+  dyslexic: 'view-font-dyslexic'
+} as const
+
+// O renderer avisa a fonte guardada ao iniciar e a cada troca; sem isto o menu
+// abria sempre com os tres radios apagados.
+ipcMain.on(IPC.view.fontChanged, (_e, font: string) => {
+  const menu = Menu.getApplicationMenu()
+  if (!menu) return
+  for (const [chave, id] of Object.entries(FONT_ITEM)) {
+    const item = menu.getMenuItemById(id)
+    if (item) item.checked = chave === font
+  }
+})
 
 const isDev = !app.isPackaged
 
@@ -52,8 +69,13 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
+  // Resolve a janela na hora do clique: capturar `mainWindow` fazia o menu
+  // sobreviver ao fechamento dela no macOS (onde o app segue no Dock) e o
+  // proximo clique lancava "Object has been destroyed" no processo principal.
   const send = (channel: string): void => {
-    mainWindow.webContents.send(channel, channel)
+    const alvo = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    if (!alvo || alvo.isDestroyed()) return
+    alvo.webContents.send(channel, channel)
   }
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
@@ -61,15 +83,18 @@ function createWindow(): void {
         ? [{ role: 'appMenu' as const }, { role: 'editMenu' as const }]
         : []),
       {
-        label: 'View',
+        label: 'Exibir',
         submenu: [
           { label: 'Ampliar', accelerator: 'CmdOrCtrl+Plus', click: () => send(IPC.view.zoomIn) },
           { label: 'Reduzir', accelerator: 'CmdOrCtrl+-', click: () => send(IPC.view.zoomOut) },
           { label: 'Restaurar zoom', accelerator: 'CmdOrCtrl+0', click: () => send(IPC.view.resetZoom) },
           { type: 'separator' },
-          { label: 'Fonte sem serifa', type: 'radio', click: () => send(IPC.view.fontSans) },
-          { label: 'Fonte com serifa', type: 'radio', click: () => send(IPC.view.fontSerif) },
-          { label: 'Fonte para dislexia (OpenDyslexic)', type: 'radio', click: () => send(IPC.view.fontDyslexic) }
+          // `checked` vem do renderer (IPC.view.fontChanged): o main nao tem
+          // acesso ao localStorage onde a escolha fica guardada, e sem isso os
+          // radios nunca marcavam -- o menu mentia sobre o proprio estado.
+          { id: FONT_ITEM.sans, label: 'Fonte sem serifa', type: 'radio', click: () => send(IPC.view.fontSans) },
+          { id: FONT_ITEM.serif, label: 'Fonte com serifa', type: 'radio', click: () => send(IPC.view.fontSerif) },
+          { id: FONT_ITEM.dyslexic, label: 'Fonte para dislexia (OpenDyslexic)', type: 'radio', click: () => send(IPC.view.fontDyslexic) }
         ]
       }
     ])
