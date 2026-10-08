@@ -525,9 +525,13 @@ export function TranscriptPanel(): JSX.Element {
       ? (documentNotes.find((n) => n.id === editorNoteId) ??
           projectNotes.find((n) => n.id === editorNoteId))
       : undefined
+  // Vale para qualquer nota que ainda tenha o trecho original guardado, nao so
+  // para as marcadas como desvinculadas: a nota que volta de um .qdpx chega como
+  // nota de documento e, pelo criterio antigo, nunca receberia a oferta.
   const podeReligar =
-    notaParaReligar?.scope === 'excerpt' &&
-    notaParaReligar.anchorStatus === 'detached' &&
+    notaParaReligar != null &&
+    notaParaReligar.scope !== 'project' &&
+    notaParaReligar.anchorText != null &&
     notaParaReligar.documentId === currentDocument?.id
 
   const reattachPendingNote = async (): Promise<void> => {
@@ -602,11 +606,12 @@ export function TranscriptPanel(): JSX.Element {
 
       {editing ? (
         <div className="flex flex-1 flex-col overflow-hidden p-4">
-          {codings.length > 0 && (
+          {(codings.length > 0 || documentNotes.length > 0) && (
             <p className="mb-2 text-xs text-amber-500">
-              Os trechos citados aparecem realcados. Editar o texto pode
-              reposicionar ou remover citações automaticamente conforme o
-              trecho alterado.
+              Os trechos citados aparecem realçados. Editar o texto reposiciona
+              citações e notas automaticamente. Quando a edição desfaz o trecho,
+              ele é reencontrado se ainda existir no documento; se não, a citação
+              é removida e a nota fica desvinculada, guardando o trecho original.
             </p>
           )}
           <div

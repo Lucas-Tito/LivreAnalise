@@ -188,6 +188,10 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
 
   const isExcerpt = note.scope === 'excerpt'
   const isDetached = isExcerpt && note.anchorStatus === 'detached'
+  // O trecho original e o que importa aqui, nao a marca. Uma nota que foi e
+  // voltou de um .qdpx perde o 'detached' (o formato nao tem esse conceito) mas
+  // conserva o trecho -- e sem isto ele ficava guardado e invisivel.
+  const trechoGuardado = note.anchorText
   const liveQuote =
     isExcerpt && !isDetached && note.documentId === currentDocument?.id
       ? (currentDocument?.plainText.slice(note.startPos ?? 0, note.endPos ?? 0) ?? '')
@@ -225,7 +229,7 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
             )}
           </div>
         )}
-        {(liveQuote ?? (isDetached ? note.anchorText : null)) && (
+        {(liveQuote ?? trechoGuardado) && (
           <blockquote className="mb-2 border-l-2 border-primary/40 pl-2 text-xs italic text-muted-foreground">
             “{snippet(liveQuote ?? note.anchorText ?? '', 200)}”
           </blockquote>

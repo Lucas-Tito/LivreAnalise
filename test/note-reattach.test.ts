@@ -91,3 +91,45 @@ describe.skipIf(!nativeOk)('religar nota desvinculada', () => {
     expect(depois.anchorText).toBe(antes.anchorText)
   })
 })
+
+// Nota que foi e voltou de um .qdpx chega como nota de DOCUMENTO: o formato não
+// tem como dizer "nota de trecho sem âncora". Ela conserva o trecho original,
+// então religar precisa devolver o escopo junto — senão fica ancorada e fora da
+// lista de trechos.
+describe.skipIf(!nativeOk)('religar nota que voltou como nota de documento', () => {
+  let db: typeof import('../src/main/db')
+  let repos: typeof import('../src/main/db/repositories')
+
+  beforeEach(async () => {
+    db = await import('../src/main/db')
+    repos = await import('../src/main/db/repositories')
+    db.openDatabase(':memory:')
+  })
+
+  it('volta para o escopo de trecho ao religar', () => {
+    const doc = repos.createDocument({
+      name: 'Entrevista',
+      plainText: 'abcdefghij',
+      originalFormat: 'txt',
+      sourceFilename: 'e.txt'
+    })
+    const note = repos.createNote({
+      scope: 'document',
+      documentId: doc.id,
+      body: 'veio de um qdpx'
+    })
+
+    const religada = repos.updateNote({ id: note.id, startPos: 1, endPos: 4 })
+
+    expect(religada.scope).toBe('excerpt')
+    expect(religada.anchorStatus).toBe('attached')
+  })
+
+  it('não transforma nota de projeto em nota de trecho', () => {
+    const note = repos.createNote({ scope: 'project', body: 'memo solto' })
+
+    const depois = repos.updateNote({ id: note.id, startPos: 1, endPos: 4 })
+
+    expect(depois.scope).toBe('project')
+  })
+})
