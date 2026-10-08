@@ -91,6 +91,8 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
   const savedRef = useRef({ title: note.title ?? '', body: note.body })
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savingRef = useRef(false)
+  // Apagada: a limpeza do efeito nao pode gravar numa nota que nao existe mais
+  const apagadaRef = useRef(false)
 
   const updateNoteRef = useRef(updateNote)
   updateNoteRef.current = updateNote
@@ -112,6 +114,7 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
         timerRef.current = null
       }
       const naTela = stateRef.current
+      if (apagadaRef.current) return
       if (mesmoConteudo(naTela, savedRef.current)) return
       void updateNoteRef.current({
         id: idDesteEfeito,
@@ -135,11 +138,16 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
     savingRef.current = true
     setStatus('saving')
     try {
+      const idDoSave = note.id
       const updated = await updateNote({
-        id: note.id,
+        id: idDoSave,
         title: t.trim() === '' ? null : t,
         body: b
       })
+      // Trocar de nota durante o IPC fazia o savedRef receber o conteudo da
+      // nota ANTERIOR: o editor acusava "Alterações não salvas" sem motivo e
+      // agendava um save espurio da nota nova.
+      if (idDoSave !== note.id) return
       savedRef.current = { title: updated.title ?? '', body: updated.body }
       // o texto da tela nunca e sobrescrito: o que foi digitado durante o IPC
       // continua valendo e vira um save novo, em vez de sumir como "Salvo"
@@ -185,9 +193,11 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
   const handleDelete = async (): Promise<void> => {
     if (!window.confirm('Apagar esta nota? O conteúdo será perdido.')) return
     if (timerRef.current) clearTimeout(timerRef.current)
+    apagadaRef.current = true
     try {
       await deleteNote(note.id)
     } catch (e) {
+      apagadaRef.current = false
       // sem isto o clique nao fazia nada depois de voce ja ter confirmado, e o
       // editor fechava do mesmo jeito como se tivesse apagado
       setErro(mensagemDeErro(e, 'Não foi possível apagar a nota.'))

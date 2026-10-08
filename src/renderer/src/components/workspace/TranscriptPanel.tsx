@@ -11,7 +11,13 @@ import {
   markPendingSelection,
   resolveAnchorPos
 } from '@shared/segments'
-import { clampLaneWidth, laneBounds, packBarColumns } from '@/lib/barLayout'
+import {
+  clampLaneWidth,
+  laneBounds,
+  larguraGuardada,
+  packBarColumns,
+  type LaneConfig
+} from '@/lib/barLayout'
 import { acharOcorrencias } from '@shared/busca'
 import { applyCodingAdjustments } from '@shared/editAdjust'
 import { contrastText, formatCount } from '@/lib/utils'
@@ -43,6 +49,16 @@ const BAR_LANE_AUTO_BASE = 150
 const BAR_LANE_PAD = 16
 const BAR_GAP = 8
 const BAR_MIN_WIDTH = 72
+
+// As medidas da faixa num lugar so: passar por parametro evita o barLayout
+// repetir os numeros e discordar em silencio quando uma delas mudar.
+const LANE: LaneConfig = {
+  minimoPorColuna: BAR_MIN_WIDTH + BAR_GAP,
+  padding: BAR_LANE_PAD,
+  autoPorColuna: BAR_LANE_AUTO_BASE,
+  tetoPadrao: BAR_LANE_MAX,
+  pisoAbsoluto: BAR_LANE_MIN
+}
 
 // Nome da etiqueta com tooltip nativo só quando o texto está cortado: o
 // `title` incondicional mostrava dica até em nomes curtos, poluindo o hover.
@@ -123,12 +139,7 @@ export function TranscriptPanel(): JSX.Element {
   const columnFloorRef = useRef(1)
   const [laneWidth, setLaneWidth] = useState<number | null>(() => {
     try {
-      const stored = Number(localStorage.getItem(BAR_LANE_KEY))
-      return Number.isFinite(stored) &&
-        stored >= BAR_LANE_MIN &&
-        stored <= BAR_LANE_MAX
-        ? stored
-        : null
+      return larguraGuardada(localStorage.getItem(BAR_LANE_KEY), LANE)
     } catch {
       return null
     }
@@ -211,8 +222,7 @@ export function TranscriptPanel(): JSX.Element {
         clampLaneWidth(
           start.startWidth + (start.startX - e.clientX),
           columnCount,
-          BAR_LANE_MAX,
-          BAR_LANE_MIN,
+          LANE,
           start.startWidth
         )
       )
@@ -236,7 +246,7 @@ export function TranscriptPanel(): JSX.Element {
   // arrasto, mas nunca abaixo do mínimo que as colunas precisam para continuar
   // legíveis. As etiquetas dividem o espaço igualmente e truncam o nome.
   const autoLaneWidth = Math.max(180, columnCount * BAR_LANE_AUTO_BASE + 16)
-  const minNeededLaneWidth = laneBounds(columnCount, BAR_LANE_MAX, BAR_LANE_MIN).minimo
+  const minNeededLaneWidth = laneBounds(columnCount, LANE).minimo
   const effectiveLaneWidth =
     laneWidth == null ? autoLaneWidth : Math.max(minNeededLaneWidth, laneWidth)
   const barSlot = (effectiveLaneWidth - BAR_LANE_PAD) / Math.max(1, columnCount)
@@ -411,12 +421,14 @@ export function TranscriptPanel(): JSX.Element {
     setBuscaSeq((n) => n + 1)
   }
 
-  // Ctrl+F vale no painel inteiro, inclusive com o foco num campo: o atalho nao
-  // compete com a digitacao. Esc so fecha quando a busca esta aberta, para nao
-  // sequestrar o Esc de dialogo nenhum.
+  // O listener e em `window`, entao o atalho vale com o foco em qualquer campo:
+  // Ctrl+F nao compete com a digitacao. Esc so fecha quando a busca esta aberta,
+  // para nao sequestrar o Esc de dialogo nenhum. Nao dispara no modo de edicao,
+  // onde a barra nao existe e a busca ficaria pendente sem aparecer.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        if (editing) return
         e.preventDefault()
         setBuscaAberta(true)
         setTimeout(() => buscaInputRef.current?.select(), 0)
@@ -437,7 +449,7 @@ export function TranscriptPanel(): JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buscaAberta, hits.length])
+  }, [buscaAberta, hits.length, editing])
 
   // Termo novo recomeca do primeiro achado, senao o contador diria "7 de 2".
   useEffect(() => {

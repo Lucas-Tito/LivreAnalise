@@ -61,6 +61,19 @@ export function packBarColumns<T extends { top: number }>(
   }
 }
 
+export interface LaneConfig {
+  /** Largura minima de uma etiqueta mais o vao entre colunas. */
+  minimoPorColuna: number
+  /** Folga nas pontas da faixa. */
+  padding: number
+  /** Largura por coluna na medida automatica. */
+  autoPorColuna: number
+  /** Teto enquanto as colunas sao poucas. */
+  tetoPadrao: number
+  /** Piso absoluto, independente de quantas colunas existem. */
+  pisoAbsoluto: number
+}
+
 export interface LaneSizes {
   /** Minimo abaixo do qual as etiquetas deixam de caber lado a lado. */
   minimo: number
@@ -78,19 +91,27 @@ export interface LaneSizes {
  * o arrasto comeca, senao o primeiro pixel de movimento puxava a faixa para
  * 640 de uma vez -- mais de 500px de salto com 8 colunas.
  */
+/**
+ * Limites do arrasto da faixa de etiquetas.
+ *
+ * O teto era uma constante, mas o piso cresce com as colunas e passava dela a
+ * partir de 8: o arrasto mudava o estado e a largura efetiva ficava presa no
+ * piso, entao o divisor virava um no-op silencioso. O teto tambem precisa
+ * alcancar a largura de onde o arrasto comeca, senao o primeiro pixel puxava a
+ * faixa para o teto fixo de uma vez.
+ *
+ * As medidas vem por parametro de proposito: escritas aqui como numero, uma
+ * mudanca nas constantes do painel faria esta funcao discordar em silencio e
+ * reintroduziria o travamento que ela existe para consertar.
+ */
 export function laneBounds(
   colunas: number,
-  tetoPadrao: number,
-  pisoAbsoluto: number,
+  cfg: LaneConfig,
   larguraInicial?: number
 ): LaneSizes {
-  const minimo = Math.max(pisoAbsoluto, colunas * 80 + 16)
-  // O teto tem que crescer com as colunas igual o piso, senao em 8 colunas os
-  // dois se encontram e o divisor trava de novo. A largura automatica
-  // (150px por coluna) e a referencia do quanto a faixa pode legitimamente
-  // ocupar; o teto fixo so vale enquanto as colunas sao poucas.
-  const automatica = Math.max(180, colunas * 150 + 16)
-  const maximo = Math.max(tetoPadrao, automatica, minimo, larguraInicial ?? 0)
+  const minimo = Math.max(cfg.pisoAbsoluto, colunas * cfg.minimoPorColuna + cfg.padding)
+  const automatica = Math.max(180, colunas * cfg.autoPorColuna + cfg.padding)
+  const maximo = Math.max(cfg.tetoPadrao, automatica, minimo, larguraInicial ?? 0)
   return { minimo, maximo }
 }
 
@@ -98,10 +119,24 @@ export function laneBounds(
 export function clampLaneWidth(
   desejada: number,
   colunas: number,
-  tetoPadrao: number,
-  pisoAbsoluto: number,
+  cfg: LaneConfig,
   larguraInicial?: number
 ): number {
-  const { minimo, maximo } = laneBounds(colunas, tetoPadrao, pisoAbsoluto, larguraInicial)
+  const { minimo, maximo } = laneBounds(colunas, cfg, larguraInicial)
   return Math.min(maximo, Math.max(minimo, desejada))
+}
+
+/**
+ * Le a largura guardada no localStorage.
+ *
+ * Sem teto de proposito: o teto do arrasto cresce com as colunas, entao uma
+ * largura legitima de 900px era descartada na reabertura por ser maior que a
+ * constante de 640 -- o arrasto destravado nao sobrevivia justamente nos casos
+ * que o destravamento liberou. O piso de cada documento e aplicado depois, na
+ * largura efetiva.
+ */
+export function larguraGuardada(cru: string | null, cfg: LaneConfig): number | null {
+  if (cru == null || cru === '') return null
+  const n = Number(cru)
+  return Number.isFinite(n) && n >= cfg.pisoAbsoluto ? n : null
 }

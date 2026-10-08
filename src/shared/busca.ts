@@ -52,10 +52,15 @@ export function acharOcorrencias(texto: string, termo: string): Ocorrencia[] {
   let de = normalizado.indexOf(t)
   while (de !== -1) {
     const start = origem[de]
-    // +1 porque `origem` guarda o indice do caractere, e o fim e exclusivo
-    const end = (origem[de + t.length - 1] ?? texto.length - 1) + 1
+    // O fim e o primeiro caractere do original que ja NAO faz parte do
+    // casamento. Usar `origem[fim-1] + 1` deixava de fora a marca combinante
+    // final: em texto NFD ("cafe" + U+0301), buscar "cafe" destacava "cafe" e
+    // o acento aparecia solto, encostado no caractere seguinte. Texto do macOS
+    // chega em NFD rotineiramente.
+    const depois = de + t.length
+    const end = depois >= origem.length ? texto.length : origem[depois]
     achados.push({ start, end })
-    de = normalizado.indexOf(t, de + 1)
+    de = normalizado.indexOf(t, depois)
   }
   return achados
 }

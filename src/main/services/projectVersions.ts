@@ -31,24 +31,33 @@ export function snapshotBeforeMigration(projectPath: string): ProjectVersion | n
     schema = (raw.pragma('user_version') as Array<{ user_version: number }>)[0].user_version
     raw.close()
   } catch {
-    // arquivo ilegivel: quem vai reclamar com mensagem decente e a abertura
-    return null
+    // Pode ser arquivo ilegivel, mas tambem um `-wal` pendente: recuperar WAL
+    // exige lock de escrita, que o readonly nao tem. Nos dois casos copiamos
+    // por precaucao, em vez de seguir para a migracao sem rede nenhuma.
+    schema = -1
   }
-  // Condicionado de proposito: projeto ja na versao certa nao gera copia, senao
-  // a retencao de 10 automaticos seria gasta a cada abertura.
+  // -1 = nao foi possivel ler a versao; copia do mesmo jeito
   if (schema >= CURRENT_SCHEMA_VERSION) return null
-
   const dir = versionsDir(projectPath)
   mkdirSync(dir, { recursive: true })
   const when = new Date()
-  const file = fileNameFor('auto', 'antes de migrar', when)
+  const file = fileNameFor('premigracao', 'antes de migrar', when)
   const dest = join(dir, file)
+  // Os sidecars vao junto. Copiar so o arquivo principal perdia o que estivesse
+  // num `-wal` sobrado de uma queda anterior: a copia "antes de migrar" sairia
+  // mais ANTIGA que o projeto, e quem restaurasse perderia o trabalho que
+  // estava no WAL.
   copyFileSync(projectPath, dest)
+  for (const sufixo of ['-wal', '-shm']) {
+    if (existsSync(`${projectPath}${sufixo}`)) {
+      copyFileSync(`${projectPath}${sufixo}`, `${dest}${sufixo}`)
+    }
+  }
   const entry: ProjectVersion = {
     id: uuid(),
     file,
     createdAt: when.toISOString(),
-    kind: 'auto',
+    kind: 'premigracao',
     label: 'antes de migrar',
     appVersion: APP_VERSION,
     schemaVersion: schema,
@@ -65,7 +74,9 @@ export function deleteVersion(projectPath: string, id: string): boolean {
   const entries = readManifest(projectPath)
   const alvo = entries.find((e) => e.id === id)
   if (!alvo) return false
-  rmSync(join(versionsDir(projectPath), alvo.file), { force: true })
+  const base = join(versionsDir(projectPath), alvo.file)
+  rmSync(base, { force: true })
+  for (const sufixo of ['-wal', '-shm']) rmSync(`${base}${sufixo}`, { force: true })
   writeManifest(projectPath, entries.filter((e) => e.id !== id))
   return true
 }
@@ -158,7 +169,11 @@ export function pruneVersions(projectPath: string): ProjectVersion[] {
   if (drop.size === 0) return entries
   const kept = entries.filter((e) => !drop.has(e.id))
   for (const e of entries) {
-    if (drop.has(e.id)) rmSync(join(versionsDir(projectPath), e.file), { force: true })
+    if (drop.has(e.id)) {
+      const base = join(versionsDir(projectPath), e.file)
+      rmSync(base, { force: true })
+      for (const sufixo of ['-wal', '-shm']) rmSync(`${base}${sufixo}`, { force: true })
+    }
   }
   writeManifest(projectPath, kept)
   return kept
@@ -184,4 +199,15 @@ export function renameVersionsDir(oldPath: string, newPath: string): void {
 
 export function copyVersionTo(sourceFile: string, destPath: string): void {
   copyFileSync(sourceFile, destPath)
+  // A copia pre-migracao pode ter `-wal`/`-shm` junto: sem eles o projeto
+  // restaurado abriria sem o que estava pendente no WAL, ou seja mais antigo
+  // que a propria copia.
+  for (const sufixo of ['-wal', '-shm']) {
+    if (existsSync(`${sourceFile}${sufixo}`)) {
+      copyFileSync(`${sourceFile}${sufixo}`, `${destPath}${sufixo}`)
+    } else {
+      // sidecar velho do destino mentiria sobre o conteudo recem-copiado
+      rmSync(`${destPath}${sufixo}`, { force: true })
+    }
+  }
 }

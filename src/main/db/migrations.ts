@@ -63,7 +63,7 @@ export function migrateDatabase(raw: Database.Database, options?: MigrateOptions
   const migrations = options?.migrations ?? MIGRATIONS
   const target = options?.targetVersion ?? CURRENT_SCHEMA_VERSION
 
-  // Nada e escrito no arquivo antes das checagens. O `exec(SCHEMA_DDL)` ficava
+  // As checagens vem antes de qualquer escrita. O `exec(SCHEMA_DDL)` ficava
   // antes delas, entao a recusa que promete "nao corromper" ja tinha escrito:
   // num projeto de um app mais novo, onde uma tabela tivesse sido renomeada, o
   // `CREATE TABLE IF NOT EXISTS` recriava a antiga, vazia, antes do erro.

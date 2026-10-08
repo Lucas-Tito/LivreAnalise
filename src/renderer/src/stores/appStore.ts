@@ -319,12 +319,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     // esvaziava a tela e fazia a pessoa perder o documento que estava lendo,
     // por causa de um clique num item de lista desatualizada.
     if (!doc) return false
-    const [codings, documentNotes] = doc
-      ? await Promise.all([
-          window.api.codings.listByDocument(doc.id),
-          window.api.notes.listByDocument(doc.id)
-        ])
-      : [[], []]
+    const [codings, documentNotes] = await Promise.all([
+      window.api.codings.listByDocument(doc.id),
+      window.api.notes.listByDocument(doc.id)
+    ])
     // Publica tudo junto: medir o texto novo com as citações do documento
     // anterior pode criar colunas extras e deixar a faixa de códigos enorme.
     set({ currentDocument: doc, codings, documentNotes, navigateNoteId: null, editorNoteId: null })

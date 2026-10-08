@@ -146,11 +146,15 @@ function linhaDaNota(nota: Note, texto: string | null): string {
   const titulo = nota.title ? `${sanearNota(nota.title)} — ` : ''
   const corpo = sanearNota(nota.body)
   if (nota.scope === 'excerpt' && nota.anchorStatus === 'attached' && nota.startPos != null && nota.endPos != null && texto != null) {
-    const trecho = texto.slice(nota.startPos, nota.endPos)
+    // o trecho vem do documento e pode ter quebra de linha: sem sanear, a linha
+    // do item partia em duas e o resto aparecia solto, fora de qualquer nota
+    const trecho = sanearNota(texto.slice(nota.startPos, nota.endPos))
     return `- [trecho ${nota.startPos}–${nota.endPos} «${trecho}»] ${titulo}${corpo}`
   }
   if (nota.scope === 'excerpt' && nota.anchorStatus === 'detached') {
-    const original = nota.anchorText ? ` (âncora perdida, texto original: «${nota.anchorText}»)` : ' (âncora perdida)'
+    const original = nota.anchorText
+      ? ` (âncora perdida, texto original: «${sanearNota(nota.anchorText)}»)`
+      : ' (âncora perdida)'
     return `- [trecho desvinculado] ${titulo}${corpo}${original}`
   }
   if (nota.scope === 'document') return `- [documento] ${titulo}${corpo}`

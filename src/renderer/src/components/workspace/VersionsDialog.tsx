@@ -111,10 +111,10 @@ export function VersionsDialog({ open, onOpenChange }: Props): JSX.Element {
                 <li key={v.id} className="flex items-center gap-2 px-3 py-2 text-sm">
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">
-                      {v.label ?? (v.kind === 'auto' ? 'Automática' : 'Checkpoint')}
+                      {v.label ?? (v.kind === 'auto' ? 'Automática' : v.kind === 'premigracao' ? 'Antes de migrar' : 'Checkpoint')}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(v.createdAt).toLocaleString()} · {v.kind === 'auto' ? 'auto' : 'manual'} · {formatBytes(v.sizeBytes)} · app {v.appVersion} · schema {v.schemaVersion}
+                      {new Date(v.createdAt).toLocaleString()} · {v.kind === 'auto' ? 'auto' : v.kind === 'premigracao' ? 'pré-migração' : 'manual'} · {formatBytes(v.sizeBytes)} · app {v.appVersion} · schema {v.schemaVersion}
                     </p>
                   </div>
                   <Button

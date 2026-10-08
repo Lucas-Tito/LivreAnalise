@@ -1211,11 +1211,10 @@ export function updateNote(input: UpdateNoteInput): Note {
   db.update(notes).set(patch).where(eq(notes.id, input.id)).run()
   touchProject()
   const after = getNote(input.id)
-  const b = beforeRow ? { ...beforeRow } : null
+  const b = { ...beforeRow }
   const afterRow = (getDb().select().from(notes).where(eq(notes.id, input.id)).get() as typeof notes.$inferSelect)
   const a = { ...afterRow }
-  if (b) {
-    pushHistory({
+  pushHistory({
       label: `editar nota`,
       // o autosave grava a cada pausa de digitacao: sem isto um memo longo
       // enchia a pilha de 100 e enterrava as acoes de verdade
@@ -1226,7 +1225,11 @@ export function updateNote(input: UpdateNoteInput): Note {
         getDb().update(notes).set({
           title: b.title, body: b.body, updatedAt: b.updatedAt,
           startPos: b.startPos, endPos: b.endPos,
-          anchorStatus: b.anchorStatus, anchorText: b.anchorText
+          anchorStatus: b.anchorStatus, anchorText: b.anchorText,
+          // o scope tambem muda ao religar: sem ele o desfazer devolvia as
+          // posicoes nulas mas deixava a nota como 'excerpt' ancorada e sem
+          // trecho guardado -- invisivel na lista e sem a oferta de religar
+          scope: b.scope
         }).where(eq(notes.id, b.id)).run()
         touchProject()
       },
@@ -1234,12 +1237,12 @@ export function updateNote(input: UpdateNoteInput): Note {
         getDb().update(notes).set({
           title: a.title, body: a.body, updatedAt: a.updatedAt,
           startPos: a.startPos, endPos: a.endPos,
-          anchorStatus: a.anchorStatus, anchorText: a.anchorText
+          anchorStatus: a.anchorStatus, anchorText: a.anchorText,
+          scope: a.scope
         }).where(eq(notes.id, a.id)).run()
         touchProject()
       }
-    })
-  }
+  })
   return after
 }
 

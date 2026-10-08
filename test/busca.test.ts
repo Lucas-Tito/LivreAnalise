@@ -62,8 +62,22 @@ describe('acharOcorrencias', () => {
     expect(texto.slice(hit.start, hit.end)).toBe('prazo')
   })
 
-  it('acha ocorrência sobreposta', () => {
-    expect(acharOcorrencias('aaaa', 'aa')).toHaveLength(3)
+  // O Ctrl+F conta como qualquer navegador: ocorrências não se sobrepõem. O
+  // teste anterior afirmava 3 para "aa" em "aaaa", ou seja travava como
+  // desejado um contador que diria "1 de 3" onde o navegador diz "de 2".
+  // (O `relocalizarTrecho` faz o oposto de propósito: lá duas ocorrências,
+  // mesmo sobrepostas, significam "ambíguo, não adivinhe".)
+  it('não conta ocorrência sobreposta, como o navegador', () => {
+    expect(acharOcorrencias('aaaa', 'aa')).toHaveLength(2)
+  })
+
+  // Em NFD o acento é um caractere separado: o fim do destaque precisa incluí-lo,
+  // senão ele aparece solto encostado no caractere seguinte. Texto colado do
+  // macOS chega em NFD rotineiramente.
+  it('inclui a marca combinante final no destaque', () => {
+    const nfd = 'cafe\u0301 quente'
+    const [hit] = acharOcorrencias(nfd, 'cafe')
+    expect(nfd.slice(hit.start, hit.end)).toBe('cafe\u0301')
   })
 
   it('termo vazio não acha nada, em vez de achar tudo', () => {

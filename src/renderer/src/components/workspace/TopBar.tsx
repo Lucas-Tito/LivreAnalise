@@ -81,17 +81,19 @@ export function TopBar(): JSX.Element {
         </div>
         <Button
           size="sm"
-          variant={notesPanelOpen ? 'default' : 'outline'}
+          variant="ghost"
           onClick={toggleNotesPanel}
-          title="Abrir o painel de notas do projeto"
+          aria-label="Notas do projeto"
+          title={`Notas do projeto${noteCount > 0 ? ` (${noteCount})` : ''}`}
+          className={notesPanelOpen ? 'bg-accent' : undefined}
         >
           <StickyNote className="h-4 w-4" />
-          Notas{noteCount > 0 ? ` (${noteCount})` : ''}
+          {/* o número fica, porque é informação que não dá para inferir do ícone */}
+          {noteCount > 0 && <span className="text-xs">{noteCount}</span>}
         </Button>
-        {/* Versões à esquerda do Exportar, como combinado */}
         <Button
           size="sm"
-          variant="outline"
+          variant="ghost"
           onClick={() => setVersoes(true)}
           aria-label="Versões do projeto"
           title="Versões do projeto — checkpoints (restaurar abre uma cópia)"

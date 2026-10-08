@@ -54,18 +54,22 @@ export function CodeQuotesPopover({ code, onOpenChange }: Props): JSX.Element {
     )
   }, [code])
 
-  // 3) A linha do codigo pode sair do DOM com o popover aberto: recolher o
+  // A linha do codigo pode sair do DOM com o popover aberto: recolher o
   // grupo, ou trocar para a aba Documentos, desmonta a lista inteira. Elemento
   // desmontado devolve um retangulo zerado, e zero e posicao valida -- o painel
   // saltava para o canto superior esquerdo e continuava aberto, apontando para
   // nada. Sem a linha ele perdeu o referencial, entao fecha.
+  // Observa o PAI da linha, nao o document.body com subtree: enquanto o popover
+  // esta aberto, cada re-render da transcricao gerava registros de mutacao para
+  // milhares de spans so para testar um `isConnected`.
   useEffect(() => {
     if (!code || !anchorEl) return
-    const checar = (): void => {
+    const pai = anchorEl.parentElement
+    if (!pai) return
+    const obs = new MutationObserver(() => {
       if (!anchorEl.isConnected) onOpenChange(false)
-    }
-    const obs = new MutationObserver(checar)
-    obs.observe(document.body, { childList: true, subtree: true })
+    })
+    obs.observe(pai, { childList: true })
     return () => obs.disconnect()
   }, [code, anchorEl, onOpenChange])
 
