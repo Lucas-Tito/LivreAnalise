@@ -19,14 +19,14 @@ import type {
   UpdateCollectionInput,
   UpdateNoteInput
 } from '@shared/types'
-import { adjustCodings } from '@shared/editAdjust'
+import { adjustCodings, relocalizarTrecho, type CodingUpdate } from '@shared/editAdjust'
 import {
   computeMoveOrder,
   isNoopMove,
   validateParentChange
 } from '@shared/codeTree'
 import { pushHistory } from '../history/stack'
-import type { MoveCodesInput, NoteAnchorStatus } from '@shared/types'
+import type { MoveCodesInput, NoteAnchorStatus, NoteScope } from '@shared/types'
 import { findConnectedCodings } from '../services/codingMerge'
 import { getDb } from './index'
 import {
@@ -169,12 +169,39 @@ export function updateDocumentText(id: number, newText: string): void {
       n.endPos != null
   )
   const noteAdjust = adjustCodings(anchoredNotes, current.plainText, newText)
+
+  // Antes de desistir de uma ancora, procura o trecho original no texto novo.
+  // Mover um paragrafo apaga as posicoes mas preserva o texto: sem isto a
+  // citacao era apagada e a nota desvinculada com o trecho inteiro ainda ali.
+  const citacoesRelocalizadas: CodingUpdate[] = []
+  const citacoesPerdidas: number[] = []
+  const ocupados = new Set(
+    codingsList.map((c) => `${c.codeId}:${c.startPos}:${c.endPos}`)
+  )
+  for (const rid of removeIds) {
+    const c = codingsList.find((x) => x.id === rid)
+    const achado = c
+      ? relocalizarTrecho(current.plainText.slice(c.startPos, c.endPos), newText)
+      : null
+    // o indice unico (documento, codigo, inicio, fim) recusaria uma citacao
+    // que caisse em cima de outra igual: nesse caso ela e mesmo duplicata
+    if (c && achado && !ocupados.has(`${c.codeId}:${achado.startPos}:${achado.endPos}`)) {
+      ocupados.add(`${c.codeId}:${achado.startPos}:${achado.endPos}`)
+      citacoesRelocalizadas.push({ id: rid, ...achado })
+    } else {
+      citacoesPerdidas.push(rid)
+    }
+  }
+
+  const notasRelocalizadas: CodingUpdate[] = []
   const detachedSnapshots = new Map<number, string>()
   for (const noteId of noteAdjust.removeIds) {
     const note = anchoredNotes.find((n) => n.id === noteId)
-    if (note) {
-      detachedSnapshots.set(noteId, current.plainText.slice(note.startPos, note.endPos))
-    }
+    if (!note) continue
+    const trecho = current.plainText.slice(note.startPos, note.endPos)
+    const achado = relocalizarTrecho(trecho, newText)
+    if (achado) notasRelocalizadas.push({ id: noteId, ...achado })
+    else detachedSnapshots.set(noteId, trecho)
   }
 
   db.transaction((tx) => {
@@ -182,22 +209,22 @@ export function updateDocumentText(id: number, newText: string): void {
       .set({ plainText: newText, charCount: newText.length })
       .where(eq(documents.id, id))
       .run()
-    for (const rid of removeIds) {
+    for (const rid of citacoesPerdidas) {
       tx.delete(codings).where(eq(codings.id, rid)).run()
     }
-    for (const u of updates) {
+    for (const u of [...updates, ...citacoesRelocalizadas]) {
       tx.update(codings)
         .set({ startPos: u.startPos, endPos: u.endPos })
         .where(eq(codings.id, u.id))
         .run()
     }
-    for (const u of noteAdjust.updates) {
+    for (const u of [...noteAdjust.updates, ...notasRelocalizadas]) {
       tx.update(notes)
         .set({ startPos: u.startPos, endPos: u.endPos })
         .where(eq(notes.id, u.id))
         .run()
     }
-    for (const noteId of noteAdjust.removeIds) {
+    for (const noteId of detachedSnapshots.keys()) {
       tx.update(notes)
         .set({
           anchorStatus: 'detached',
@@ -1131,6 +1158,7 @@ export function updateNote(input: UpdateNoteInput): Note {
     endPos?: number
     anchorStatus?: NoteAnchorStatus
     anchorText?: string | null
+    scope?: NoteScope
     updatedAt: string
   } = {
     updatedAt: new Date().toISOString()
@@ -1146,6 +1174,9 @@ export function updateNote(input: UpdateNoteInput): Note {
     patch.endPos = input.endPos
     patch.anchorStatus = 'attached'
     patch.anchorText = null
+    // nota que voltou de um .qdpx chega como nota de documento: religar
+    // devolve o escopo junto, senao ela fica ancorada e fora da lista de trechos
+    if (beforeRow?.documentId != null) patch.scope = 'excerpt'
   }
   db.update(notes).set(patch).where(eq(notes.id, input.id)).run()
   touchProject()
