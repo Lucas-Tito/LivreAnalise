@@ -622,7 +622,7 @@ export function TranscriptPanel(): JSX.Element {
             <div
               ref={backdropRef}
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 overflow-auto whitespace-pre-wrap break-words p-3 font-mono"
+              className="pointer-events-none absolute inset-0 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] p-3 font-mono"
               style={{
                 fontSize: `calc(0.875rem * ${zoom})`,
                 lineHeight: `calc(1.75rem * ${zoom})`,
@@ -668,7 +668,7 @@ export function TranscriptPanel(): JSX.Element {
               onChange={(e) => setDraft(e.target.value)}
               onScroll={syncScroll}
               spellCheck={false}
-              className="absolute inset-0 resize-none overflow-auto whitespace-pre-wrap break-words bg-transparent p-3 font-mono text-transparent caret-foreground outline-none"
+              className="absolute inset-0 resize-none overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] bg-transparent p-3 font-mono text-transparent caret-foreground outline-none"
               style={{
                 color: 'transparent',
                 fontSize: `calc(0.875rem * ${zoom})`,
@@ -697,7 +697,7 @@ export function TranscriptPanel(): JSX.Element {
           <div
             ref={textRef}
             onMouseUp={handleMouseUp}
-            className="transcript flex-1 py-5"
+            className="transcript min-w-0 flex-1 py-5"
             style={{
               fontSize: `calc(15px * ${zoom})`,
               lineHeight: `calc(1.75rem * ${zoom})`,
@@ -719,7 +719,7 @@ export function TranscriptPanel(): JSX.Element {
                     >
                       {row.index + 1}
                     </div>
-                    <div className="flex-1 whitespace-pre-wrap break-words pr-6">
+                    <div className="min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere] pr-6">
                       {row.spans.length === 0 ? (
                         <span data-pos={row.start}>
                           {text.slice(row.start, row.end) || '\u200b'}
