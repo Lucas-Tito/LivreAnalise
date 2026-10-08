@@ -1,8 +1,14 @@
 import { useState } from 'react'
-import { BookText, Download, History, Loader2, Redo2, Sparkles, StickyNote, Undo2 } from 'lucide-react'
+import { BookText, ChevronDown, Download, History, Loader2, Redo2, Sparkles, StickyNote, Undo2 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { mensagemDeErro } from '@/lib/erros'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { AiExportDialog } from './AiExportDialog'
 import { VersionsDialog } from './VersionsDialog'
 
@@ -82,11 +88,7 @@ export function TopBar(): JSX.Element {
           <StickyNote className="h-4 w-4" />
           Notas{noteCount > 0 ? ` (${noteCount})` : ''}
         </Button>
-        <Button size="sm" variant="outline" onClick={() => setExportarIa(true)}>
-          <Sparkles className="h-4 w-4" />
-          Exportar para IA
-        </Button>
-        {/* só o ícone: a barra ficou apertada com dois "Exportar" ao lado */}
+        {/* Versões à esquerda do Exportar, como combinado */}
         <Button
           size="sm"
           variant="outline"
@@ -96,19 +98,41 @@ export function TopBar(): JSX.Element {
         >
           <History className="h-4 w-4" />
         </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleExport}
-          disabled={working}
-        >
-          {working ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Download className="h-4 w-4" />
-          )}
-          Exportar QDPX
-        </Button>
+        {/* Um "Exportar" só: dois botões lado a lado com o mesmo verbo obrigavam
+            a ler o complemento para saber qual era qual, e apertavam a barra. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="outline" disabled={working}>
+              {working ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Exportar
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-72">
+            <DropdownMenuItem onClick={() => setExportarIa(true)}>
+              <Sparkles className="h-4 w-4" />
+              <span className="flex flex-col items-start">
+                <span>Para IA</span>
+                <span className="text-xs text-muted-foreground">
+                  Texto com as marcações, para colar num chat
+                </span>
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => void handleExport()} disabled={working}>
+              <Download className="h-4 w-4" />
+              <span className="flex flex-col items-start">
+                <span>QDPX (REFI-QDA)</span>
+                <span className="text-xs text-muted-foreground">
+                  Abre no ATLAS.ti e no NVivo
+                </span>
+              </span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <AiExportDialog open={exportarIa} onOpenChange={setExportarIa} />
       <VersionsDialog open={versoes} onOpenChange={setVersoes} />
