@@ -1,4 +1,5 @@
 import type { AiExportScope } from './aiExport'
+import type { ProjectVersion } from './projectVersions'
 import type {
   Code,
   Collection,
@@ -9,9 +10,15 @@ import type {
   CreateCodeInput,
   CreateCodingInput,
   CreateCollectionInput,
+  CreateGroupInput,
+  CreateGroupFromCodesInput,
+  CreateNoteInput,
   DocumentRecord,
   DocumentWithText,
   ExportResult,
+  ImportReport,
+  MoveCodesInput,
+  Note,
   OpenProjectResult,
   ProjectMeta,
   RecentProject,
@@ -23,7 +30,8 @@ import type {
   TranscriptionStartInput,
   UpdateCodingInput,
   UpdateCodeInput,
-  UpdateCollectionInput
+  UpdateCollectionInput,
+  UpdateNoteInput
 } from './types'
 
 export const IPC = {
@@ -48,8 +56,11 @@ export const IPC = {
   codes: {
     list: 'codes:list',
     create: 'codes:create',
+    createGroup: 'codes:createGroup',
+    createGroupFrom: 'codes:createGroupFrom',
     update: 'codes:update',
-    delete: 'codes:delete'
+    delete: 'codes:delete',
+    moveMany: 'codes:moveMany'
   },
   collections: {
     list: 'collections:list',
@@ -67,6 +78,13 @@ export const IPC = {
     create: 'codings:create',
     update: 'codings:update',
     delete: 'codings:delete'
+  },
+  notes: {
+    listByDocument: 'notes:listByDocument',
+    listProject: 'notes:listProject',
+    create: 'notes:create',
+    update: 'notes:update',
+    delete: 'notes:delete'
   },
   transcription: {
     env: 'transcription:env',
@@ -86,6 +104,26 @@ export const IPC = {
   qdpx: {
     export: 'qdpx:export',
     importAsProject: 'qdpx:importAsProject'
+  },
+  history: {
+    state: 'history:state',
+    undo: 'history:undo',
+    redo: 'history:redo'
+  },
+  versions: {
+    list: 'versions:list',
+    create: 'versions:create',
+    prune: 'versions:prune',
+    restore: 'versions:restore',
+    changed: 'versions:changed'
+  },
+  view: {
+    zoomIn: 'view:zoom-in',
+    zoomOut: 'view:zoom-out',
+    resetZoom: 'view:zoom-reset',
+    fontSans: 'view:font-sans',
+    fontSerif: 'view:font-serif',
+    fontDyslexic: 'view:font-dyslexic'
   }
 } as const
 
@@ -111,8 +149,11 @@ export interface Api {
   codes: {
     list: () => Promise<CodeWithCount[]>
     create: (input: CreateCodeInput) => Promise<Code>
+    createGroup: (input: CreateGroupInput) => Promise<Code>
+    createGroupFrom: (input: CreateGroupFromCodesInput) => Promise<Code>
     update: (input: UpdateCodeInput) => Promise<void>
     delete: (id: number) => Promise<void>
+    moveMany: (input: MoveCodesInput) => Promise<void>
   }
   collections: {
     list: () => Promise<Collection[]>
@@ -131,6 +172,13 @@ export interface Api {
     update: (input: UpdateCodingInput) => Promise<Coding>
     delete: (id: number) => Promise<void>
   }
+  notes: {
+    listByDocument: (documentId: number) => Promise<Note[]>
+    listProject: () => Promise<Note[]>
+    create: (input: CreateNoteInput) => Promise<Note>
+    update: (input: UpdateNoteInput) => Promise<Note>
+    delete: (id: number) => Promise<void>
+  }
   transcription: {
     env: () => Promise<TranscriptionEnv>
     models: () => Promise<TranscriptionModel[]>
@@ -145,12 +193,35 @@ export interface Api {
   aiExport: {
     export: (
       scope: AiExportScope,
-      documentId: number | null
+      documentId: number | null,
+      includeNotes?: boolean
     ) => Promise<ExportResult | null>
     cliInstructions: () => Promise<string>
   }
   qdpx: {
     export: () => Promise<ExportResult | null>
-    importAsProject: () => Promise<OpenProjectResult | null>
+    importAsProject: () => Promise<(OpenProjectResult & { report: ImportReport }) | null>
   }
+  view: {
+    onAction: (listener: (action: string) => void) => () => void
+  }
+  history: {
+    state: () => Promise<HistoryState>
+    undo: () => Promise<string | null>
+    redo: () => Promise<string | null>
+  }
+  versions: {
+    list: () => Promise<ProjectVersion[]>
+    create: (label: string | null) => Promise<ProjectVersion>
+    prune: () => Promise<ProjectVersion[]>
+    restore: (id: string) => Promise<OpenProjectResult | null>
+    onChanged: (listener: () => void) => () => void
+  }
+}
+
+export interface HistoryState {
+  canUndo: boolean
+  canRedo: boolean
+  undoLabel: string | null
+  redoLabel: string | null
 }

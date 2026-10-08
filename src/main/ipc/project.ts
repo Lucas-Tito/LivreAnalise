@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { basename } from 'path'
 import { v4 as uuid } from 'uuid'
 import { IPC } from '@shared/ipc'
@@ -18,6 +18,8 @@ import { projectMeta } from '../db/schema'
 import { pushRecent, readRecents } from '../services/recents'
 import { renameProject, trashProject } from '../services/projectFile'
 import { readProjectStats } from '../db/projectStats'
+import { clearHistoryFor } from '../history/stack'
+import { createVersionSnapshot } from '../services/projectVersions'
 
 const PROJECT_EXT = 'liva'
 
@@ -59,6 +61,9 @@ export function registerProjectHandlers(): void {
     })
     if (result.canceled || !result.filePath) return null
     const path = result.filePath
+    // Reabrir = nova sessão: o histórico do projeto anterior não vale mais.
+    const prev = getActivePath()
+    if (prev) clearHistoryFor(prev)
     openDatabase(path)
     const name = basename(path).replace(/\.liva$/i, '')
     const meta = ensureMeta(name)
@@ -88,7 +93,9 @@ export function registerProjectHandlers(): void {
   })
 
   ipcMain.handle(IPC.project.close, async (): Promise<void> => {
+    const path = getActivePath()
     closeDatabase()
+    if (path) clearHistoryFor(path)
   })
 
   ipcMain.handle(
@@ -110,9 +117,23 @@ export function registerProjectHandlers(): void {
 }
 
 function openProjectPath(path: string): OpenProjectResult | null {
+  const prev = getActivePath()
+  if (prev) clearHistoryFor(prev)
   openDatabase(path)
   const name = basename(path).replace(/\.liva$/i, '')
   const meta = ensureMeta(name)
   pushRecent(getActivePath() as string, meta.name)
+  // 1 checkpoint automático por abertura (retenção poda os antigos).
+  // Melhor esforço: nunca bloqueia a abertura, mas o erro é registrado.
+  createVersionSnapshot(path, { kind: 'auto', label: null })
+    .then(() => {
+      if (getActivePath() !== path) return
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send(IPC.versions.changed)
+      }
+    })
+    .catch((err: unknown) => {
+      console.error(`[versoes] checkpoint automático falhou: ${(err as Error)?.message ?? err}`)
+    })
   return { meta, path }
 }

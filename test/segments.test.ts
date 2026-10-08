@@ -3,9 +3,11 @@ import {
   anchorPositions,
   buildLineRows,
   computeSegments,
+  markNoteAnchors,
   markPendingSelection,
   resolveAnchorPos
 } from '../src/shared/segments'
+import type { DisplaySegment } from '../src/shared/segments'
 import type { Coding } from '../src/shared/types'
 
 function coding(id: number, startPos: number, endPos: number): Coding {
@@ -69,26 +71,81 @@ describe('markPendingSelection', () => {
   it('marks nothing when pending is null', () => {
     const segs = computeSegments(10, [])
     expect(markPendingSelection(segs, null)).toEqual([
-      { start: 0, end: 10, codingIds: [], isPending: false }
+      { start: 0, end: 10, codingIds: [], isPending: false, noteIds: [] }
     ])
   })
 
   it('splits uncoded text at pending boundaries', () => {
     const segs = computeSegments(10, [])
     expect(markPendingSelection(segs, { start: 3, end: 7 })).toEqual([
-      { start: 0, end: 3, codingIds: [], isPending: false },
-      { start: 3, end: 7, codingIds: [], isPending: true },
-      { start: 7, end: 10, codingIds: [], isPending: false }
+      { start: 0, end: 3, codingIds: [], isPending: false, noteIds: [] },
+      { start: 3, end: 7, codingIds: [], isPending: true, noteIds: [] },
+      { start: 7, end: 10, codingIds: [], isPending: false, noteIds: [] }
     ])
   })
 
   it('marks overlap inside an existing coded segment', () => {
     const segs = computeSegments(10, [coding(1, 0, 6)])
     expect(markPendingSelection(segs, { start: 2, end: 4 })).toEqual([
-      { start: 0, end: 2, codingIds: [1], isPending: false },
-      { start: 2, end: 4, codingIds: [1], isPending: true },
-      { start: 4, end: 6, codingIds: [1], isPending: false },
-      { start: 6, end: 10, codingIds: [], isPending: false }
+      { start: 0, end: 2, codingIds: [1], isPending: false, noteIds: [] },
+      { start: 2, end: 4, codingIds: [1], isPending: true, noteIds: [] },
+      { start: 4, end: 6, codingIds: [1], isPending: false, noteIds: [] },
+      { start: 6, end: 10, codingIds: [], isPending: false, noteIds: [] }
+    ])
+  })
+})
+
+describe('markNoteAnchors', () => {
+  function displayed(length: number, list: Coding[]): DisplaySegment[] {
+    return markPendingSelection(computeSegments(length, list), null)
+  }
+
+  it('returns segments untouched when there are no anchors', () => {
+    const segs = displayed(10, [])
+    expect(markNoteAnchors(segs, [])).toBe(segs)
+  })
+
+  it('splits a paragraph-wide segment at the exact annotated range', () => {
+    const segs = displayed(20, [])
+    expect(markNoteAnchors(segs, [{ id: 7, start: 5, end: 9 }])).toEqual([
+      { start: 0, end: 5, codingIds: [], isPending: false, noteIds: [] },
+      { start: 5, end: 9, codingIds: [], isPending: false, noteIds: [7] },
+      { start: 9, end: 20, codingIds: [], isPending: false, noteIds: [] }
+    ])
+  })
+
+  it('tags segments covered by two overlapping anchors with both ids', () => {
+    const segs = displayed(10, [])
+    const marked = markNoteAnchors(segs, [
+      { id: 1, start: 2, end: 6 },
+      { id: 2, start: 4, end: 8 }
+    ])
+    expect(marked).toEqual([
+      { start: 0, end: 2, codingIds: [], isPending: false, noteIds: [] },
+      { start: 2, end: 4, codingIds: [], isPending: false, noteIds: [1] },
+      { start: 4, end: 6, codingIds: [], isPending: false, noteIds: [1, 2] },
+      { start: 6, end: 8, codingIds: [], isPending: false, noteIds: [2] },
+      { start: 8, end: 10, codingIds: [], isPending: false, noteIds: [] }
+    ])
+  })
+
+  it('keeps coding ids on the split segments', () => {
+    const segs = displayed(10, [coding(1, 0, 10)])
+    const marked = markNoteAnchors(segs, [{ id: 7, start: 3, end: 4 }])
+    expect(marked.map((s) => [s.start, s.end, s.codingIds, s.noteIds])).toEqual([
+      [0, 3, [1], []],
+      [3, 4, [1], [7]],
+      [4, 10, [1], []]
+    ])
+  })
+
+  it('clips anchors to the segment instead of leaking outside', () => {
+    const segs = displayed(10, [coding(1, 4, 6)])
+    const marked = markNoteAnchors(segs, [{ id: 7, start: 0, end: 10 }])
+    expect(marked.map((s) => [s.start, s.end, s.noteIds])).toEqual([
+      [0, 4, [7]],
+      [4, 6, [7]],
+      [6, 10, [7]]
     ])
   })
 })

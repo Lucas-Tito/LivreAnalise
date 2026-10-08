@@ -99,6 +99,28 @@ export interface UpdateCodeInput {
   sortOrder?: number
 }
 
+export interface MoveCodesInput {
+  ids: number[]
+  parentId: number | null
+  // Reordenação dentro do destino: `anchorId` é o código vizinho e `position`
+  // diz de que lado o arrastado entra. Sem anchor, o código vai para o fim.
+  anchorId?: number | null
+  position?: 'before' | 'after' | 'end'
+}
+
+export interface CreateGroupInput {
+  name: string
+  color: string
+  codeId: number
+}
+
+// União de vários códigos em um grupo novo (arrastar um sobre o outro).
+export interface CreateGroupFromCodesInput {
+  name: string
+  color: string
+  codeIds: number[]
+}
+
 export interface CreateCollectionInput {
   name: string
   description?: string | null
@@ -124,6 +146,40 @@ export interface UpdateCodingInput {
   endPos: number
 }
 
+export type NoteScope = 'project' | 'document' | 'excerpt'
+
+export type NoteAnchorStatus = 'attached' | 'detached'
+
+export interface Note {
+  id: number
+  guid: string
+  title: string | null
+  body: string
+  scope: NoteScope
+  documentId: number | null
+  startPos: number | null
+  endPos: number | null
+  anchorStatus: NoteAnchorStatus
+  anchorText: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateNoteInput {
+  title?: string | null
+  body?: string
+  scope: NoteScope
+  documentId?: number | null
+  startPos?: number | null
+  endPos?: number | null
+}
+
+export interface UpdateNoteInput {
+  id: number
+  title?: string | null
+  body?: string
+}
+
 export interface OpenProjectResult {
   meta: ProjectMeta
   path: string
@@ -134,6 +190,7 @@ export interface ImportReport {
   groups: number
   documents: number
   codings: number
+  notes: number
   skipped: string[]
 }
 

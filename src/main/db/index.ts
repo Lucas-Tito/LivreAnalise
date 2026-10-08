@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import { SCHEMA_DDL } from './ddl'
+import { migrateDatabase } from './migrations'
 import * as schema from './schema'
 
 export type ProjectDb = BetterSQLite3Database<typeof schema> & {
@@ -18,7 +18,7 @@ let active: ActiveProject | null = null
 function applySchema(raw: Database.Database): void {
   raw.pragma('journal_mode = WAL')
   raw.pragma('foreign_keys = ON')
-  raw.exec(SCHEMA_DDL)
+  migrateDatabase(raw)
 }
 
 export function openDatabase(path: string): ProjectDb {

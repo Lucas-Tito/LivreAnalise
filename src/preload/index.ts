@@ -23,8 +23,11 @@ const api: Api = {
   codes: {
     list: () => ipcRenderer.invoke(IPC.codes.list),
     create: (input) => ipcRenderer.invoke(IPC.codes.create, input),
+    createGroup: (input) => ipcRenderer.invoke(IPC.codes.createGroup, input),
+    createGroupFrom: (input) => ipcRenderer.invoke(IPC.codes.createGroupFrom, input),
     update: (input) => ipcRenderer.invoke(IPC.codes.update, input),
-    delete: (id) => ipcRenderer.invoke(IPC.codes.delete, id)
+    delete: (id) => ipcRenderer.invoke(IPC.codes.delete, id),
+    moveMany: (input) => ipcRenderer.invoke(IPC.codes.moveMany, input)
   },
   collections: {
     list: () => ipcRenderer.invoke(IPC.collections.list),
@@ -47,6 +50,14 @@ const api: Api = {
     update: (input) => ipcRenderer.invoke(IPC.codings.update, input),
     delete: (id) => ipcRenderer.invoke(IPC.codings.delete, id)
   },
+  notes: {
+    listByDocument: (documentId) =>
+      ipcRenderer.invoke(IPC.notes.listByDocument, documentId),
+    listProject: () => ipcRenderer.invoke(IPC.notes.listProject),
+    create: (input) => ipcRenderer.invoke(IPC.notes.create, input),
+    update: (input) => ipcRenderer.invoke(IPC.notes.update, input),
+    delete: (id) => ipcRenderer.invoke(IPC.notes.delete, id)
+  },
   transcription: {
     env: () => ipcRenderer.invoke(IPC.transcription.env),
     models: () => ipcRenderer.invoke(IPC.transcription.models),
@@ -67,13 +78,48 @@ const api: Api = {
     }
   },
   aiExport: {
-    export: (scope, documentId) =>
-      ipcRenderer.invoke(IPC.aiExport.export, scope, documentId),
+    export: (scope, documentId, includeNotes) =>
+      ipcRenderer.invoke(IPC.aiExport.export, scope, documentId, includeNotes),
     cliInstructions: () => ipcRenderer.invoke(IPC.aiExport.cliInstructions)
   },
   qdpx: {
     export: () => ipcRenderer.invoke(IPC.qdpx.export),
     importAsProject: () => ipcRenderer.invoke(IPC.qdpx.importAsProject)
+  },
+  history: {
+    state: () => ipcRenderer.invoke(IPC.history.state),
+    undo: () => ipcRenderer.invoke(IPC.history.undo),
+    redo: () => ipcRenderer.invoke(IPC.history.redo)
+  },
+  versions: {
+    list: () => ipcRenderer.invoke(IPC.versions.list),
+    create: (label) => ipcRenderer.invoke(IPC.versions.create, label),
+    prune: () => ipcRenderer.invoke(IPC.versions.prune),
+    restore: (id) => ipcRenderer.invoke(IPC.versions.restore, id),
+    onChanged: (listener) => {
+      const handler = (): void => listener()
+      ipcRenderer.on(IPC.versions.changed, handler)
+      return () => ipcRenderer.removeListener(IPC.versions.changed, handler)
+    }
+  },
+  view: {
+    onAction: (listener) => {
+      const handler = (_e: unknown, action: string): void => listener(action)
+      ipcRenderer.on(IPC.view.zoomIn, handler)
+      ipcRenderer.on(IPC.view.zoomOut, handler)
+      ipcRenderer.on(IPC.view.resetZoom, handler)
+      ipcRenderer.on(IPC.view.fontSans, handler)
+      ipcRenderer.on(IPC.view.fontSerif, handler)
+      ipcRenderer.on(IPC.view.fontDyslexic, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.view.zoomIn, handler)
+        ipcRenderer.removeListener(IPC.view.zoomOut, handler)
+        ipcRenderer.removeListener(IPC.view.resetZoom, handler)
+        ipcRenderer.removeListener(IPC.view.fontSans, handler)
+        ipcRenderer.removeListener(IPC.view.fontSerif, handler)
+        ipcRenderer.removeListener(IPC.view.fontDyslexic, handler)
+      }
+    }
   }
 }
 

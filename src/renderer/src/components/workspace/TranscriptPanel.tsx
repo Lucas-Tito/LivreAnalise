@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { FileText, Pencil, Save, Trash2, X } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
+import { useZoomStore } from '@/stores/zoomStore'
 import {
   anchorPositions,
   buildLineRows,
   computeSegments,
+  markNoteAnchors,
   markPendingSelection,
   resolveAnchorPos
 } from '@shared/segments'
@@ -29,8 +31,45 @@ interface Bar {
   name: string
   top: number
   column: number
+  columnSpan: number
 }
 
+const BAR_LANE_KEY = 'transcriptCodesWidth'
+const BAR_LANE_MIN = 120
+const BAR_LANE_MAX = 640
+const BAR_LANE_AUTO_BASE = 150
+const BAR_LANE_PAD = 16
+const BAR_GAP = 8
+const BAR_MIN_WIDTH = 72
+
+// Nome da etiqueta com tooltip nativo só quando o texto está cortado: o
+// `title` incondicional mostrava dica até em nomes curtos, poluindo o hover.
+function BarName({ name }: { name: string }): JSX.Element {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [truncated, setTruncated] = useState(false)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const check = (): void => {
+      setTruncated(el.scrollWidth > el.clientWidth + 1)
+    }
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [name])
+
+  return (
+    <span
+      ref={ref}
+      className="min-w-0 flex-1 truncate"
+      title={truncated ? name : undefined}
+    >
+      {name}
+    </span>
+  )
+}
 
 function resolveOffset(node: Node, offset: number): number | null {
   if (node.nodeType === Node.TEXT_NODE) {
@@ -60,6 +99,14 @@ export function TranscriptPanel(): JSX.Element {
   const updateCoding = useAppStore((s) => s.updateCoding)
   const removeCoding = useAppStore((s) => s.removeCoding)
   const updateDocumentText = useAppStore((s) => s.updateDocumentText)
+  const documentNotes = useAppStore((s) => s.documentNotes)
+  const navigateNoteId = useAppStore((s) => s.navigateNoteId)
+  const clearNavigateNote = useAppStore((s) => s.clearNavigateNote)
+  const locateCodingId = useAppStore((s) => s.locateCodingId)
+  const locateSeq = useAppStore((s) => s.locateSeq)
+  const createNote = useAppStore((s) => s.createNote)
+  const openNoteEditor = useAppStore((s) => s.openNoteEditor)
+  const zoom = useZoomStore((s) => s.zoom)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
@@ -69,6 +116,24 @@ export function TranscriptPanel(): JSX.Element {
   const [bars, setBars] = useState<Bar[]>([])
   const [columnCount, setColumnCount] = useState(1)
   const columnFloorRef = useRef(1)
+  const [laneWidth, setLaneWidth] = useState<number | null>(() => {
+    try {
+      const stored = Number(localStorage.getItem(BAR_LANE_KEY))
+      return Number.isFinite(stored) &&
+        stored >= BAR_LANE_MIN &&
+        stored <= BAR_LANE_MAX
+        ? stored
+        : null
+    } catch {
+      return null
+    }
+  })
+  const [laneResizing, setLaneResizing] = useState(false)
+  const laneResizeRef = useRef<{ startX: number; startWidth: number } | null>(
+    null
+  )
+  const laneWidthRef = useRef<number | null>(laneWidth)
+  laneWidthRef.current = laneWidth
   const [hoverCoding, setHoverCoding] = useState<number | null>(null)
   const [selectedCodingId, setSelectedCodingId] = useState<number | null>(null)
   const [dragging, setDragging] = useState<{ codingId: number; end: 'start' | 'end' } | null>(null)
@@ -76,6 +141,9 @@ export function TranscriptPanel(): JSX.Element {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
+  const [flashNoteId, setFlashNoteId] = useState<number | null>(null)
+  // Ocorrência localizada vinda do painel de trechos: pisca como a nota.
+  const [flashCodingId, setFlashCodingId] = useState<number | null>(null)
   const [editTip, setEditTip] = useState<{
     x: number
     y: number
@@ -92,6 +160,58 @@ export function TranscriptPanel(): JSX.Element {
     obs.observe(document.documentElement, { attributeFilter: ['class'] })
     return () => obs.disconnect()
   }, [])
+
+  // Arrasto do divisor: a faixa fica à direita, então mover o mouse para a
+  // esquerda alarga (startX - clientX positivo) e para a direita estreita.
+  // O overlay é pointer-events-none (para não quebrar o duplo clique), então
+  // a seleção de texto durante o arrasto é bloqueada via body.
+  useEffect(() => {
+    if (!laneResizing) return
+    const prevUserSelect = document.body.style.userSelect
+    const prevCursor = document.body.style.cursor
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'col-resize'
+    const onMove = (e: MouseEvent): void => {
+      const start = laneResizeRef.current
+      if (!start) return
+      const next = Math.min(
+        BAR_LANE_MAX,
+        Math.max(BAR_LANE_MIN, start.startWidth + (start.startX - e.clientX))
+      )
+      setLaneWidth(next)
+    }
+    const stop = (): void => {
+      setLaneResizing(false)
+      laneResizeRef.current = null
+      const finalWidth = laneWidthRef.current
+      try {
+        if (finalWidth != null)
+          localStorage.setItem(BAR_LANE_KEY, String(Math.round(finalWidth)))
+      } catch {
+        // armazenamento indisponível: só não persiste
+      }
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', stop)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', stop)
+      document.body.style.userSelect = prevUserSelect
+      document.body.style.cursor = prevCursor
+    }
+  }, [laneResizing])
+
+  // Largura efetiva: automática até o usuário arrastar; depois acompanha o
+  // arrasto, mas nunca abaixo do mínimo que as colunas precisam para continuar
+  // legíveis. As etiquetas dividem o espaço igualmente e truncam o nome.
+  const autoLaneWidth = Math.max(180, columnCount * BAR_LANE_AUTO_BASE + 16)
+  const minNeededLaneWidth =
+    columnCount * (BAR_MIN_WIDTH + BAR_GAP) + BAR_LANE_PAD
+  const effectiveLaneWidth =
+    laneWidth == null
+      ? autoLaneWidth
+      : Math.max(BAR_LANE_MIN, laneWidth, minNeededLaneWidth)
+  const barSlot = (effectiveLaneWidth - BAR_LANE_PAD) / Math.max(1, columnCount)
 
   const alpha = isDark
     ? { bg: '40', bgHover: '60', bar: 'bb' }
@@ -142,6 +262,46 @@ export function TranscriptPanel(): JSX.Element {
 
   const text = currentDocument?.plainText ?? ''
 
+  // Âncoras de notas de trecho: sublinhado pontilhado discreto, sem ocupar
+  // a margem direita (que pertence às etiquetas dos códigos).
+  const noteAnchors = useMemo(
+    () =>
+      documentNotes
+        .filter(
+          (n): n is typeof n & { startPos: number; endPos: number } =>
+            n.scope === 'excerpt' &&
+            n.anchorStatus === 'attached' &&
+            n.startPos != null &&
+            n.endPos != null
+        )
+        .map((n) => ({ id: n.id, start: n.startPos, end: n.endPos })),
+    [documentNotes]
+  )
+
+  useEffect(() => {
+    if (navigateNoteId == null) return
+    const note = documentNotes.find((n) => n.id === navigateNoteId)
+    if (note?.scope !== 'excerpt' || note.startPos == null || !textRef.current) {
+      clearNavigateNote()
+      return
+    }
+    const spans = Array.from(
+      textRef.current.querySelectorAll<HTMLElement>('[data-pos]')
+    )
+    let target: HTMLElement | null = null
+    for (const el of spans) {
+      const pos = Number(el.getAttribute('data-pos'))
+      if (Number.isNaN(pos)) continue
+      if (pos <= note.startPos) target = el
+      else break
+    }
+    target?.scrollIntoView({ block: 'center' })
+    setFlashNoteId(note.id)
+    clearNavigateNote()
+    const timer = setTimeout(() => setFlashNoteId(null), 2500)
+    return () => clearTimeout(timer)
+  }, [navigateNoteId, documentNotes, clearNavigateNote])
+
   const previewCodings = useMemo(() => {
     if (!dragging || dragPreviewPos == null) return codings
     return codings.map((c) => {
@@ -168,15 +328,46 @@ export function TranscriptPanel(): JSX.Element {
     () => markPendingSelection(dragging ? previewSegments : segments, pending),
     [dragging, previewSegments, segments, pending]
   )
+  // Divide os segmentos nas fronteiras das notas para que o sublinhado
+  // cubra exatamente a seleção anotada, não o parágrafo inteiro.
+  const noteSegments = useMemo(
+    () => markNoteAnchors(displaySegments, noteAnchors),
+    [displaySegments, noteAnchors]
+  )
   const quoteCount = codings.length
   const codesUsedInDoc = useMemo(
     () => new Set(codings.map((c) => c.codeId)).size,
     [codings]
   )
   const lineRows = useMemo(
-    () => buildLineRows(text, displaySegments),
-    [text, displaySegments]
+    () => buildLineRows(text, noteSegments),
+    [text, noteSegments]
   )
+
+  // "Localizar ocorrências" do painel de códigos: rola o texto até o início
+  // da citação e pisca o trecho inteiro. O store garante que o documento da
+  // ocorrência já está aberto quando este efeito roda.
+  // Depende de locateSeq, e não de locateCodingId: localizar a mesma
+  // ocorrência de novo (F3 dando a volta) precisa rolar de novo, e o id
+  // guardando a posição não pode ser limpo aqui — é dele que o painel de
+  // trechos tira o contador "2 de 7".
+  useEffect(() => {
+    if (locateCodingId == null) return
+    const coding = codings.find((c) => c.id === locateCodingId)
+    if (!coding || !textRef.current) return
+    const anchor = resolveAnchorPos(coding.startPos, anchorPositions(lineRows))
+    const el =
+      anchor === null
+        ? null
+        : (textRef.current.querySelector(
+            `[data-pos="${anchor}"]`
+          ) as HTMLElement | null)
+    el?.scrollIntoView({ block: 'center' })
+    setFlashCodingId(coding.id)
+    const timer = setTimeout(() => setFlashCodingId(null), 2500)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locateSeq])
 
   const draftSegments = useMemo(() => {
     const previewCodings = applyCodingAdjustments(codings, text, draft)
@@ -211,7 +402,9 @@ export function TranscriptPanel(): JSX.Element {
     setEditTip(null)
   }
 
-  useEffect(() => {
+  // Reinicia antes do efeito de medição para não reter as colunas do documento
+  // anterior, inclusive quando o próximo tem o mesmo texto ou nenhuma citação.
+  useLayoutEffect(() => {
     columnFloorRef.current = 1
     setColumnCount(1)
   }, [currentDocument?.id])
@@ -243,7 +436,7 @@ export function TranscriptPanel(): JSX.Element {
           top
         }
       })
-      .filter((b): b is Omit<Bar, 'column'> => b !== null)
+      .filter((b): b is Omit<Bar, 'column' | 'columnSpan'> => b !== null)
 
     const layout = packBarColumns(raw, columnFloorRef.current)
     columnFloorRef.current = layout.columnCount
@@ -267,7 +460,7 @@ export function TranscriptPanel(): JSX.Element {
     // posicoes medidas ficam obsoletas e as etiquetas descem junto com o erro.
     ro.observe(textEl)
     return () => ro.disconnect()
-  }, [measure, text])
+  }, [measure, text, zoom, currentDocument?.id])
 
   const handleMouseUp = (): void => {
     if (dragging) return
@@ -291,6 +484,19 @@ export function TranscriptPanel(): JSX.Element {
     await addCoding(codeId, pending.start, pending.end)
     setPending(null)
     window.getSelection()?.removeAllRanges()
+  }
+
+  const addNoteForPending = async (): Promise<void> => {
+    if (!pending || !currentDocument) return
+    const note = await createNote({
+      scope: 'excerpt',
+      documentId: currentDocument.id,
+      startPos: pending.start,
+      endPos: pending.end
+    })
+    setPending(null)
+    window.getSelection()?.removeAllRanges()
+    openNoteEditor(note.id)
   }
 
   const startEditing = (): void => {
@@ -373,7 +579,12 @@ export function TranscriptPanel(): JSX.Element {
             <div
               ref={backdropRef}
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-sm leading-7"
+              className="pointer-events-none absolute inset-0 overflow-auto whitespace-pre-wrap break-words p-3 font-mono"
+              style={{
+                fontSize: `calc(0.875rem * ${zoom})`,
+                lineHeight: `calc(1.75rem * ${zoom})`,
+                fontFamily: 'var(--transcript-font)'
+              }}
             >
               {draftSegments.map((seg) => {
                 const segText = draft.slice(seg.start, seg.end)
@@ -414,8 +625,13 @@ export function TranscriptPanel(): JSX.Element {
               onChange={(e) => setDraft(e.target.value)}
               onScroll={syncScroll}
               spellCheck={false}
-              className="absolute inset-0 resize-none overflow-auto whitespace-pre-wrap break-words bg-transparent p-3 font-mono text-sm leading-7 text-transparent caret-foreground outline-none"
-              style={{ color: 'transparent' }}
+              className="absolute inset-0 resize-none overflow-auto whitespace-pre-wrap break-words bg-transparent p-3 font-mono text-transparent caret-foreground outline-none"
+              style={{
+                color: 'transparent',
+                fontSize: `calc(0.875rem * ${zoom})`,
+                lineHeight: `calc(1.75rem * ${zoom})`,
+                fontFamily: 'var(--transcript-font)'
+              }}
             />
             {editTip && (
               <div
@@ -438,7 +654,12 @@ export function TranscriptPanel(): JSX.Element {
           <div
             ref={textRef}
             onMouseUp={handleMouseUp}
-            className="transcript flex-1 py-5 text-[15px] leading-7"
+            className="transcript flex-1 py-5"
+            style={{
+              fontSize: `calc(15px * ${zoom})`,
+              lineHeight: `calc(1.75rem * ${zoom})`,
+              fontFamily: 'var(--transcript-font)'
+            }}
           >
             {segments.length === 0 ? (
               <div className="flex">
@@ -449,7 +670,10 @@ export function TranscriptPanel(): JSX.Element {
               lineRows.map((row) => {
                 return (
                   <div key={row.index} className="flex">
-                    <div className="w-12 shrink-0 select-none pr-3 text-right text-xs leading-7 text-muted-foreground/40">
+                    <div
+                      className="w-12 shrink-0 select-none pr-3 text-right text-xs text-muted-foreground/40"
+                      style={{ lineHeight: `calc(1.75rem * ${zoom})` }}
+                    >
                       {row.index + 1}
                     </div>
                     <div className="flex-1 whitespace-pre-wrap break-words pr-6">
@@ -463,11 +687,26 @@ export function TranscriptPanel(): JSX.Element {
                           const segEnd = seg.end
                           const segText = seg.text
                           if (seg.codingIds.length === 0) {
+                            const hasNote = seg.noteIds.length > 0
+                            const isFlash =
+                              flashNoteId != null && seg.noteIds.includes(flashNoteId)
                             return (
                               <span
                                 key={`${segStart}-${seg.isPending}`}
                                 data-pos={segStart}
                                 className={seg.isPending ? 'pending-selection' : undefined}
+                                title={hasNote ? 'Trecho com nota' : undefined}
+                                style={
+                                  hasNote
+                                    ? {
+                                        textDecoration: 'underline dotted',
+                                        textUnderlineOffset: 3,
+                                        backgroundColor: isFlash
+                                          ? 'rgba(250, 204, 21, 0.35)'
+                                          : undefined
+                                      }
+                                    : undefined
+                                }
                               >
                                 {segText}
                               </span>
@@ -481,6 +720,10 @@ export function TranscriptPanel(): JSX.Element {
                             : '#888'
                           const isHover = seg.codingIds.includes(hoverCoding ?? -1)
                           const isSelected = seg.codingIds.includes(selectedCodingId ?? -1)
+                          const hasNote = seg.noteIds.length > 0
+                          const isFlash =
+                            (flashNoteId != null && seg.noteIds.includes(flashNoteId)) ||
+                            (flashCodingId != null && seg.codingIds.includes(flashCodingId))
                           const selCoding = isSelected
                             ? codings.find((c) => c.id === selectedCodingId)
                             : null
@@ -503,18 +746,27 @@ export function TranscriptPanel(): JSX.Element {
                               key={`${segStart}-${seg.isPending}`}
                               data-pos={segStart}
                               className={seg.isPending ? 'pending-selection-coded' : undefined}
-                              title={seg.codingIds
-                                .map((id) => {
-                                  const cd = codings.find((c) => c.id === id)
-                                  return cd ? codeMap.get(cd.codeId)?.name : ''
-                                })
+                              title={[
+                                seg.codingIds
+                                  .map((id) => {
+                                    const cd = codings.find((c) => c.id === id)
+                                    return cd ? codeMap.get(cd.codeId)?.name : ''
+                                  })
+                                  .filter(Boolean)
+                                  .join(', '),
+                                hasNote ? 'tem nota' : ''
+                              ]
                                 .filter(Boolean)
-                                .join(', ')}
+                                .join(' · ')}
                               style={{
-                                backgroundColor: `${topColor}${isHover || isSelected ? alpha.bgHover : alpha.bg}`,
+                                backgroundColor: isFlash
+                                  ? 'rgba(250, 204, 21, 0.35)'
+                                  : `${topColor}${isHover || isSelected ? alpha.bgHover : alpha.bg}`,
                                 boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}${isSelected ? `, 0 0 0 1px ${topColor}66` : ''}`,
                                 borderRadius: 2,
                                 cursor: 'pointer',
+                                textDecoration: hasNote ? 'underline dotted' : undefined,
+                                textUnderlineOffset: hasNote ? 3 : undefined,
                               }}
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -557,8 +809,31 @@ export function TranscriptPanel(): JSX.Element {
           </div>
 
           <div
+            onMouseDown={(e) => {
+              if (e.button !== 0) return
+              e.preventDefault()
+              laneResizeRef.current = {
+                startX: e.clientX,
+                startWidth: effectiveLaneWidth
+              }
+              setLaneResizing(true)
+            }}
+            onDoubleClick={() => {
+              setLaneWidth(null)
+              try {
+                localStorage.removeItem(BAR_LANE_KEY)
+              } catch {
+                // armazenamento indisponível: só não persiste
+              }
+            }}
+            title="Arraste para redimensionar a faixa de códigos (duplo clique restaura)"
+            className={`w-1.5 shrink-0 cursor-col-resize self-stretch hover:bg-primary/20 ${
+              laneResizing ? 'bg-primary/30' : ''
+            }`}
+          />
+          <div
             className="relative shrink-0 border-l bg-muted/30"
-            style={{ width: Math.max(180, columnCount * 150 + 16) }}
+            style={{ width: effectiveLaneWidth }}
           >
             {bars.map((bar) => (
               <div
@@ -569,17 +844,17 @@ export function TranscriptPanel(): JSX.Element {
                 className="group absolute flex h-[22px] cursor-pointer items-center gap-1 rounded px-1.5 text-xs"
                 style={{
                   top: bar.top,
-                  left: 8 + bar.column * 150,
-                  width: 142,
+                  left: BAR_LANE_PAD / 2 + bar.column * barSlot,
+                  width: Math.max(BAR_MIN_WIDTH, barSlot * bar.columnSpan - BAR_GAP),
                   backgroundColor: bar.color,
                   color: contrastText(bar.color),
                   outline: selectedCodingId === bar.codingId ? `2px solid ${bar.color}` : undefined,
                   outlineOffset: 2,
                 }}
               >
-                <span className="truncate">{bar.name}</span>
+                <BarName name={bar.name} />
                 <button
-                  className="ml-auto opacity-0 group-hover:opacity-100"
+                  className="ml-auto shrink-0 opacity-0 group-hover:opacity-100"
                   title="Remover citação"
                   onClick={() => removeCoding(bar.codingId)}
                 >
@@ -591,6 +866,9 @@ export function TranscriptPanel(): JSX.Element {
           </div>
         </div>
       )}
+      {laneResizing && (
+        <div className="pointer-events-none fixed inset-0 z-50 cursor-col-resize" />
+      )}
 
       {pending && (
         <CodingPopover
@@ -598,6 +876,7 @@ export function TranscriptPanel(): JSX.Element {
           y={pending.y}
           onClose={() => setPending(null)}
           onApply={applyCode}
+          onAddNote={() => void addNoteForPending()}
         />
       )}
     </div>
