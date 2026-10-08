@@ -133,3 +133,36 @@ describe.skipIf(!nativeOk)('religar nota que voltou como nota de documento', () 
     expect(depois.scope).toBe('project')
   })
 })
+
+// Desvincular gravava só o status e o trecho original, deixando as posições
+// apontando para um texto que não existe mais. O importador já zerava; os dois
+// caminhos discordavam, e só a ordem das verificações na interface impedia
+// alguém de ler aquilo como se fosse um trecho válido.
+describe.skipIf(!nativeOk)('posições de uma nota desvinculada', () => {
+  let db: typeof import('../src/main/db')
+  let repos: typeof import('../src/main/db/repositories')
+
+  beforeEach(async () => {
+    db = await import('../src/main/db')
+    repos = await import('../src/main/db/repositories')
+    db.openDatabase(':memory:')
+  })
+
+  it('são zeradas junto com o desvínculo', () => {
+    const doc = repos.createDocument({
+      name: 'Entrevista',
+      plainText: 'abcdefghij',
+      originalFormat: 'txt',
+      sourceFilename: 'e.txt'
+    })
+    repos.createNote({ scope: 'excerpt', documentId: doc.id, startPos: 2, endPos: 5, body: 'x' })
+
+    repos.updateDocumentText(doc.id, 'abcdij')
+
+    const nota = repos.listNotesByDocument(doc.id)[0]
+    expect(nota.anchorStatus).toBe('detached')
+    expect(nota.startPos).toBeNull()
+    expect(nota.endPos).toBeNull()
+    expect(nota.anchorText).toBe('cde')
+  })
+})

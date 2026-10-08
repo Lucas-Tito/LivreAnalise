@@ -13,6 +13,7 @@ import {
 import { useAppStore } from '@/stores/appStore'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { mensagemDeErro } from '@/lib/erros'
 import { aposSalvar, mesmoConteudo } from '@/lib/noteAutosave'
 import type { Note } from '@shared/types'
 
@@ -84,6 +85,7 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
   const [title, setTitle] = useState(note.title ?? '')
   const [body, setBody] = useState(note.body)
   const [status, setStatus] = useState<SaveStatus>('saved')
+  const [erro, setErro] = useState<string | null>(null)
   const stateRef = useRef({ title: note.title ?? '', body: note.body })
   const savedRef = useRef({ title: note.title ?? '', body: note.body })
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -182,7 +184,14 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
   const handleDelete = async (): Promise<void> => {
     if (!window.confirm('Apagar esta nota? O conteúdo será perdido.')) return
     if (timerRef.current) clearTimeout(timerRef.current)
-    await deleteNote(note.id)
+    try {
+      await deleteNote(note.id)
+    } catch (e) {
+      // sem isto o clique nao fazia nada depois de voce ja ter confirmado, e o
+      // editor fechava do mesmo jeito como se tivesse apagado
+      setErro(mensagemDeErro(e, 'Não foi possível apagar a nota.'))
+      return
+    }
     onBack()
   }
 
@@ -209,10 +218,15 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
           {status === 'dirty' && 'Alterações não salvas'}
           {status === 'error' && 'Erro ao salvar — tente Ctrl+S'}
         </span>
-        <Button size="sm" variant="ghost" onClick={handleDelete} title="Apagar nota">
+        <Button size="sm" variant="ghost" onClick={() => void handleDelete()} title="Apagar nota">
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
+      {erro && (
+        <p className="border-b bg-destructive/10 px-3 py-1.5 text-[11px] text-destructive">
+          {erro}
+        </p>
+      )}
       <div className="min-h-0 flex-1 overflow-auto p-3">
         {(isExcerpt || note.scope === 'document') && (
           <div className="mb-2 rounded-md border bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground">
@@ -270,6 +284,7 @@ export function NotesPanel(): JSX.Element {
   const openNoteEditor = useAppStore((s) => s.openNoteEditor)
   const toggleNotesPanel = useAppStore((s) => s.toggleNotesPanel)
   const createNote = useAppStore((s) => s.createNote)
+  const [erroLista, setErroLista] = useState<string | null>(null)
 
   const [filter, setFilter] = useState('')
 
@@ -305,12 +320,17 @@ export function NotesPanel(): JSX.Element {
   }
 
   const handleCreate = async (scope: 'document' | 'project'): Promise<void> => {
-    const note = await createNote(
-      scope === 'document' && currentDocument
-        ? { scope, documentId: currentDocument.id }
-        : { scope: 'project' }
-    )
-    openNoteEditor(note.id)
+    try {
+      const note = await createNote(
+        scope === 'document' && currentDocument
+          ? { scope, documentId: currentDocument.id }
+          : { scope: 'project' }
+      )
+      openNoteEditor(note.id)
+    } catch (e) {
+      // antes a falha virava rejeicao sem dono: o botao simplesmente nao fazia nada
+      setErroLista(mensagemDeErro(e, 'Não foi possível criar a nota.'))
+    }
   }
 
   return (
@@ -331,6 +351,11 @@ export function NotesPanel(): JSX.Element {
           <X className="h-4 w-4" />
         </Button>
       </div>
+      {erroLista && (
+        <p className="border-b bg-destructive/10 px-3 py-1.5 text-[11px] text-destructive">
+          {erroLista}
+        </p>
+      )}
 
       {editingNote ? (
         <NoteEditor note={editingNote} onBack={() => openNoteEditor(null)} />

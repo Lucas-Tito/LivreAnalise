@@ -228,7 +228,13 @@ export function updateDocumentText(id: number, newText: string): void {
       tx.update(notes)
         .set({
           anchorStatus: 'detached',
-          anchorText: detachedSnapshots.get(noteId) ?? null
+          anchorText: detachedSnapshots.get(noteId) ?? null,
+          // Zera junto, igual o importador faz. Manter as posicoes antigas
+          // deixava a nota apontando para um trecho que o texto nao tem mais, e
+          // so a ordem das verificacoes na interface impedia alguem de ler isso
+          // como se fosse valido.
+          startPos: null,
+          endPos: null
         })
         .where(eq(notes.id, noteId))
         .run()

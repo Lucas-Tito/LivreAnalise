@@ -123,18 +123,38 @@ function notesForDocument(
   return (notesByDocument as Record<number, Note[]>)[documentId] ?? []
 }
 
+const NOTA_MAX = 2000
+
+/**
+ * O export ensina a IA a ler a estrutura ("## Documento:", «trecho» [CODIGO]).
+ * Uma nota que contenha esse padrao forja a estrutura e desloca tudo que vem
+ * depois para o documento errado -- e nao precisa de ma fe: basta o pesquisador
+ * ter escrito um memo sobre a propria ferramenta.
+ */
+export function sanearNota(texto: string): string {
+  const cortado =
+    texto.length > NOTA_MAX ? `${texto.slice(0, NOTA_MAX)}… (nota truncada)` : texto
+  return cortado
+    // cabecalho no comeco de linha e o que define secao no arquivo
+    .replace(/^(\s*)(#{1,6})(\s)/gm, '$1\u200b$2$3')
+    // as aspas angulares delimitam trecho codificado
+    .replace(/[«»]/g, '"')
+    .replace(/\r?\n/g, ' ')
+}
+
 function linhaDaNota(nota: Note, texto: string | null): string {
-  const titulo = nota.title ? `${nota.title} — ` : ''
+  const titulo = nota.title ? `${sanearNota(nota.title)} — ` : ''
+  const corpo = sanearNota(nota.body)
   if (nota.scope === 'excerpt' && nota.anchorStatus === 'attached' && nota.startPos != null && nota.endPos != null && texto != null) {
     const trecho = texto.slice(nota.startPos, nota.endPos)
-    return `- [trecho ${nota.startPos}–${nota.endPos} «${trecho}»] ${titulo}${nota.body}`
+    return `- [trecho ${nota.startPos}–${nota.endPos} «${trecho}»] ${titulo}${corpo}`
   }
   if (nota.scope === 'excerpt' && nota.anchorStatus === 'detached') {
     const original = nota.anchorText ? ` (âncora perdida, texto original: «${nota.anchorText}»)` : ' (âncora perdida)'
-    return `- [trecho desvinculado] ${titulo}${nota.body}${original}`
+    return `- [trecho desvinculado] ${titulo}${corpo}${original}`
   }
-  if (nota.scope === 'document') return `- [documento] ${titulo}${nota.body}`
-  return `- ${titulo}${nota.body}`
+  if (nota.scope === 'document') return `- [documento] ${titulo}${corpo}`
+  return `- ${titulo}${corpo}`
 }
 
 // Notas como comentário do pesquisador: marcadas, por documento + globais.
