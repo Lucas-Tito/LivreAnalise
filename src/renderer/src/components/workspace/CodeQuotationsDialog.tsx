@@ -133,30 +133,41 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
             </div>
           )}
 
-          {/* o title fica no label, nao no input: label nao desabilita, entao a
-              explicacao continua aparecendo no hover quando nao ha documento */}
-          <label
-            title={
-              currentDocument
-                ? undefined
-                : 'Abra um documento para filtrar os trechos.'
-            }
-            className={cn(
-              'flex shrink-0 items-center gap-2 rounded-md border px-2 py-1 text-[13px] text-muted-foreground transition-colors',
-              currentDocument
-                ? 'cursor-pointer hover:bg-accent/50'
-                : 'cursor-not-allowed opacity-50'
-            )}
-          >
-            <input
-              type="checkbox"
+          {/* Escopo como par de opções, não checkbox: as duas alternativas ficam
+              visíveis e nomeadas, em vez de uma caixa cujo estado desmarcado a
+              pessoa tem de deduzir. */}
+          <div className="flex shrink-0 items-center gap-0.5 rounded-md border p-0.5 text-xs">
+            <button
               disabled={!currentDocument}
-              checked={filtrando}
-              onChange={(e) => setSomenteDocumento(e.target.checked)}
-              className="h-3.5 w-3.5 accent-primary"
-            />
-            Neste documento
-          </label>
+              title={
+                currentDocument
+                  ? 'Limitar as ocorrências ao documento aberto.'
+                  : 'Abra um documento para filtrar os trechos.'
+              }
+              onClick={() => setSomenteDocumento(true)}
+              className={cn(
+                'rounded px-2 py-1 transition-colors',
+                filtrando
+                  ? 'bg-accent font-medium text-foreground'
+                  : 'text-muted-foreground hover:bg-accent/50',
+                !currentDocument && 'cursor-not-allowed opacity-50'
+              )}
+            >
+              Neste documento
+            </button>
+            <button
+              title="Percorrer as ocorrências em todos os documentos."
+              onClick={() => setSomenteDocumento(false)}
+              className={cn(
+                'rounded px-2 py-1 transition-colors',
+                !filtrando
+                  ? 'bg-accent font-medium text-foreground'
+                  : 'text-muted-foreground hover:bg-accent/50'
+              )}
+            >
+              No projeto todo
+            </button>
+          </div>
         </div>
 
         {aviso && (

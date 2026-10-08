@@ -89,6 +89,22 @@ export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
                 </li>
               ))}
             </ul>
+
+            {/* Amostra com a fonte escolhida: ver a letra é o que decide a
+                escolha, e comparar três nomes não diz nada. Usa a mesma
+                variável CSS que a transcrição (`--transcript-font`) e o texto
+                traz justamente os pares que a OpenDyslexic existe para
+                desambiguar — b/d, p/q — e os acentos do português. */}
+            <div
+              className="rounded-md border bg-muted/30 p-3 text-sm leading-7"
+              style={{ fontFamily: 'var(--transcript-font)' }}
+            >
+              <p>
+                Depois do prazo, abdicou da dúvida: pôs à prova quem bebia pouco e
+                dizia que já pagou.
+              </p>
+              <p className="mt-1 text-muted-foreground">bd pq 1l0O — áàâãéêíóôõúç</p>
+            </div>
           </section>
 
           {/* O tamanho não entra aqui: ele é por documento e muda enquanto se lê,
