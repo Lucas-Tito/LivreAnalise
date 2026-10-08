@@ -94,9 +94,14 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
                   Créditos
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-64">
+              <PopoverContent align="end" className="w-72">
                 <p className="text-xs text-muted-foreground">Feito por</p>
                 <p className="mt-0.5 font-medium">Lucas Tito</p>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Agradecimento especial
+                </p>
+                <p className="mt-0.5 text-sm">Tiago Tito</p>
+                <p className="text-sm">Graziella Rodrigues</p>
                 {/* o setWindowOpenHandler do main manda target=_blank para o
                     navegador do sistema; sem isso a janela do app navegaria
                     para o LinkedIn e não teria como voltar */}
