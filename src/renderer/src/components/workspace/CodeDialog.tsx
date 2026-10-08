@@ -24,7 +24,9 @@ interface Props {
   title: string
   initial?: Partial<CodeDialogValue>
   existing?: CodeWithCount | null
-  onSubmit: (value: CodeDialogValue) => void
+  // Devolve se deu certo: em caso de erro o dialogo fica aberto para a
+  // pessoa corrigir em vez de fechar engolindo o que ela digitou.
+  onSubmit: (value: CodeDialogValue) => Promise<boolean>
 }
 
 export function CodeDialog({
@@ -46,10 +48,17 @@ export function CodeDialog({
     }
   }, [open, initial])
 
-  const submit = (): void => {
-    if (!name.trim()) return
-    onSubmit({ name: name.trim(), color, description: description.trim() })
-    onOpenChange(false)
+  const [enviando, setEnviando] = useState(false)
+
+  const submit = async (): Promise<void> => {
+    if (!name.trim() || enviando) return
+    setEnviando(true)
+    try {
+      const ok = await onSubmit({ name: name.trim(), color, description: description.trim() })
+      if (ok) onOpenChange(false)
+    } finally {
+      setEnviando(false)
+    }
   }
 
   return (
@@ -65,7 +74,7 @@ export function CodeDialog({
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && submit()}
+              onKeyDown={(e) => { if (e.key === 'Enter') void submit() }}
               placeholder="Nome do código"
             />
           </div>
@@ -98,7 +107,7 @@ export function CodeDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={submit}>Salvar</Button>
+          <Button onClick={() => void submit()} disabled={enviando}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

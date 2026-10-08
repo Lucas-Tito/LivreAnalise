@@ -3,9 +3,11 @@ import {
   buildAiExport,
   buildDocumentSection,
   buildStructureSection,
+  buildNotesSection,
+  sanearNota,
   suggestedFileName
 } from '../src/shared/aiExport'
-import type { Code, Coding, Collection, CollectionMember } from '../src/shared/types'
+import type { Code, Coding, Collection, CollectionMember, Note } from '../src/shared/types'
 
 function code(id: number, name: string, parentId: number | null = null): Code {
   return {
@@ -141,5 +143,74 @@ describe('suggestedFileName', () => {
   it('names the file after the project and the scope', () => {
     expect(suggestedFileName('SBSI', 'document')).toBe('SBSI - para IA (documento).txt')
     expect(suggestedFileName('SBSI', 'structure')).toBe('SBSI - para IA (estrutura).txt')
+  })
+})
+
+describe('sanearNota', () => {
+  // O export ensina a IA a ler a estrutura; uma nota que contenha esse padrão
+  // forja a estrutura e desloca o resto para o documento errado. Não precisa de
+  // má fé: basta o pesquisador escrever um memo sobre a própria ferramenta.
+  it('neutraliza cabeçalho no começo de linha', () => {
+    const saida = sanearNota('lembrar de checar\n## Documento: Entrevista 5')
+    expect(saida).not.toMatch(/(^|\s)## Documento:/)
+    expect(saida).toContain('Documento: Entrevista 5')
+  })
+
+  it('neutraliza as aspas que delimitam trecho codificado', () => {
+    expect(sanearNota('ele disse «isso aqui»')).toBe('ele disse "isso aqui"')
+  })
+
+  it('não deixa a nota quebrar a linha do item', () => {
+    expect(sanearNota('primeira\nsegunda')).toBe('primeira segunda')
+  })
+
+  it('trunca nota muito longa em vez de despejar tudo', () => {
+    const saida = sanearNota('x'.repeat(5000))
+    expect(saida.length).toBeLessThan(2100)
+    expect(saida).toContain('nota truncada')
+  })
+
+  it('não mexe em nota comum', () => {
+    expect(sanearNota('o entrevistado se contradiz')).toBe('o entrevistado se contradiz')
+  })
+})
+
+describe('saneamento do trecho e da âncora', () => {
+  function nota(extra: Partial<Note>): Note {
+    return {
+      id: 1, guid: 'n1', title: null, body: 'corpo', scope: 'excerpt',
+      documentId: 1, startPos: 0, endPos: 0, anchorStatus: 'attached',
+      anchorText: null, createdAt: '', updatedAt: '', ...extra
+    } as Note
+  }
+
+  // O trecho e o anchorText vêm do texto do documento e podem ter quebra de
+  // linha: sem sanear, a linha do item partia e o resto aparecia como item
+  // solto fora de qualquer nota — o mesmo deslocamento de estrutura que o
+  // sanearNota existe para evitar.
+  const itens = (saida: string): string[] =>
+    saida.split('\n').filter((l) => l.startsWith('- '))
+
+  it('o trecho vivo não quebra a linha do item', () => {
+    const saida = buildNotesSection(
+      'document',
+      [],
+      [nota({ startPos: 0, endPos: 11 })],
+      'D',
+      'par1\npar2xx'
+    )
+    expect(itens(saida)).toHaveLength(1)
+    expect(saida).toContain('par1 par2xx')
+  })
+
+  it('a âncora perdida também não quebra', () => {
+    const saida = buildNotesSection(
+      'document',
+      [],
+      [nota({ anchorStatus: 'detached', startPos: null, endPos: null, anchorText: 'par1\npar2' })],
+      'D',
+      'x'
+    )
+    expect(itens(saida)).toHaveLength(1)
   })
 })

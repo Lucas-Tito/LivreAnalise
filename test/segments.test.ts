@@ -5,7 +5,8 @@ import {
   computeSegments,
   markNoteAnchors,
   markPendingSelection,
-  resolveAnchorPos
+  resolveAnchorPos,
+  markSearchHits
 } from '../src/shared/segments'
 import type { DisplaySegment } from '../src/shared/segments'
 import type { Coding } from '../src/shared/types'
@@ -213,5 +214,44 @@ describe('margin label anchors (issue #22)', () => {
     for (const c of list) {
       expect(resolveAnchorPos(c.startPos, anchors)).not.toBeNull()
     }
+  })
+})
+
+describe('markSearchHits', () => {
+  const base = [
+    { start: 0, end: 10, codingIds: [], isPending: false, noteIds: [] },
+    { start: 10, end: 20, codingIds: [7], isPending: false, noteIds: [] }
+  ]
+
+  it('devolve o mesmo array quando não há busca', () => {
+    expect(markSearchHits(base, [])).toBe(base)
+  })
+
+  it('quebra o segmento no limite da ocorrência', () => {
+    const r = markSearchHits(base, [{ id: 0, start: 3, end: 6 }])
+    expect(r.map((s) => [s.start, s.end, s.hitIds ?? []])).toEqual([
+      [0, 3, []],
+      [3, 6, [0]],
+      [6, 10, []],
+      // segmento sem ocorrência passa intacto
+      [10, 20, []]
+    ])
+  })
+
+  // O destaque da busca tem de conviver com a cor da codificação: quebrar não
+  // pode perder o vínculo do pedaço com o código que o cobre.
+  it('preserva o código do segmento ao quebrar', () => {
+    const r = markSearchHits(base, [{ id: 0, start: 12, end: 15 }])
+    const achado = r.find((s) => s.start === 12)
+    expect(achado?.codingIds).toEqual([7])
+    expect(achado?.hitIds).toEqual([0])
+  })
+
+  it('aceita ocorrência atravessando dois segmentos', () => {
+    const r = markSearchHits(base, [{ id: 0, start: 8, end: 13 }])
+    expect(r.filter((s) => (s.hitIds?.length ?? 0) > 0).map((s) => [s.start, s.end])).toEqual([
+      [8, 10],
+      [10, 13]
+    ])
   })
 })

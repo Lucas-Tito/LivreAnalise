@@ -47,7 +47,7 @@ interface AppState {
 
   refreshDocuments: () => Promise<void>
   importDocuments: () => Promise<void>
-  selectDocument: (id: number) => Promise<void>
+  selectDocument: (id: number) => Promise<boolean>
   renameDocument: (id: number, name: string) => Promise<void>
   updateDocumentText: (id: number, text: string) => Promise<void>
   deleteDocument: (id: number) => Promise<void>
@@ -72,6 +72,7 @@ interface AppState {
   versions: ProjectVersion[]
   refreshVersions: () => Promise<void>
   createVersion: (label: string | null) => Promise<void>
+  deleteVersion: (id: string) => Promise<void>
   restoreVersion: (id: string) => Promise<void>
 
   refreshCollections: () => Promise<void>
@@ -100,7 +101,7 @@ interface AppState {
   // novo (F3 no fim da lista) volte a rolar, já que o id não muda.
   locateCodingId: number | null
   locateSeq: number
-  locateOccurrence: (coding: Coding) => Promise<void>
+  locateOccurrence: (coding: Coding) => Promise<boolean>
   editorNoteId: number | null
   openNoteEditor: (id: number | null) => void
   refreshNotes: () => Promise<void>
@@ -314,15 +315,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectDocument: async (id) => {
     await get().notesFlush?.()
     const doc = await window.api.documents.get(id)
-    const [codings, documentNotes] = doc
-      ? await Promise.all([
-          window.api.codings.listByDocument(doc.id),
-          window.api.notes.listByDocument(doc.id)
-        ])
-      : [[], []]
+    // Documento apagado: manter o que esta aberto. Publicar `null` aqui
+    // esvaziava a tela e fazia a pessoa perder o documento que estava lendo,
+    // por causa de um clique num item de lista desatualizada.
+    if (!doc) return false
+    const [codings, documentNotes] = await Promise.all([
+      window.api.codings.listByDocument(doc.id),
+      window.api.notes.listByDocument(doc.id)
+    ])
     // Publica tudo junto: medir o texto novo com as citações do documento
     // anterior pode criar colunas extras e deixar a faixa de códigos enorme.
     set({ currentDocument: doc, codings, documentNotes, navigateNoteId: null, editorNoteId: null })
+    return true
   },
 
   renameDocument: async (id, name) => {
@@ -348,12 +352,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteDocument: async (id) => {
+    // Descobre a nota aberta no editor ANTES de mexer no estado: depois do
+    // refresh ela sumiu da lista e nao da mais para saber de que documento era.
+    const editorId = get().editorNoteId
+    const editada = [...get().documentNotes, ...get().projectNotes].find((n) => n.id === editorId)
+
     await window.api.documents.delete(id)
     const current = get().currentDocument
     if (current && current.id === id) {
-      set({ currentDocument: null, codings: [] })
+      set({ currentDocument: null, codings: [], documentNotes: [] })
+    }
+    // O cascade do banco apaga as notas do documento, mas o store continuava
+    // com elas: o contador somava notas inexistentes, a lista mostrava notas
+    // fantasmas, e o editor podia ficar aberto sobre uma nota que ja nao existe.
+    if (editada && editada.documentId === id) {
+      set({ editorNoteId: null, navigateNoteId: null })
     }
     await get().refreshDocuments()
+    await get().refreshNotes()
     await get().refreshCodes()
     await get().refreshHistory()
   },
@@ -441,6 +457,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   createVersion: async (label) => {
     await get().notesFlush?.()
     await window.api.versions.create(label)
+    await get().refreshVersions()
+  },
+
+  deleteVersion: async (id) => {
+    await window.api.versions.delete(id)
     await get().refreshVersions()
   },
 
@@ -554,9 +575,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   locateOccurrence: async (coding) => {
     const doc = get().currentDocument
     if (!doc || doc.id !== coding.documentId) {
-      await get().selectDocument(coding.documentId)
+      // devolve false em vez de marcar um alvo que a transcricao nao vai achar:
+      // sem isto o clique nao rolava, nao piscava e nao dizia nada
+      if (!(await get().selectDocument(coding.documentId))) return false
     }
     set((s) => ({ locateCodingId: coding.id, locateSeq: s.locateSeq + 1 }))
+    return true
   },
 
   openNoteEditor: (id) => set({ editorNoteId: id, notesPanelOpen: true }),

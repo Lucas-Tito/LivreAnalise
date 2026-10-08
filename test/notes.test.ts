@@ -183,6 +183,10 @@ describe.skipIf(!nativeOk)('notas (memos)', () => {
 
     repos.deleteDocument(doc.id)
 
+    // o que o nome promete: as notas DO DOCUMENTO foram junto. Sem esta linha o
+    // teste passava com elas orfas no banco, e `PRAGMA foreign_keys` e por
+    // conexao -- exatamente o descuido que ele deveria travar.
+    expect(repos.listNotesByDocument(doc.id)).toHaveLength(0)
     expect(repos.listProjectNotes()).toHaveLength(1)
   })
 

@@ -95,6 +95,7 @@ const api: Api = {
     list: () => ipcRenderer.invoke(IPC.versions.list),
     create: (label) => ipcRenderer.invoke(IPC.versions.create, label),
     prune: () => ipcRenderer.invoke(IPC.versions.prune),
+    delete: (id: string) => ipcRenderer.invoke(IPC.versions.delete, id),
     restore: (id) => ipcRenderer.invoke(IPC.versions.restore, id),
     onChanged: (listener) => {
       const handler = (): void => listener()
@@ -103,6 +104,8 @@ const api: Api = {
     }
   },
   view: {
+    // o menu da janela precisa saber qual fonte esta ativa para marcar o radio
+    notifyFont: (font: string) => ipcRenderer.send(IPC.view.fontChanged, font),
     onAction: (listener) => {
       const handler = (_e: unknown, action: string): void => listener(action)
       ipcRenderer.on(IPC.view.zoomIn, handler)

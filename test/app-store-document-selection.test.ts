@@ -115,11 +115,18 @@ describe('document selection', () => {
     })
   })
 
-  it('clears the document, codings and notes together when the document no longer exists', async () => {
-    await useAppStore.getState().selectDocument(99)
+  // Antes este caso limpava a tela. A expectativa mudou de propósito: quem apaga
+  // um documento é o deleteDocument, e ele já limpa. Chegar aqui com um id morto
+  // significa clique em lista desatualizada (a de ocorrências, por exemplo), e
+  // nesse caso perder o documento que está aberto é dano colateral — o usuário
+  // não pediu para fechar nada. O ponto original do teste continua valendo:
+  // nada é carregado à toa e nenhum estado intermediário aparece.
+  it('keeps the open interview when the requested document no longer exists', async () => {
+    const ok = await useAppStore.getState().selectDocument(99)
 
+    expect(ok).toBe(false)
     expect(useAppStore.getState()).toMatchObject({
-      currentDocument: null, codings: [], documentNotes: [], navigateNoteId: null, editorNoteId: null
+      currentDocument: interviews[0], codings: firstCodings, documentNotes: firstNotes
     })
     expect(listCodings).not.toHaveBeenCalled()
     expect(listNotes).not.toHaveBeenCalled()

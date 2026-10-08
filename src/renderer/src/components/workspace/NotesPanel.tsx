@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { casaBusca } from '@shared/busca'
 import {
   ArrowLeft,
   FileText,
@@ -13,6 +14,8 @@ import {
 import { useAppStore } from '@/stores/appStore'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { mensagemDeErro } from '@/lib/erros'
+import { aposSalvar, mesmoConteudo } from '@/lib/noteAutosave'
 import type { Note } from '@shared/types'
 
 const AUTOSAVE_DELAY = 800
@@ -83,10 +86,16 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
   const [title, setTitle] = useState(note.title ?? '')
   const [body, setBody] = useState(note.body)
   const [status, setStatus] = useState<SaveStatus>('saved')
+  const [erro, setErro] = useState<string | null>(null)
   const stateRef = useRef({ title: note.title ?? '', body: note.body })
   const savedRef = useRef({ title: note.title ?? '', body: note.body })
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savingRef = useRef(false)
+  // Apagada: a limpeza do efeito nao pode gravar numa nota que nao existe mais
+  const apagadaRef = useRef(false)
+
+  const updateNoteRef = useRef(updateNote)
+  updateNoteRef.current = updateNote
 
   useEffect(() => {
     setTitle(note.title ?? '')
@@ -94,6 +103,25 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
     stateRef.current = { title: note.title ?? '', body: note.body }
     savedRef.current = { title: note.title ?? '', body: note.body }
     setStatus('saved')
+    // A limpeza grava o que ficou pendente da nota ANTERIOR: ela roda antes do
+    // efeito da nota nova e tambem na desmontagem, entao cobre trocar de nota e
+    // fechar o painel. Antes o timer era so cancelado, e as teclas digitadas nos
+    // ultimos 800ms iam embora sem aviso.
+    const idDesteEfeito = note.id
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      const naTela = stateRef.current
+      if (apagadaRef.current) return
+      if (mesmoConteudo(naTela, savedRef.current)) return
+      void updateNoteRef.current({
+        id: idDesteEfeito,
+        title: naTela.title.trim() === '' ? null : naTela.title,
+        body: naTela.body
+      })
+    }
   }, [note.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveNow = useCallback(async (): Promise<void> => {
@@ -102,7 +130,7 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
       timerRef.current = null
     }
     const { title: t, body: b } = stateRef.current
-    if (t === savedRef.current.title && b === savedRef.current.body) {
+    if (mesmoConteudo({ title: t, body: b }, savedRef.current)) {
       setStatus('saved')
       return
     }
@@ -110,14 +138,25 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
     savingRef.current = true
     setStatus('saving')
     try {
+      const idDoSave = note.id
       const updated = await updateNote({
-        id: note.id,
+        id: idDoSave,
         title: t.trim() === '' ? null : t,
         body: b
       })
+      // Trocar de nota durante o IPC fazia o savedRef receber o conteudo da
+      // nota ANTERIOR: o editor acusava "Alterações não salvas" sem motivo e
+      // agendava um save espurio da nota nova.
+      if (idDoSave !== note.id) return
       savedRef.current = { title: updated.title ?? '', body: updated.body }
-      stateRef.current = { ...savedRef.current }
-      setStatus('saved')
+      // o texto da tela nunca e sobrescrito: o que foi digitado durante o IPC
+      // continua valendo e vira um save novo, em vez de sumir como "Salvo"
+      const { status: proximo, reagendar } = aposSalvar(stateRef.current, savedRef.current)
+      setStatus(proximo)
+      if (reagendar) {
+        if (timerRef.current) clearTimeout(timerRef.current)
+        timerRef.current = setTimeout(() => void saveRef.current(), AUTOSAVE_DELAY)
+      }
     } catch {
       setStatus('error')
     } finally {
@@ -132,12 +171,6 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
     return () => registerNotesFlush(null)
   }, [registerNotesFlush])
 
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    },
-    []
-  )
 
   const handleChange = (t: string, b: string): void => {
     setTitle(t)
@@ -160,12 +193,25 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
   const handleDelete = async (): Promise<void> => {
     if (!window.confirm('Apagar esta nota? O conteúdo será perdido.')) return
     if (timerRef.current) clearTimeout(timerRef.current)
-    await deleteNote(note.id)
+    apagadaRef.current = true
+    try {
+      await deleteNote(note.id)
+    } catch (e) {
+      apagadaRef.current = false
+      // sem isto o clique nao fazia nada depois de voce ja ter confirmado, e o
+      // editor fechava do mesmo jeito como se tivesse apagado
+      setErro(mensagemDeErro(e, 'Não foi possível apagar a nota.'))
+      return
+    }
     onBack()
   }
 
   const isExcerpt = note.scope === 'excerpt'
   const isDetached = isExcerpt && note.anchorStatus === 'detached'
+  // O trecho original e o que importa aqui, nao a marca. Uma nota que foi e
+  // voltou de um .qdpx perde o 'detached' (o formato nao tem esse conceito) mas
+  // conserva o trecho -- e sem isto ele ficava guardado e invisivel.
+  const trechoGuardado = note.anchorText
   const liveQuote =
     isExcerpt && !isDetached && note.documentId === currentDocument?.id
       ? (currentDocument?.plainText.slice(note.startPos ?? 0, note.endPos ?? 0) ?? '')
@@ -183,10 +229,15 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
           {status === 'dirty' && 'Alterações não salvas'}
           {status === 'error' && 'Erro ao salvar — tente Ctrl+S'}
         </span>
-        <Button size="sm" variant="ghost" onClick={handleDelete} title="Apagar nota">
+        <Button size="sm" variant="ghost" onClick={() => void handleDelete()} title="Apagar nota">
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
+      {erro && (
+        <p className="border-b bg-destructive/10 px-3 py-1.5 text-[11px] text-destructive">
+          {erro}
+        </p>
+      )}
       <div className="min-h-0 flex-1 overflow-auto p-3">
         {(isExcerpt || note.scope === 'document') && (
           <div className="mb-2 rounded-md border bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground">
@@ -203,7 +254,7 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
             )}
           </div>
         )}
-        {(liveQuote ?? (isDetached ? note.anchorText : null)) && (
+        {(liveQuote ?? trechoGuardado) && (
           <blockquote className="mb-2 border-l-2 border-primary/40 pl-2 text-xs italic text-muted-foreground">
             “{snippet(liveQuote ?? note.anchorText ?? '', 200)}”
           </blockquote>
@@ -244,6 +295,7 @@ export function NotesPanel(): JSX.Element {
   const openNoteEditor = useAppStore((s) => s.openNoteEditor)
   const toggleNotesPanel = useAppStore((s) => s.toggleNotesPanel)
   const createNote = useAppStore((s) => s.createNote)
+  const [erroLista, setErroLista] = useState<string | null>(null)
 
   const [filter, setFilter] = useState('')
 
@@ -251,11 +303,8 @@ export function NotesPanel(): JSX.Element {
   const editingNote = allNotes.find((n) => n.id === editorNoteId) ?? null
 
   const matches = (n: Note): boolean => {
-    const f = filter.trim().toLowerCase()
-    if (!f) return true
-    return (
-      (n.title ?? '').toLowerCase().includes(f) || n.body.toLowerCase().includes(f)
-    )
+    if (filter.trim() === '') return true
+    return casaBusca(n.title ?? '', filter) || casaBusca(n.body, filter)
   }
 
   const docScoped = documentNotes.filter(
@@ -279,12 +328,17 @@ export function NotesPanel(): JSX.Element {
   }
 
   const handleCreate = async (scope: 'document' | 'project'): Promise<void> => {
-    const note = await createNote(
-      scope === 'document' && currentDocument
-        ? { scope, documentId: currentDocument.id }
-        : { scope: 'project' }
-    )
-    openNoteEditor(note.id)
+    try {
+      const note = await createNote(
+        scope === 'document' && currentDocument
+          ? { scope, documentId: currentDocument.id }
+          : { scope: 'project' }
+      )
+      openNoteEditor(note.id)
+    } catch (e) {
+      // antes a falha virava rejeicao sem dono: o botao simplesmente nao fazia nada
+      setErroLista(mensagemDeErro(e, 'Não foi possível criar a nota.'))
+    }
   }
 
   return (
@@ -305,6 +359,11 @@ export function NotesPanel(): JSX.Element {
           <X className="h-4 w-4" />
         </Button>
       </div>
+      {erroLista && (
+        <p className="border-b bg-destructive/10 px-3 py-1.5 text-[11px] text-destructive">
+          {erroLista}
+        </p>
+      )}
 
       {editingNote ? (
         <NoteEditor note={editingNote} onBack={() => openNoteEditor(null)} />

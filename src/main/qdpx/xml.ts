@@ -264,11 +264,16 @@ export function parseQde(xml: string): ParseResult {
     }
   )
 
+  let memosRtf = 0
   const notes: QdpxNote[] = asArray<any>(project.Notes?.Note).map((note) => {
     const guid = note['@_guid']
-    const plainTextPath: string | undefined =
-      note['@_plainTextPath'] ?? note['@_richTextPath']
+    // So texto puro, igual aos documentos. O richTextPath aponta para um RTF:
+    // lido como string ele entrega a marcacao crua ("{\\rtf1\\ansi...") como se
+    // fosse o texto da pessoa. Melhor avisar que o memo nao veio do que mostrar
+    // lixo no lugar dele.
+    const plainTextPath: string | undefined = note['@_plainTextPath']
     if (plainTextPath) sourcePaths.set(`note:${guid}`, plainTextPath)
+    else if (note['@_richTextPath']) memosRtf += 1
     return {
       guid,
       name: note['@_name'] ?? null,
@@ -276,6 +281,16 @@ export function parseQde(xml: string): ParseResult {
       description: typeof note.Description === 'string' ? note.Description : null
     }
   })
+
+  // Uma linha por memo poluía a lista de ignorados: um .qdpx com 30 memos RTF
+  // produzia 30 linhas idênticas.
+  if (memosRtf > 0) {
+    skipped.push(
+      memosRtf === 1
+        ? 'Memo em RTF (conteúdo não importado)'
+        : `Memos em RTF: ${memosRtf} (conteúdo não importado)`
+    )
+  }
 
   const projectNoteGuids: string[] = asArray<any>(project.NoteRef)
     .map((ref: any) => ref['@_targetGUID'])

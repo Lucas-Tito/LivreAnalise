@@ -79,7 +79,15 @@ describe.skipIf(!nativeOk)('QDPX notes round-trip (integration)', () => {
     db.openDatabase(':memory:')
     const report = importMod.importProjectIntoDb({ project, skipped: [] })
     expect(report.notes).toBe(1)
-    void note
+
+    // o `void note` que estava aqui denunciava uma asserção abandonada: o teste
+    // contava as notas e nunca conferia se o conteúdo tinha sobrevivido
+    const importada = repos
+      .listDocuments()
+      .flatMap((d) => repos.listNotesByDocument(d.id))[0]
+    expect(importada.title).toBe(note.title)
+    expect(importada.body).toBe(note.body)
+    expect(importada.anchorText).toBe('0123')
     db.closeDatabase()
   })
 

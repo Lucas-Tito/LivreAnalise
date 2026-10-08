@@ -114,6 +114,7 @@ export const IPC = {
     list: 'versions:list',
     create: 'versions:create',
     prune: 'versions:prune',
+    delete: 'versions:delete',
     restore: 'versions:restore',
     changed: 'versions:changed'
   },
@@ -123,7 +124,8 @@ export const IPC = {
     resetZoom: 'view:zoom-reset',
     fontSans: 'view:font-sans',
     fontSerif: 'view:font-serif',
-    fontDyslexic: 'view:font-dyslexic'
+    fontDyslexic: 'view:font-dyslexic',
+    fontChanged: 'view:font-changed'
   }
 } as const
 
@@ -203,6 +205,7 @@ export interface Api {
     importAsProject: () => Promise<(OpenProjectResult & { report: ImportReport }) | null>
   }
   view: {
+    notifyFont: (font: string) => void
     onAction: (listener: (action: string) => void) => () => void
   }
   history: {
@@ -214,6 +217,7 @@ export interface Api {
     list: () => Promise<ProjectVersion[]>
     create: (label: string | null) => Promise<ProjectVersion>
     prune: () => Promise<ProjectVersion[]>
+    delete: (id: string) => Promise<ProjectVersion[]>
     restore: (id: string) => Promise<OpenProjectResult | null>
     onChanged: (listener: () => void) => () => void
   }

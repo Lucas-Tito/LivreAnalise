@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { casaBusca } from '@shared/busca'
 import {
   ChevronDown,
   ChevronRight,
@@ -55,6 +56,7 @@ import { CodeDialog, type CodeDialogValue } from './CodeDialog'
 import { SimplePromptDialog } from './SimplePromptDialog'
 import { CollectionMembersDialog } from './CollectionMembersDialog'
 import { randomColor } from '@/lib/utils'
+import { mensagemDeErro } from '@/lib/erros'
 import type { CodeWithCount, Collection } from '@shared/types'
 
 interface Props {
@@ -644,23 +646,32 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleSubmit = (value: CodeDialogValue): void => {
-    if (!dialogState) return
-    if (dialogState.mode === 'edit' && dialogState.code) {
-      updateCode({
-        id: dialogState.code.id,
-        name: value.name,
-        color: value.color,
-        description: value.description || null
-      })
-    } else {
-      createCode({
-        name: value.name,
-        color: value.color,
-        description: value.description || null,
-        parentId:
-          dialogState.mode === 'child' ? dialogState.code?.id ?? null : null
-      })
+  // Era a unica mutacao do painel sem await e sem catch: o destino podia ter
+  // deixado de ser valido, o createCode lancava, a rejeicao morria sem dono e o
+  // dialogo fechava como se tivesse dado certo -- sem codigo nenhum criado.
+  const handleSubmit = async (value: CodeDialogValue): Promise<boolean> => {
+    if (!dialogState) return false
+    try {
+      if (dialogState.mode === 'edit' && dialogState.code) {
+        await updateCode({
+          id: dialogState.code.id,
+          name: value.name,
+          color: value.color,
+          description: value.description || null
+        })
+      } else {
+        await createCode({
+          name: value.name,
+          color: value.color,
+          description: value.description || null,
+          parentId:
+            dialogState.mode === 'child' ? dialogState.code?.id ?? null : null
+        })
+      }
+      return true
+    } catch (err) {
+      flashNotice(mensagemDeErro(err, 'Não foi possível salvar o código.'))
+      return false
     }
   }
 
@@ -705,7 +716,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
       anchorRef.current = null
     } catch (err) {
       flashNotice(
-        err instanceof Error ? err.message : 'Não foi possível criar o grupo.'
+        mensagemDeErro(err, 'Não foi possível criar o grupo.')
       )
     }
   }
@@ -718,7 +729,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     try {
       for (const id of ids) validateParentChange(codes, id, parentId)
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Movimento inválido.'
+      const message = mensagemDeErro(err, 'Movimento inválido.')
       setMoveError(message)
       // O dialog de mover nem sempre está aberto: sem isto a falha era muda.
       flashNotice(message)
@@ -728,8 +739,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     try {
       await moveCodes(ids, parentId, placement)
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Não foi possível mover.'
+      const message = mensagemDeErro(err, 'Não foi possível mover.')
       setMoveError(message)
       flashNotice(message)
       return false
@@ -748,7 +758,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
 
   const destinations = useMemo(() => groupDestinations(codes), [codes])
   const filteredDestinations = destinations.filter((c) =>
-    c.name.toLowerCase().includes(moveFilter.toLowerCase())
+    casaBusca(c.name, moveFilter)
   )
 
   const renderCode = (
@@ -975,15 +985,19 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                 <Tags className="h-4 w-4" /> Criar grupo com este código
               </ContextMenuItem>
             ) : (
-              <ContextMenuItem
-                disabled
-                title={
-                  hasChildren
+              // O motivo vai no proprio item, nao num title: item desabilitado
+              // tem pointer-events-none, entao o tooltip nativo nunca dispara e
+              // a explicacao ficava invisivel. Texto que exige descobrir o hover
+              // e texto que a maioria nao le.
+              <ContextMenuItem disabled className="flex-col items-start gap-0.5">
+                <span className="flex items-center gap-2">
+                  <Tags className="h-4 w-4" /> Criar grupo com este código
+                </span>
+                <span className="pl-6 text-xs text-muted-foreground">
+                  {hasChildren
                     ? 'Este código já é um grupo.'
-                    : 'Remova o código do grupo atual para agrupá-lo sozinho.'
-                }
-              >
-                <Tags className="h-4 w-4" /> Criar grupo com este código
+                    : 'Remova o código do grupo atual primeiro.'}
+                </span>
               </ContextMenuItem>
             )}
           </ContextMenuContent>

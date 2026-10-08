@@ -11,10 +11,11 @@ import {
   Trash2,
   Info,
   Linkedin,
-  Github
+  Github,
+  Settings
 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
-import { ThemeToggle } from '@/components/ThemeToggle'
+import { SettingsDialog } from '@/components/SettingsDialog'
 import { Button } from '@/components/ui/button'
 import { formatCount } from '@/lib/utils'
 import type { RecentProjectWithStats } from '@shared/types'
@@ -59,6 +60,7 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
   const renameProject = useAppStore((s) => s.renameProject)
   const trashProject = useAppStore((s) => s.trashProject)
   const [renaming, setRenaming] = useState<RecentProjectWithStats | null>(null)
+  const [configAberta, setConfigAberta] = useState(false)
 
   useEffect(() => {
     loadRecents()
@@ -76,7 +78,16 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
             </p>
           </div>
           <div className="ml-auto flex items-center gap-1">
-            <ThemeToggle />
+            <Button
+              size="icon"
+              variant="ghost"
+              className="text-muted-foreground"
+              onClick={() => setConfigAberta(true)}
+              aria-label="Configurações"
+              title="Configurações — tema e fonte de leitura"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="ghost" className="gap-1.5 px-3 text-muted-foreground">
@@ -84,9 +95,14 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
                   Créditos
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-64">
+              <PopoverContent align="end" className="w-72">
                 <p className="text-xs text-muted-foreground">Feito por</p>
                 <p className="mt-0.5 font-medium">Lucas Tito</p>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Agradecimento especial
+                </p>
+                <p className="mt-0.5 text-sm">Tiago Tito</p>
+                <p className="text-sm">Graziella Rodrigues</p>
                 {/* o setWindowOpenHandler do main manda target=_blank para o
                     navegador do sistema; sem isso a janela do app navegaria
                     para o LinkedIn e não teria como voltar */}
@@ -227,6 +243,8 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
           )}
         </div>
       </div>
+
+      <SettingsDialog open={configAberta} onOpenChange={setConfigAberta} />
 
       <SimplePromptDialog
         open={renaming !== null}

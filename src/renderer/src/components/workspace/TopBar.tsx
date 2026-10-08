@@ -1,9 +1,14 @@
 import { useState } from 'react'
-import { BookText, Download, History, Loader2, Redo2, Sparkles, StickyNote, Undo2 } from 'lucide-react'
+import { BookText, ChevronDown, Download, History, Loader2, Redo2, Sparkles, StickyNote, Undo2 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
-import { useZoomStore } from '@/stores/zoomStore'
+import { mensagemDeErro } from '@/lib/erros'
 import { Button } from '@/components/ui/button'
-import { ThemeToggle } from '@/components/ThemeToggle'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { AiExportDialog } from './AiExportDialog'
 import { VersionsDialog } from './VersionsDialog'
 
@@ -18,12 +23,6 @@ export function TopBar(): JSX.Element {
   const [exportarIa, setExportarIa] = useState(false)
   const [versoes, setVersoes] = useState(false)
   const noteCount = documentNotes.length + projectNotes.length
-  const zoom = useZoomStore((s) => s.zoom)
-  const font = useZoomStore((s) => s.font)
-  const zoomIn = useZoomStore((s) => s.zoomIn)
-  const zoomOut = useZoomStore((s) => s.zoomOut)
-  const resetZoom = useZoomStore((s) => s.resetZoom)
-  const setFont = useZoomStore((s) => s.setFont)
   const history = useAppStore((s) => s.history)
   const undo = useAppStore((s) => s.undo)
   const redo = useAppStore((s) => s.redo)
@@ -38,7 +37,7 @@ export function TopBar(): JSX.Element {
         alert(`Projeto exportado para:\n${result.path}${warn}`)
       }
     } catch (e) {
-      alert(`Erro ao exportar: ${(e as Error).message}`)
+      alert(`Erro ao exportar: ${mensagemDeErro(e)}`)
     } finally {
       setWorking(false)
     }
@@ -80,73 +79,62 @@ export function TopBar(): JSX.Element {
             <Redo2 className="h-4 w-4" />
           </Button>
         </div>
-        <div className="flex items-center gap-1 rounded-md border px-1" title="Zoom do documento (Ctrl++/−/0)">
-          <Button size="sm" variant="ghost" onClick={zoomOut} title="Reduzir (Ctrl+-)">
-            A-
-          </Button>
-          <button
-            className="min-w-12 text-center text-xs text-muted-foreground"
-            onClick={resetZoom}
-            title="Restaurar 100% (Ctrl+0)"
-          >
-            {Math.round(zoom * 100)}%
-          </button>
-          <Button size="sm" variant="ghost" onClick={zoomIn} title="Ampliar (Ctrl++)">
-            A+
-          </Button>
-          <button
-            className={`rounded px-1.5 py-1 text-xs ${font === 'sans' ? 'bg-accent font-medium' : 'text-muted-foreground'}`}
-            onClick={() => setFont('sans')}
-            title="Fonte sem serifa"
-          >
-            Sans
-          </button>
-          <button
-            className={`rounded px-1.5 py-1 text-xs ${font === 'serif' ? 'bg-accent font-medium' : 'text-muted-foreground'}`}
-            onClick={() => setFont('serif')}
-            title="Fonte com serifa"
-          >
-            Serif
-          </button>
-          <button
-            className={`rounded px-1.5 py-1 text-xs ${font === 'dyslexic' ? 'bg-accent font-medium' : 'text-muted-foreground'}`}
-            onClick={() => setFont('dyslexic')}
-            title="Fonte OpenDyslexic (amigável para dislexia)"
-          >
-            Dislexia
-          </button>
-        </div>
         <Button
           size="sm"
-          variant={notesPanelOpen ? 'default' : 'outline'}
+          variant="ghost"
           onClick={toggleNotesPanel}
-          title="Abrir o painel de notas do projeto"
+          aria-label="Notas do projeto"
+          title={`Notas do projeto${noteCount > 0 ? ` (${noteCount})` : ''}`}
+          className={notesPanelOpen ? 'bg-accent' : undefined}
         >
           <StickyNote className="h-4 w-4" />
-          Notas{noteCount > 0 ? ` (${noteCount})` : ''}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => setExportarIa(true)}>
-          <Sparkles className="h-4 w-4" />
-          Exportar para IA
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => setVersoes(true)} title="Checkpoints do projeto (restaurar abre uma cópia)">
-          <History className="h-4 w-4" />
-          Versões
+          {/* o número fica, porque é informação que não dá para inferir do ícone */}
+          {noteCount > 0 && <span className="text-xs">{noteCount}</span>}
         </Button>
         <Button
           size="sm"
-          variant="outline"
-          onClick={handleExport}
-          disabled={working}
+          variant="ghost"
+          onClick={() => setVersoes(true)}
+          aria-label="Versões do projeto"
+          title="Versões do projeto — checkpoints (restaurar abre uma cópia)"
         >
-          {working ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Download className="h-4 w-4" />
-          )}
-          Exportar QDPX
+          <History className="h-4 w-4" />
         </Button>
-        <ThemeToggle />
+        {/* Um "Exportar" só: dois botões lado a lado com o mesmo verbo obrigavam
+            a ler o complemento para saber qual era qual, e apertavam a barra. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="outline" disabled={working}>
+              {working ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Exportar
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-72">
+            <DropdownMenuItem onClick={() => setExportarIa(true)}>
+              <Sparkles className="h-4 w-4" />
+              <span className="flex flex-col items-start">
+                <span>Para IA</span>
+                <span className="text-xs text-muted-foreground">
+                  Texto com as marcações, para colar num chat
+                </span>
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => void handleExport()} disabled={working}>
+              <Download className="h-4 w-4" />
+              <span className="flex flex-col items-start">
+                <span>QDPX (REFI-QDA)</span>
+                <span className="text-xs text-muted-foreground">
+                  Abre no ATLAS.ti e no NVivo
+                </span>
+              </span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <AiExportDialog open={exportarIa} onOpenChange={setExportarIa} />
       <VersionsDialog open={versoes} onOpenChange={setVersoes} />

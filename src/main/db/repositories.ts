@@ -19,14 +19,14 @@ import type {
   UpdateCollectionInput,
   UpdateNoteInput
 } from '@shared/types'
-import { adjustCodings } from '@shared/editAdjust'
+import { adjustCodings, relocalizarTrecho, type CodingUpdate } from '@shared/editAdjust'
 import {
   computeMoveOrder,
   isNoopMove,
   validateParentChange
 } from '@shared/codeTree'
 import { pushHistory } from '../history/stack'
-import type { MoveCodesInput } from '@shared/types'
+import type { MoveCodesInput, NoteAnchorStatus, NoteScope } from '@shared/types'
 import { findConnectedCodings } from '../services/codingMerge'
 import { getDb } from './index'
 import {
@@ -169,12 +169,56 @@ export function updateDocumentText(id: number, newText: string): void {
       n.endPos != null
   )
   const noteAdjust = adjustCodings(anchoredNotes, current.plainText, newText)
+
+  // Antes de desistir de uma ancora, procura o trecho original no texto novo.
+  // Mover um paragrafo apaga as posicoes mas preserva o texto: sem isto a
+  // citacao era apagada e a nota desvinculada com o trecho inteiro ainda ali.
+  const citacoesRelocalizadas: CodingUpdate[] = []
+  const citacoesPerdidas: number[] = []
+  // Os spans ocupados sao os de DESTINO, nao os de origem: as citacoes que
+  // sobreviveram ja foram deslocadas por `adjustCodings` para posicoes novas.
+  // Comparar contra as posicoes velhas deixava uma citacao relocalizada cair em
+  // cima de outra que acabara de ser movida para ali -- o indice unico recusava,
+  // a transacao inteira fazia rollback e SALVAR O TEXTO FALHAVA. Antes desta
+  // relocalizacao existir, a citacao era apagada e o texto salvava.
+  const destino = new Map(
+    codingsList.map((c) => [c.id, { codeId: c.codeId, startPos: c.startPos, endPos: c.endPos }])
+  )
+  for (const u of updates) {
+    const d = destino.get(u.id)
+    if (d) {
+      d.startPos = u.startPos
+      d.endPos = u.endPos
+    }
+  }
+  for (const rid of removeIds) destino.delete(rid)
+  const ocupados = new Set(
+    [...destino.values()].map((d) => `${d.codeId}:${d.startPos}:${d.endPos}`)
+  )
+  for (const rid of removeIds) {
+    const c = codingsList.find((x) => x.id === rid)
+    const achado = c
+      ? relocalizarTrecho(current.plainText.slice(c.startPos, c.endPos), newText)
+      : null
+    // o indice unico (documento, codigo, inicio, fim) recusaria uma citacao
+    // que caisse em cima de outra igual: nesse caso ela e mesmo duplicata
+    if (c && achado && !ocupados.has(`${c.codeId}:${achado.startPos}:${achado.endPos}`)) {
+      ocupados.add(`${c.codeId}:${achado.startPos}:${achado.endPos}`)
+      citacoesRelocalizadas.push({ id: rid, ...achado })
+    } else {
+      citacoesPerdidas.push(rid)
+    }
+  }
+
+  const notasRelocalizadas: CodingUpdate[] = []
   const detachedSnapshots = new Map<number, string>()
   for (const noteId of noteAdjust.removeIds) {
     const note = anchoredNotes.find((n) => n.id === noteId)
-    if (note) {
-      detachedSnapshots.set(noteId, current.plainText.slice(note.startPos, note.endPos))
-    }
+    if (!note) continue
+    const trecho = current.plainText.slice(note.startPos, note.endPos)
+    const achado = relocalizarTrecho(trecho, newText)
+    if (achado) notasRelocalizadas.push({ id: noteId, ...achado })
+    else detachedSnapshots.set(noteId, trecho)
   }
 
   db.transaction((tx) => {
@@ -182,26 +226,32 @@ export function updateDocumentText(id: number, newText: string): void {
       .set({ plainText: newText, charCount: newText.length })
       .where(eq(documents.id, id))
       .run()
-    for (const rid of removeIds) {
+    for (const rid of citacoesPerdidas) {
       tx.delete(codings).where(eq(codings.id, rid)).run()
     }
-    for (const u of updates) {
+    for (const u of [...updates, ...citacoesRelocalizadas]) {
       tx.update(codings)
         .set({ startPos: u.startPos, endPos: u.endPos })
         .where(eq(codings.id, u.id))
         .run()
     }
-    for (const u of noteAdjust.updates) {
+    for (const u of [...noteAdjust.updates, ...notasRelocalizadas]) {
       tx.update(notes)
         .set({ startPos: u.startPos, endPos: u.endPos })
         .where(eq(notes.id, u.id))
         .run()
     }
-    for (const noteId of noteAdjust.removeIds) {
+    for (const noteId of detachedSnapshots.keys()) {
       tx.update(notes)
         .set({
           anchorStatus: 'detached',
-          anchorText: detachedSnapshots.get(noteId) ?? null
+          anchorText: detachedSnapshots.get(noteId) ?? null,
+          // Zera junto, igual o importador faz. Manter as posicoes antigas
+          // deixava a nota apontando para um trecho que o texto nao tem mais, e
+          // so a ordem das verificacoes na interface impedia alguem de ler isso
+          // como se fosse valido.
+          startPos: null,
+          endPos: null
         })
         .where(eq(notes.id, noteId))
         .run()
@@ -521,11 +571,19 @@ export function createGroupFromCodes(
     return code
   })
   const guid = uuid()
+  // O grupo nasce onde os membros estavam, nao no comeco da lista. Sem isto ele
+  // caia no DEFAULT 0 do schema e saltava para o topo, longe do gesto que o
+  // criou -- o mesmo descuido que o createCode evita de proposito logo acima.
+  const naRaiz = members.filter((m) => m.parentId === null)
+  const sortOrder =
+    naRaiz.length > 0
+      ? Math.min(...naRaiz.map((m) => m.sortOrder))
+      : all.filter((c) => c.parentId === null).reduce((max, c) => Math.max(max, c.sortOrder), -1) + 1
   let group!: Code
   db.transaction((tx) => {
     const res = tx
       .insert(codes)
-      .values({ guid, name, color, description: null, parentId: null })
+      .values({ guid, name, color, description: null, parentId: null, sortOrder })
       .run()
     group = tx
       .select()
@@ -1115,31 +1173,76 @@ export function createNote(input: CreateNoteInput): Note {
 
 export function updateNote(input: UpdateNoteInput): Note {
   const db = getDb()
-  const beforeRow = (db.select().from(notes).where(eq(notes.id, input.id)).get() as typeof notes.$inferSelect)
-  const patch: { title?: string | null; body?: string; updatedAt: string } = {
+  // O cast mentia: `.get()` devolve undefined quando nao ha linha, e o getNote
+  // la embaixo quebrava com "Cannot read properties of undefined". Apagar o
+  // documento com o editor de nota aberto fazia todo autosave rejeitar e o
+  // painel travar em erro permanente.
+  const beforeRow = db.select().from(notes).where(eq(notes.id, input.id)).get() as
+    | typeof notes.$inferSelect
+    | undefined
+  if (!beforeRow) throw new Error('Essa nota não existe mais.')
+  const patch: {
+    title?: string | null
+    body?: string
+    startPos?: number
+    endPos?: number
+    anchorStatus?: NoteAnchorStatus
+    anchorText?: string | null
+    scope?: NoteScope
+    updatedAt: string
+  } = {
     updatedAt: new Date().toISOString()
   }
   if (input.title !== undefined) patch.title = input.title
   if (input.body !== undefined) patch.body = input.body
+  // Religar: ate aqui 'attached' so era escrito ao criar a nota e ao importar,
+  // entao uma nota desvinculada por uma edicao de texto nao tinha volta -- so
+  // apagar e reescrever. O trecho original guardado na desvinculacao perde o
+  // sentido assim que a ancora existe de novo.
+  if (input.startPos !== undefined && input.endPos !== undefined) {
+    patch.startPos = input.startPos
+    patch.endPos = input.endPos
+    patch.anchorStatus = 'attached'
+    patch.anchorText = null
+    // nota que voltou de um .qdpx chega como nota de documento: religar
+    // devolve o escopo junto, senao ela fica ancorada e fora da lista de trechos
+    if (beforeRow?.documentId != null) patch.scope = 'excerpt'
+  }
   db.update(notes).set(patch).where(eq(notes.id, input.id)).run()
   touchProject()
   const after = getNote(input.id)
-  const b = beforeRow ? { ...beforeRow } : null
+  const b = { ...beforeRow }
   const afterRow = (getDb().select().from(notes).where(eq(notes.id, input.id)).get() as typeof notes.$inferSelect)
   const a = { ...afterRow }
-  if (b) {
-    pushHistory({
+  pushHistory({
       label: `editar nota`,
+      // o autosave grava a cada pausa de digitacao: sem isto um memo longo
+      // enchia a pilha de 100 e enterrava as acoes de verdade
+      coalesceKey: `nota:${b.id}`,
       undo: () => {
-        getDb().update(notes).set({ title: b.title, body: b.body, updatedAt: b.updatedAt }).where(eq(notes.id, b.id)).run()
+        // a ancora vai junto: desfazer um religamento precisa devolver a nota
+        // ao estado desvinculado, com o trecho original que ela guardava
+        getDb().update(notes).set({
+          title: b.title, body: b.body, updatedAt: b.updatedAt,
+          startPos: b.startPos, endPos: b.endPos,
+          anchorStatus: b.anchorStatus, anchorText: b.anchorText,
+          // o scope tambem muda ao religar: sem ele o desfazer devolvia as
+          // posicoes nulas mas deixava a nota como 'excerpt' ancorada e sem
+          // trecho guardado -- invisivel na lista e sem a oferta de religar
+          scope: b.scope
+        }).where(eq(notes.id, b.id)).run()
         touchProject()
       },
       redo: () => {
-        getDb().update(notes).set({ title: a.title, body: a.body, updatedAt: a.updatedAt }).where(eq(notes.id, a.id)).run()
+        getDb().update(notes).set({
+          title: a.title, body: a.body, updatedAt: a.updatedAt,
+          startPos: a.startPos, endPos: a.endPos,
+          anchorStatus: a.anchorStatus, anchorText: a.anchorText,
+          scope: a.scope
+        }).where(eq(notes.id, a.id)).run()
         touchProject()
       }
-    })
-  }
+  })
   return after
 }
 

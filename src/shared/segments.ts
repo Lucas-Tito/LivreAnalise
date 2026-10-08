@@ -9,6 +9,8 @@ export interface Segment {
 export interface DisplaySegment extends Segment {
   isPending: boolean
   noteIds: number[]
+  /** Indices das ocorrencias da busca que cobrem este pedaco. */
+  hitIds?: number[]
 }
 
 export interface NoteAnchor {
@@ -125,6 +127,7 @@ export interface LineSpan {
   codingIds: number[]
   isPending: boolean
   noteIds: number[]
+  hitIds?: number[]
 }
 
 export interface LineRow {
@@ -156,7 +159,8 @@ export function buildLineRows(
         text: spanText,
         codingIds: seg.codingIds,
         isPending: seg.isPending,
-        noteIds: seg.noteIds
+        noteIds: seg.noteIds,
+        hitIds: seg.hitIds
       })
     }
     rows.push({ index, start, end, spans })
@@ -193,4 +197,41 @@ export function resolveAnchorPos(
     if (pos < startPos && (previous === null || pos > previous)) previous = pos
   }
   return next ?? previous
+}
+
+/**
+ * Quebra os segmentos nas ocorrencias da busca, do mesmo jeito que
+ * `markNoteAnchors` faz com as ancoras de nota. Mesma mecanica de propósito: o
+ * destaque da busca tem de conviver com a cor da codificacao e com o
+ * sublinhado da nota no mesmo trecho, sem nenhum deles apagar o outro.
+ */
+export function markSearchHits(
+  segments: DisplaySegment[],
+  hits: NoteAnchor[]
+): DisplaySegment[] {
+  if (hits.length === 0) return segments
+  const result: DisplaySegment[] = []
+  for (const seg of segments) {
+    const covering = hits.filter((h) => h.start < seg.end && h.end > seg.start)
+    if (covering.length === 0) {
+      result.push(seg)
+      continue
+    }
+    const cuts = new Set<number>([seg.start, seg.end])
+    for (const h of covering) {
+      cuts.add(Math.max(h.start, seg.start))
+      cuts.add(Math.min(h.end, seg.end))
+    }
+    const sorted = Array.from(cuts).sort((a, b) => a - b)
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const start = sorted[i]
+      const end = sorted[i + 1]
+      if (end <= start) continue
+      const hitIds = covering
+        .filter((h) => h.start <= start && h.end >= end)
+        .map((h) => h.id)
+      result.push({ ...seg, start, end, hitIds })
+    }
+  }
+  return result
 }

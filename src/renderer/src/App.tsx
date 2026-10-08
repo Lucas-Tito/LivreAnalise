@@ -34,26 +34,34 @@ function App(): JSX.Element {
       const el = e.target as HTMLElement | null
       const tag = el?.tagName
       const editable = el?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA'
-      // Dentro de campo de texto vale o desfazer nativo da digitação,
-      // e Ctrl++/−/0 não sequestra a digitação.
-      if (editable) return
       if (!(e.ctrlKey || e.metaKey)) return
       const s = useZoomStore.getState()
+      // O zoom vale em qualquer lugar: ele não compete com a digitação, e
+      // bloqueá-lo dentro de campo de texto tirava o atalho justamente de quem
+      // está editando um documento ou escrevendo uma nota.
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault()
+        s.zoomIn()
+        return
+      }
+      if (e.key === '-') {
+        e.preventDefault()
+        s.zoomOut()
+        return
+      }
+      if (e.key === '0') {
+        e.preventDefault()
+        s.resetZoom()
+        return
+      }
+      // Já o desfazer não: dentro de campo de texto vale o nativo da digitação.
+      if (editable) return
       if ((e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
         e.preventDefault()
         void useAppStore.getState().undo()
       } else if ((e.key === 'y' || e.key === 'Y') || ((e.key === 'z' || e.key === 'Z') && e.shiftKey)) {
         e.preventDefault()
         void useAppStore.getState().redo()
-      } else if (e.key === '+' || e.key === '=') {
-        e.preventDefault()
-        s.zoomIn()
-      } else if (e.key === '-') {
-        e.preventDefault()
-        s.zoomOut()
-      } else if (e.key === '0') {
-        e.preventDefault()
-        s.resetZoom()
       }
     }
     window.addEventListener('keydown', onKey)

@@ -36,7 +36,19 @@ const TRANSCRIPT_FONTS: Record<TranscriptFont, string> = {
 function applyFont(font: TranscriptFont): void {
   const root = document.documentElement
   root.style.setProperty('--transcript-font', TRANSCRIPT_FONTS[font])
+  // o menu da janela nao tem como ler o localStorage: so o renderer sabe qual
+  // fonte esta valendo, entao e ele quem mantem o radio marcado
+  try {
+    window.api?.view?.notifyFont(font)
+  } catch {
+    // preload indisponivel (teste, por exemplo): o menu so nao marca
+  }
 }
+
+// Fora do React de proposito: roda no import, antes da primeira pintura. No
+// efeito passivo do App quem escolheu OpenDyslexic via um quadro com a fonte
+// errada -- justamente quem mais precisa da fonte certa.
+applyFont(readFont())
 
 interface ZoomState {
   zoom: number

@@ -1,4 +1,5 @@
 import { writeFile } from 'fs/promises'
+import { v4 as uuid } from 'uuid'
 import type { ExportResult } from '@shared/types'
 import {
   getDocument,
@@ -105,7 +106,10 @@ export function buildProjectFromDb(projectName: string): {
       if (sel) sel.noteGuids.push(note.guid)
       else {
         qdpxDoc.selections.push({
-          guid: note.guid,
+          // GUID proprio: no REFI-QDA o guid identifica o objeto no projeto
+          // inteiro, e a selecao e um objeto diferente da nota. Reusar o guid da
+          // nota punha dois objetos com a mesma matricula no mesmo arquivo.
+          guid: uuid(),
           startPosition: note.startPos,
           endPosition: note.endPos,
           codeGuids: [],

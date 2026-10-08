@@ -4,7 +4,18 @@ export interface HistoryEntry {
   label: string
   undo: () => void
   redo: () => void
+  /**
+   * Entradas consecutivas com a mesma chave, dentro de COALESCE_MS, viram um
+   * passo so. Existe por causa do autosave de nota: ele grava a cada pausa de
+   * digitacao, entao um memo de dois paragrafos empilhava umas 30 entradas,
+   * transformava o Ctrl+Z em "desfazer o memo pedaco por pedaco" e empurrava as
+   * acoes de verdade para fora da pilha de 100 -- apagar um codigo por engano
+   * podia ficar irrecuperavel depois de escrever um memo longo.
+   */
+  coalesceKey?: string
 }
+
+type StoredEntry = HistoryEntry & { at: number }
 
 export interface HistoryState {
   canUndo: boolean
@@ -14,10 +25,11 @@ export interface HistoryState {
 }
 
 const MAX_ENTRIES = 100
+const COALESCE_MS = 5000
 
 // Pilhas por projeto (chave = caminho do .liva, ou ':memory:' nos testes).
 // O histórico reinicia ao trocar de projeto porque a chave muda.
-const stacks = new Map<string, { undo: HistoryEntry[]; redo: HistoryEntry[] }>()
+const stacks = new Map<string, { undo: StoredEntry[]; redo: StoredEntry[] }>()
 
 function key(): string {
   try {
@@ -27,7 +39,7 @@ function key(): string {
   }
 }
 
-function stackFor(k: string): { undo: HistoryEntry[]; redo: HistoryEntry[] } {
+function stackFor(k: string): { undo: StoredEntry[]; redo: StoredEntry[] } {
   let s = stacks.get(k)
   if (!s) {
     s = { undo: [], redo: [] }
@@ -36,9 +48,23 @@ function stackFor(k: string): { undo: HistoryEntry[]; redo: HistoryEntry[] } {
   return s
 }
 
-export function pushHistory(entry: HistoryEntry): void {
+export function pushHistory(entry: HistoryEntry, agora: number = Date.now()): void {
   const s = stackFor(key())
-  s.undo.push(entry)
+  const topo = s.undo[s.undo.length - 1]
+  if (
+    entry.coalesceKey != null &&
+    topo?.coalesceKey === entry.coalesceKey &&
+    agora - topo.at <= COALESCE_MS
+  ) {
+    // estende a entrada do topo: o `undo` continua apontando para o estado de
+    // antes do primeiro save, e so o `redo` passa a ser o mais recente
+    topo.redo = entry.redo
+    topo.label = entry.label
+    topo.at = agora
+    s.redo = []
+    return
+  }
+  s.undo.push({ ...entry, at: agora })
   if (s.undo.length > MAX_ENTRIES) s.undo.shift()
   s.redo = []
 }
