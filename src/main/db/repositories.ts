@@ -175,8 +175,25 @@ export function updateDocumentText(id: number, newText: string): void {
   // citacao era apagada e a nota desvinculada com o trecho inteiro ainda ali.
   const citacoesRelocalizadas: CodingUpdate[] = []
   const citacoesPerdidas: number[] = []
+  // Os spans ocupados sao os de DESTINO, nao os de origem: as citacoes que
+  // sobreviveram ja foram deslocadas por `adjustCodings` para posicoes novas.
+  // Comparar contra as posicoes velhas deixava uma citacao relocalizada cair em
+  // cima de outra que acabara de ser movida para ali -- o indice unico recusava,
+  // a transacao inteira fazia rollback e SALVAR O TEXTO FALHAVA. Antes desta
+  // relocalizacao existir, a citacao era apagada e o texto salvava.
+  const destino = new Map(
+    codingsList.map((c) => [c.id, { codeId: c.codeId, startPos: c.startPos, endPos: c.endPos }])
+  )
+  for (const u of updates) {
+    const d = destino.get(u.id)
+    if (d) {
+      d.startPos = u.startPos
+      d.endPos = u.endPos
+    }
+  }
+  for (const rid of removeIds) destino.delete(rid)
   const ocupados = new Set(
-    codingsList.map((c) => `${c.codeId}:${c.startPos}:${c.endPos}`)
+    [...destino.values()].map((d) => `${d.codeId}:${d.startPos}:${d.endPos}`)
   )
   for (const rid of removeIds) {
     const c = codingsList.find((x) => x.id === rid)
