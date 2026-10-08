@@ -81,6 +81,7 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
             <Button
               size="icon"
               variant="ghost"
+              className="text-muted-foreground"
               onClick={() => setConfigAberta(true)}
               aria-label="Configurações"
               title="Configurações — tema e fonte de leitura"
