@@ -15,13 +15,13 @@ interface Props {
 }
 
 const FONTES: { id: TranscriptFont; nome: string; descricao: string }[] = [
-  { id: 'sans', nome: 'Sem serifa', descricao: 'A fonte padrão do sistema.' },
-  { id: 'serif', nome: 'Com serifa', descricao: 'Traços nas pontas das letras, como num livro.' },
+  { id: 'sans', nome: 'Sans', descricao: 'Fonte sem serifa' },
+  { id: 'serif', nome: 'Serif', descricao: 'Fonte com serifa' },
   {
     id: 'dyslexic',
-    nome: 'OpenDyslexic',
+    nome: 'Dislexia',
     descricao:
-      'Letras com base pesada e formas distintas, desenhada para reduzir a confusão entre caracteres espelhados (b/d, p/q).'
+      'OpenDyslexic: letras com base pesada e formas distintas, para reduzir a confusão entre caracteres espelhados (b/d, p/q)'
   }
 ]
 
@@ -65,30 +65,26 @@ export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
 
           <section className="space-y-2">
             <h3 className="text-sm font-medium">Fonte de leitura do documento</h3>
-            <ul className="space-y-1.5">
+            {/* O seletor da antiga barra: as três lado a lado, com a ativa
+                destacada. Com a amostra logo abaixo, a descrição de cada uma
+                virava texto que ninguém lê — a letra na tela diz mais. */}
+            <div className="flex items-center gap-0.5 rounded-md border p-0.5">
               {FONTES.map((f) => (
-                <li key={f.id}>
-                  <button
-                    onClick={() => setFont(f.id)}
-                    className={cn(
-                      'flex w-full flex-col items-start gap-0.5 rounded-md border px-3 py-2 text-left transition-colors',
-                      font === f.id ? 'border-primary bg-accent' : 'hover:bg-accent/50'
-                    )}
-                  >
-                    <span className="flex items-center gap-2 text-sm">
-                      <span
-                        className={cn(
-                          'h-3 w-3 shrink-0 rounded-full border',
-                          font === f.id && 'border-primary bg-primary'
-                        )}
-                      />
-                      {f.nome}
-                    </span>
-                    <span className="pl-5 text-xs text-muted-foreground">{f.descricao}</span>
-                  </button>
-                </li>
+                <button
+                  key={f.id}
+                  onClick={() => setFont(f.id)}
+                  title={f.descricao}
+                  className={cn(
+                    'flex-1 rounded px-2 py-1.5 text-sm transition-colors',
+                    font === f.id
+                      ? 'bg-accent font-medium text-foreground'
+                      : 'text-muted-foreground hover:bg-accent/50'
+                  )}
+                >
+                  {f.nome}
+                </button>
               ))}
-            </ul>
+            </div>
 
             {/* Amostra com a fonte escolhida: ver a letra é o que decide a
                 escolha, e comparar três nomes não diz nada. Usa a mesma
