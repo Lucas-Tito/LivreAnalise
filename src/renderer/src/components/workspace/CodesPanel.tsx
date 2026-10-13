@@ -55,6 +55,7 @@ import { Input } from '@/components/ui/input'
 import { CodeDialog, type CodeDialogValue } from './CodeDialog'
 import { SimplePromptDialog } from './SimplePromptDialog'
 import { CollectionMembersDialog } from './CollectionMembersDialog'
+import { CategoryCodesDialog } from './CategoryCodesDialog'
 import { randomColor } from '@/lib/utils'
 import { mensagemDeErro } from '@/lib/erros'
 import type { CodeWithCount, Collection } from '@shared/types'
@@ -134,6 +135,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const [membersCollection, setMembersCollection] = useState<Collection | null>(
     null
   )
+  const [codesCategory, setCodesCategory] = useState<CodeWithCount | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [moveOpen, setMoveOpen] = useState(false)
   const [moveFilter, setMoveFilter] = useState('')
@@ -238,7 +240,8 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   }
 
   // Clique simples seleciona e abre; Ctrl/Cmd alterna e Shift faz intervalo,
-  // ambos sem abrir os trechos.
+  // ambos sem abrir os trechos. Categoria não tem trecho próprio: o clique
+  // nela abre a escolha dos códigos que ela reúne.
   const applySelect = (mods: SelectModifiers, code: CodeWithCount): void => {
     if (mods.ctrlKey || mods.metaKey) {
       toggleSelect(code.id)
@@ -250,7 +253,8 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     }
     anchorRef.current = code.id
     setSelected(new Set([code.id]))
-    onViewCode(code)
+    if (isGroup(code.id)) setCodesCategory(code)
+    else onViewCode(code)
   }
 
   // Aviso curto (destino inválido, por exemplo) some sozinho.
@@ -1340,6 +1344,11 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
       <CollectionMembersDialog
         collection={membersCollection}
         onOpenChange={(o) => !o && setMembersCollection(null)}
+      />
+
+      <CategoryCodesDialog
+        category={codesCategory}
+        onOpenChange={(o) => !o && setCodesCategory(null)}
       />
     </div>
   )
