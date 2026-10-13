@@ -126,6 +126,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   } | null>(null)
   const [prompt, setPrompt] = useState<
     | { kind: 'renameCollection'; collection: Collection }
+    | { kind: 'renameCategory'; code: CodeWithCount }
     | { kind: 'groupFromCode'; code: CodeWithCount }
     | { kind: 'collectionFromGroup'; code: CodeWithCount }
     | null
@@ -681,6 +682,8 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     if (!prompt) return
     if (prompt.kind === 'renameCollection') {
       await updateCollection({ id: prompt.collection.id, name })
+    } else if (prompt.kind === 'renameCategory') {
+      await updateCode({ id: prompt.code.id, name })
     } else if (prompt.kind === 'groupFromCode') {
       await createGroup({
         name,
@@ -936,19 +939,26 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                       <FolderMinus className="h-4 w-4" /> Remover do grupo
                     </DropdownMenuItem>
                   )}
+                  {/* Categoria só se renomeia: cor e descrição são do código,
+                      que é o que recebe citação. */}
                   <DropdownMenuItem
                     onClick={() =>
-                      setDialogState({ mode: 'edit', code: node.code })
+                      hasChildren
+                        ? setPrompt({ kind: 'renameCategory', code: node.code })
+                        : setDialogState({ mode: 'edit', code: node.code })
                     }
                   >
-                    <Pencil className="h-4 w-4" /> Editar
+                    <Pencil className="h-4 w-4" />{' '}
+                    {hasChildren ? 'Renomear' : 'Editar'}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
                     onClick={() => {
                       if (
                         confirm(
-                          `Excluir o código "${node.code.name}"? Os códigos dentro dele e as citações serão removidos.`
+                          hasChildren
+                            ? `Excluir a categoria "${node.code.name}"? Os códigos dentro dela e as citações serão removidos.`
+                            : `Excluir o código "${node.code.name}"? As citações dele serão removidas.`
                         )
                       ) {
                         deleteCode(node.code.id)
@@ -1230,19 +1240,25 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         title={
           prompt?.kind === 'renameCollection'
             ? 'Renomear grupo'
-            : prompt?.kind === 'groupFromCode'
+            : prompt?.kind === 'renameCategory'
+              ? 'Renomear categoria'
+              : prompt?.kind === 'groupFromCode'
               ? `Nova categoria com "${prompt.code.name}"`
               : prompt?.kind === 'collectionFromGroup'
                 ? `Novo grupo com "${prompt.code.name}"`
                 : ''
         }
         label={
-          prompt?.kind === 'groupFromCode'
+          prompt?.kind === 'groupFromCode' || prompt?.kind === 'renameCategory'
             ? 'Nome da categoria'
             : 'Nome do grupo'
         }
         initialValue={
-          prompt?.kind === 'renameCollection' ? prompt.collection.name : ''
+          prompt?.kind === 'renameCollection'
+            ? prompt.collection.name
+            : prompt?.kind === 'renameCategory'
+              ? prompt.code.name
+              : ''
         }
         onSubmit={handlePrompt}
       />
