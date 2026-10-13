@@ -4,6 +4,7 @@ import {
   buildDocumentSection,
   buildStructureSection,
   buildNotesSection,
+  buildQuotesSection,
   sanearNota,
   suggestedFileName
 } from '../src/shared/aiExport'
@@ -137,12 +138,63 @@ describe('buildAiExport', () => {
     )
     expect(buildAiExport({ ...base, scope: 'full' })).toContain('Trechos entre')
   })
+
+  it('adds the marked excerpts, without the whole document, when asked in the structure scope', () => {
+    const saida = buildAiExport({
+      ...base,
+      scope: 'structure',
+      documents: [],
+      includeQuotes: true,
+      quoteDocuments: [{ id: 1, ...base.documents[0] }]
+    })
+    expect(saida).toContain('## Trechos marcados por código')
+    expect(saida).toContain('- [Entrevista 1] «fala»')
+    expect(saida).not.toContain('fala do participante')
+  })
+
+  it('ignores the excerpts option outside the structure scope', () => {
+    const saida = buildAiExport({
+      ...base,
+      scope: 'full',
+      includeQuotes: true,
+      quoteDocuments: [{ id: 1, ...base.documents[0] }]
+    })
+    expect(saida).not.toContain('## Trechos marcados por código')
+  })
+})
+
+describe('buildQuotesSection', () => {
+  const doc = { id: 1, name: 'E1', plainText: 'um\ndois «tres» quatro', codings: [] }
+
+  it('groups excerpts under each code, with the category in the heading', () => {
+    const saida = buildQuotesSection(
+      [code(1, 'CAT'), code(2, 'filho', 1), code(3, 'solto')],
+      [coding(1, 2, 0, 6), coding(2, 3, 7, 14)],
+      [doc]
+    )
+    expect(saida).toContain('### CAT › filho (1)')
+    expect(saida).toContain('### solto (1)')
+    expect(saida).not.toContain('### CAT (')
+  })
+
+  // quebra de linha e aspas angulares no trecho forjariam a estrutura do arquivo
+  it('keeps each excerpt on one line and neutralizes the angle quotes', () => {
+    const saida = buildQuotesSection([code(2, 'A')], [coding(1, 2, 0, 14)], [doc])
+    expect(saida).toContain('- [E1] «um dois "tres"»')
+  })
+
+  it('says so when nothing is marked', () => {
+    expect(buildQuotesSection([code(2, 'A')], [], [doc])).toContain('nenhum trecho marcado')
+  })
 })
 
 describe('suggestedFileName', () => {
   it('names the file after the project and the scope', () => {
     expect(suggestedFileName('SBSI', 'document')).toBe('SBSI - para IA (documento).txt')
     expect(suggestedFileName('SBSI', 'structure')).toBe('SBSI - para IA (estrutura).txt')
+    expect(suggestedFileName('SBSI', 'structure', undefined, true)).toBe(
+      'SBSI - para IA (estrutura e trechos).txt'
+    )
   })
 
   it('puts the document name in the file so two documents do not collide', () => {

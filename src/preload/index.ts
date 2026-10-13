@@ -78,8 +78,8 @@ const api: Api = {
     }
   },
   aiExport: {
-    export: (scope, documentId, includeNotes) =>
-      ipcRenderer.invoke(IPC.aiExport.export, scope, documentId, includeNotes),
+    export: (scope, documentId, includeNotes, includeQuotes) =>
+      ipcRenderer.invoke(IPC.aiExport.export, scope, documentId, includeNotes, includeQuotes),
     cliInstructions: () => ipcRenderer.invoke(IPC.aiExport.cliInstructions)
   },
   qdpx: {

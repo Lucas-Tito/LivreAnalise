@@ -24,6 +24,10 @@ export interface AiExportInput {
   // opt-in explícito: notas entram como comentário do pesquisador, nunca
   // escondidas no escopo "só estrutura" sem aviso
   includeNotes?: boolean
+  // Só no escopo estrutura: o texto de cada trecho marcado, agrupado por código,
+  // sem o documento inteiro. Os documentos vêm aqui só para tirar o texto.
+  includeQuotes?: boolean
+  quoteDocuments?: AiExportDocument[]
   projectNotes?: Note[]
   notesByDocument?: Map<number, Note[]> | Record<number, Note[]>
 }
@@ -134,7 +138,13 @@ const NOTA_MAX = 2000
 export function sanearNota(texto: string): string {
   const cortado =
     texto.length > NOTA_MAX ? `${texto.slice(0, NOTA_MAX)}… (nota truncada)` : texto
-  return cortado
+  return sanearLinha(cortado)
+}
+
+// O mesmo cuidado vale para o texto de um trecho citado: ele também pode ter
+// quebra de linha, cabeçalho ou aspas angulares.
+function sanearLinha(texto: string): string {
+  return texto
     // cabecalho no comeco de linha e o que define secao no arquivo
     .replace(/^(\s*)(#{1,6})(\s)/gm, '$1\u200b$2$3')
     // as aspas angulares delimitam trecho codificado
@@ -205,6 +215,47 @@ export function buildNotesSection(
   return linhas.join('\n')
 }
 
+// Trechos marcados sem o documento: cada código-folha com o texto dos trechos
+// dele, na ordem da árvore. A categoria entra no título para desfazer nomes
+// iguais em categorias diferentes.
+export function buildQuotesSection(
+  codes: Code[],
+  allCodings: Coding[],
+  documents: AiExportDocument[]
+): string {
+  const porId = new Map(codes.map((c) => [c.id, c]))
+  const docPorId = new Map(documents.map((d) => [d.id, d]))
+  const porCodigo = new Map<number, Coding[]>()
+  for (const c of allCodings) {
+    const lista = porCodigo.get(c.codeId) ?? []
+    lista.push(c)
+    porCodigo.set(c.codeId, lista)
+  }
+
+  const linhas = ['## Trechos marcados por código', '']
+  let algum = false
+  for (const code of codes) {
+    const codings = porCodigo.get(code.id)
+    if (!codings || codings.length === 0) continue
+    algum = true
+    const pai = code.parentId != null ? porId.get(code.parentId) : undefined
+    const titulo = pai ? `${pai.name} › ${code.name}` : code.name
+    linhas.push(`### ${titulo} (${codings.length})`)
+    const ordenados = [...codings].sort(
+      (a, b) => a.documentId - b.documentId || a.startPos - b.startPos
+    )
+    for (const c of ordenados) {
+      const doc = docPorId.get(c.documentId)
+      if (!doc) continue
+      const trecho = sanearLinha(doc.plainText.slice(c.startPos, c.endPos))
+      linhas.push(`- [${doc.name}] «${trecho}»`)
+    }
+    linhas.push('')
+  }
+  if (!algum) linhas.push('_(nenhum trecho marcado)_', '')
+  return linhas.join('\n').trimEnd()
+}
+
 export function buildAiExport(input: AiExportInput): string {
   const blocos: string[] = [
     `# ${input.projectName} — exportação para IA`,
@@ -228,6 +279,13 @@ export function buildAiExport(input: AiExportInput): string {
       input.allCodings
     )
   )
+
+  if (input.includeQuotes && input.scope === 'structure') {
+    blocos.push(
+      '',
+      buildQuotesSection(input.codes, input.allCodings, input.quoteDocuments ?? [])
+    )
+  }
 
   for (const documento of input.documents) {
     blocos.push('', buildDocumentSection(documento, input.codes))
@@ -268,13 +326,20 @@ export function buildAiExport(input: AiExportInput): string {
 export function suggestedFileName(
   projectName: string,
   scope: AiExportScope,
-  documentName?: string
+  documentName?: string,
+  includeQuotes?: boolean
 ): string {
   if (scope === 'document' && documentName) {
     return `${projectName} - ${semBarras(documentName)} - para IA.txt`
   }
   const rotulo =
-    scope === 'structure' ? 'estrutura' : scope === 'document' ? 'documento' : 'completo'
+    scope === 'structure'
+      ? includeQuotes
+        ? 'estrutura e trechos'
+        : 'estrutura'
+      : scope === 'document'
+        ? 'documento'
+        : 'completo'
   return `${projectName} - para IA (${rotulo}).txt`
 }
 

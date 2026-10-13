@@ -196,7 +196,8 @@ export interface Api {
     export: (
       scope: AiExportScope,
       documentId: number | null,
-      includeNotes?: boolean
+      includeNotes?: boolean,
+      includeQuotes?: boolean
     ) => Promise<ExportResult | null>
     cliInstructions: () => Promise<string>
   }
