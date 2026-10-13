@@ -9,6 +9,7 @@ import { pushRecent } from '../services/recents'
 import { exportQdpx } from '../qdpx/export'
 import { importQdpx } from '../qdpx/import'
 import { ensureMeta } from './project'
+import { SAVE_DIALOG_PROPERTIES } from './saveDialog'
 
 const PROJECT_EXT = 'liva'
 
@@ -21,7 +22,8 @@ export function registerQdpxHandlers(): void {
     const result = await dialog.showSaveDialog({
       title: 'Exportar para QDPX',
       defaultPath: `${projectName}.qdpx`,
-      filters: [{ name: 'REFI-QDA Project', extensions: ['qdpx'] }]
+      filters: [{ name: 'REFI-QDA Project', extensions: ['qdpx'] }],
+      properties: SAVE_DIALOG_PROPERTIES
     })
     if (result.canceled || !result.filePath) return null
     return exportQdpx(result.filePath, projectName)
@@ -40,7 +42,8 @@ export function registerQdpxHandlers(): void {
     const saveResult = await dialog.showSaveDialog({
       title: 'Salvar novo projeto',
       defaultPath: `${suggestedName}.${PROJECT_EXT}`,
-      filters: [{ name: 'Projeto LivreAnalise', extensions: [PROJECT_EXT] }]
+      filters: [{ name: 'Projeto LivreAnalise', extensions: [PROJECT_EXT] }],
+      properties: SAVE_DIALOG_PROPERTIES
     })
     if (saveResult.canceled || !saveResult.filePath) return null
     const livaPath = saveResult.filePath

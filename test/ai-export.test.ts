@@ -144,6 +144,13 @@ describe('suggestedFileName', () => {
     expect(suggestedFileName('SBSI', 'document')).toBe('SBSI - para IA (documento).txt')
     expect(suggestedFileName('SBSI', 'structure')).toBe('SBSI - para IA (estrutura).txt')
   })
+
+  it('puts the document name in the file so two documents do not collide', () => {
+    expect(suggestedFileName('SBSI', 'document', 'Entrevista 3')).toBe(
+      'SBSI - Entrevista 3 - para IA.txt'
+    )
+    expect(suggestedFileName('SBSI', 'document', 'a/b')).toBe('SBSI - a-b - para IA.txt')
+  })
 })
 
 describe('sanearNota', () => {

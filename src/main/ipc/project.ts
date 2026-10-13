@@ -20,6 +20,7 @@ import { renameProject, trashProject } from '../services/projectFile'
 import { readProjectStats } from '../db/projectStats'
 import { clearHistoryFor } from '../history/stack'
 import { createVersionSnapshot, snapshotBeforeMigration } from '../services/projectVersions'
+import { SAVE_DIALOG_PROPERTIES } from './saveDialog'
 
 const PROJECT_EXT = 'liva'
 
@@ -57,7 +58,8 @@ export function registerProjectHandlers(): void {
     const result = await dialog.showSaveDialog({
       title: 'Criar novo projeto',
       defaultPath: `projeto.${PROJECT_EXT}`,
-      filters: [{ name: 'Projeto LivreAnalise', extensions: [PROJECT_EXT] }]
+      filters: [{ name: 'Projeto LivreAnalise', extensions: [PROJECT_EXT] }],
+      properties: SAVE_DIALOG_PROPERTIES
     })
     if (result.canceled || !result.filePath) return null
     const path = result.filePath

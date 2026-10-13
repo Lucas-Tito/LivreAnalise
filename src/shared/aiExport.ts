@@ -263,13 +263,23 @@ export function buildAiExport(input: AiExportInput): string {
 }
 
 // Nome sugerido no diálogo de salvar; o usuário pode trocar.
+// No escopo de documento o nome do documento entra no arquivo: sem ele, exportar
+// duas entrevistas sugeria o mesmo nome e a segunda sobrescrevia a primeira.
 export function suggestedFileName(
   projectName: string,
-  scope: AiExportScope
+  scope: AiExportScope,
+  documentName?: string
 ): string {
+  if (scope === 'document' && documentName) {
+    return `${projectName} - ${semBarras(documentName)} - para IA.txt`
+  }
   const rotulo =
     scope === 'structure' ? 'estrutura' : scope === 'document' ? 'documento' : 'completo'
   return `${projectName} - para IA (${rotulo}).txt`
+}
+
+function semBarras(nome: string): string {
+  return nome.replace(/[\\/]/g, '-')
 }
 
 // Modo avançado: instruções para uma IA de terminal ler o projeto direto, sem
