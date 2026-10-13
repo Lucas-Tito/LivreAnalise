@@ -179,7 +179,9 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
           </p>
         )}
 
-        <div ref={listaRef} className="max-h-[60vh] space-y-2 overflow-auto">
+        {/* pr-2.5: a barra de rolagem fica por cima do conteúdo e cortava a borda
+            direita dos cards (#63) */}
+        <div ref={listaRef} className="max-h-[60vh] space-y-2 overflow-auto pr-2.5">
           {quotes.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
               Este código ainda não foi aplicado a nenhum trecho.
