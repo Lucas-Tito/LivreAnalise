@@ -82,7 +82,7 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
               className="text-muted-foreground"
               onClick={() => setConfigAberta(true)}
               aria-label="Configurações"
-              title="Configurações — tema e fonte de leitura"
+              title="Configurações"
             >
               <Settings className="h-4 w-4" />
             </Button>

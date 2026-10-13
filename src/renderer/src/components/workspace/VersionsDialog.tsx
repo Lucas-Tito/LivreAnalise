@@ -122,7 +122,7 @@ export function VersionsDialog({ open, onOpenChange }: Props): JSX.Element {
                     variant="outline"
                     disabled={working}
                     onClick={() => void handleRestore(v.id)}
-                    title="Abre a cópia como novo projeto (nunca sobrescreve o atual)"
+                    title="Abrir esta versão como um novo projeto"
                   >
                     <RotateCcw className="h-3.5 w-3.5" /> Restaurar cópia
                   </Button>
@@ -131,7 +131,7 @@ export function VersionsDialog({ open, onOpenChange }: Props): JSX.Element {
                     variant="ghost"
                     disabled={working}
                     onClick={() => void handleDelete(v)}
-                    title="Apagar este checkpoint do disco"
+                    title="Apagar esta versão"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>

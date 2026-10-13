@@ -227,7 +227,7 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
           {status === 'saving' && 'Salvando…'}
           {status === 'saved' && 'Salvo'}
           {status === 'dirty' && 'Alterações não salvas'}
-          {status === 'error' && 'Erro ao salvar — tente Ctrl+S'}
+          {status === 'error' && 'Erro ao salvar. Tente Ctrl+S'}
         </span>
         <Button size="sm" variant="ghost" onClick={() => void handleDelete()} title="Apagar nota">
           <Trash2 className="h-4 w-4" />

@@ -238,7 +238,7 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors hover:bg-accent"
           >
             <Terminal className="h-4 w-4 shrink-0" />
-            Avançado — IA por CLI
+            Avançado: IA pelo terminal
             <span className="ml-auto text-xs text-muted-foreground">
               {mostrarCli ? 'ocultar' : 'mostrar'}
             </span>

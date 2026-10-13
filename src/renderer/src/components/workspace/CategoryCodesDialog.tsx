@@ -95,10 +95,7 @@ export function CategoryCodesDialog({ category, onOpenChange }: Props): JSX.Elem
                       />
                       <span className="truncate">{c.name}</span>
                       {outra && (
-                        <span
-                          className="ml-auto shrink-0 truncate text-xs text-muted-foreground"
-                          title="Marcar tira o código dessa categoria."
-                        >
+                        <span className="ml-auto shrink-0 truncate text-xs text-muted-foreground">
                           em {outra}
                         </span>
                       )}

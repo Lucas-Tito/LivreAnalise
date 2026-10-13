@@ -96,7 +96,7 @@ export function TopBar(): JSX.Element {
           variant="ghost"
           onClick={() => setVersoes(true)}
           aria-label="Versões do projeto"
-          title="Versões do projeto — checkpoints (restaurar abre uma cópia)"
+          title="Versões do projeto"
         >
           <History className="h-4 w-4" />
         </Button>

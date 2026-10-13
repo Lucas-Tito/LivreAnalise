@@ -251,8 +251,8 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
               >
                 {models.map((model) => (
                   <option key={model.id} value={model.id}>
-                    {model.label} — {formatBytes(model.approxBytes)}
-                    {model.ready ? ' (baixado)' : ''}
+                    {model.label} ({formatBytes(model.approxBytes)}
+                    {model.ready ? ', baixado' : ''})
                   </option>
                 ))}
               </select>

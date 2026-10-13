@@ -157,8 +157,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const [dropTarget, setDropTarget] = useState<number | null>(null)
   const [dropPos, setDropPos] = useState<DropZone | null>(null)
   const [dropKind, setDropKind] = useState<DropKind | null>(null)
-  const DEFAULT_HINT =
-    'Bordas: reordenar • centro: pôr na categoria • fundo: 1º nível'
+  const DEFAULT_HINT = 'Solte para mover'
   const [dropHint, setDropHint] = useState(DEFAULT_HINT)
   const [rootHover, setRootHover] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -628,7 +627,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
       }
       if (intent.kind === 'invalid') {
         cleanupDrag()
-        flashNotice('Destino inválido — nada foi movido.')
+        flashNotice('Não dá para mover para cá.')
         return
       }
       if (intent.kind === 'group') {
@@ -811,7 +810,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
               data-code-children={hasChildren ? '1' : '0'}
               className={`group relative flex cursor-grab select-none items-center gap-1 rounded-md py-1 pr-1 text-sm transition-all duration-150 ease-out hover:bg-accent/50 ${isSelected ? 'bg-accent ring-1 ring-inset ring-primary/40' : ''} ${isDragging ? 'scale-[0.98] opacity-50' : ''} ${isGroupTarget ? 'code-drop-group' : ''} ${isNestTarget && !isGroupTarget ? 'code-drop-inside' : ''} ${isInsertBefore ? 'code-insert-before' : ''} ${isInsertAfter ? 'code-insert-after' : ''} ${isSameSpot ? 'code-drop-same' : ''}`}
               style={{ paddingLeft: depth * 14 + 4 }}
-              title="Arrastar: bordas reordenam • centro põe na categoria • fundo tira da categoria"
+              title="Arraste para mover"
               onPointerDown={(e) => startPointerDrag(e, node.code)}
               onContextMenu={(e) => {
                 // O container da lista tambem tem menu de contexto (fundo
@@ -1096,12 +1095,6 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
               <X className="h-3.5 w-3.5" /> Limpar
             </Button>
           </div>
-        )}
-        {selected.size === 0 && !notice && (
-          <p className="mt-1.5 px-1 text-[11px] leading-tight text-muted-foreground/70">
-            Ctrl+clique soma • Shift+clique intervala • arraste: borda
-            reordena, centro põe na categoria
-          </p>
         )}
         {notice && (
           <p className="mt-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">

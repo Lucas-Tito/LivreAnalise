@@ -1126,7 +1126,7 @@ export function TranscriptPanel(): JSX.Element {
                 // armazenamento indisponível: só não persiste
               }
             }}
-            title="Arraste para redimensionar a faixa de códigos (duplo clique restaura)"
+            title="Arraste para redimensionar"
             className={`w-1.5 shrink-0 cursor-col-resize self-stretch hover:bg-primary/20 ${
               laneResizing ? 'bg-primary/30' : ''
             }`}

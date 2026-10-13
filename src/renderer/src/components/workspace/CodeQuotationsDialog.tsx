@@ -158,11 +158,7 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
               <div className="flex shrink-0 items-center gap-0.5 rounded-md border p-0.5 text-xs">
                 <button
                   disabled={!currentDocument}
-                  title={
-                    currentDocument
-                      ? 'Limitar as ocorrências ao documento aberto.'
-                      : 'Abra um documento para filtrar os trechos.'
-                  }
+                  title={currentDocument ? undefined : 'Abra um documento para filtrar os trechos.'}
                   onClick={() => setSomenteDocumento(true)}
                   className={cn(
                     'rounded px-2 py-1 transition-colors',
@@ -175,7 +171,6 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
                   Neste documento
                 </button>
                 <button
-                  title="Percorrer as ocorrências em todos os documentos."
                   onClick={() => setSomenteDocumento(false)}
                   className={cn(
                     'rounded px-2 py-1 transition-colors',
