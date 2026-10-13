@@ -125,6 +125,11 @@ export const IPC = {
     fontSerif: 'view:font-serif',
     fontDyslexic: 'view:font-dyslexic',
     fontChanged: 'view:font-changed'
+  },
+  app: {
+    textDirty: 'app:text-dirty',
+    closeRequested: 'app:close-requested',
+    confirmClose: 'app:confirm-close'
   }
 } as const
 
@@ -206,6 +211,11 @@ export interface Api {
   view: {
     notifyFont: (font: string) => void
     onAction: (listener: (action: string) => void) => () => void
+  }
+  app: {
+    setTextDirty: (dirty: boolean) => void
+    onCloseRequested: (listener: () => void) => () => void
+    confirmClose: () => void
   }
   history: {
     state: () => Promise<HistoryState>

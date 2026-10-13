@@ -120,6 +120,9 @@ export function TranscriptPanel(): JSX.Element {
   const updateCoding = useAppStore((s) => s.updateCoding)
   const removeCoding = useAppStore((s) => s.removeCoding)
   const updateDocumentText = useAppStore((s) => s.updateDocumentText)
+  const setTextoSujo = useAppStore((s) => s.setTextoSujo)
+  const registerTextoAcoes = useAppStore((s) => s.registerTextoAcoes)
+  const podeSairDoTexto = useAppStore((s) => s.podeSairDoTexto)
   const documentNotes = useAppStore((s) => s.documentNotes)
   const projectNotes = useAppStore((s) => s.projectNotes)
   const editorNoteId = useAppStore((s) => s.editorNoteId)
@@ -667,22 +670,52 @@ export function TranscriptPanel(): JSX.Element {
     setEditing(true)
   }
 
-  const cancelEditing = (): void => {
+  const cancelEditing = async (): Promise<void> => {
+    if (!(await podeSairDoTexto())) return
     setEditing(false)
     setDraft('')
   }
 
-  const saveEditing = async (): Promise<void> => {
-    if (!currentDocument) return
+  const saveEditing = async (): Promise<boolean> => {
+    if (!currentDocument) return false
     setSaving(true)
     try {
       await updateDocumentText(currentDocument.id, draft)
       setEditing(false)
       setDraft('')
+      return true
     } finally {
       setSaving(false)
     }
   }
+
+  // Texto pendente (#31): o store sabe quando há edição não salva e, pelas
+  // ações registradas aqui, o diálogo de saída consegue salvar ou descartar.
+  const textoSujo = editing && draft !== text
+  useEffect(() => {
+    setTextoSujo(textoSujo)
+  }, [textoSujo, setTextoSujo])
+  useEffect(() => () => setTextoSujo(false), [setTextoSujo])
+
+  const saveRef = useRef(saveEditing)
+  saveRef.current = saveEditing
+  useEffect(() => {
+    registerTextoAcoes({
+      salvar: () => saveRef.current(),
+      descartar: () => {
+        setEditing(false)
+        setDraft('')
+      }
+    })
+    return () => registerTextoAcoes(null)
+  }, [registerTextoAcoes])
+
+  // Trocar de documento encerra a edição: o rascunho é do documento anterior, e
+  // o salvar gravaria esse texto no documento novo.
+  useEffect(() => {
+    setEditing(false)
+    setDraft('')
+  }, [currentDocument?.id])
 
   if (!currentDocument) {
     return (
@@ -709,10 +742,10 @@ export function TranscriptPanel(): JSX.Element {
           </span>
           {editing ? (
             <>
-              <Button size="sm" variant="ghost" onClick={cancelEditing} disabled={saving}>
+              <Button size="sm" variant="ghost" onClick={() => void cancelEditing()} disabled={saving}>
                 <X className="h-4 w-4" /> Cancelar
               </Button>
-              <Button size="sm" onClick={saveEditing} disabled={saving}>
+              <Button size="sm" onClick={() => void saveEditing()} disabled={saving}>
                 <Save className="h-4 w-4" /> Salvar texto
               </Button>
             </>

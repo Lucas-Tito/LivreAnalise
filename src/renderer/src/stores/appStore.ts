@@ -109,6 +109,16 @@ interface AppState {
   deleteNote: (id: number) => Promise<void>
   notesFlush: (() => Promise<void>) | null
   registerNotesFlush: (fn: (() => Promise<void>) | null) => void
+  // Edição de texto do documento ainda não salva (#31). O TranscriptPanel
+  // registra como salvar e descartar; quem vai sair do documento pergunta antes
+  // pelo podeSairDoTexto, que abre o UnsavedTextDialog.
+  textoSujo: boolean
+  textoAcoes: { salvar: () => Promise<boolean>; descartar: () => void } | null
+  saidaDoTexto: ((ok: boolean) => void) | null
+  setTextoSujo: (sujo: boolean) => void
+  registerTextoAcoes: (acoes: AppState['textoAcoes']) => void
+  podeSairDoTexto: () => Promise<boolean>
+  responderSaidaDoTexto: (ok: boolean) => void
 }
 
 async function refreshAfterHistory(
@@ -274,6 +284,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   closeProject: async () => {
+    if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     await window.api.project.close()
     set({
@@ -305,6 +316,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectDocument: async (id) => {
+    // O salvar do próprio texto chama selectDocument no mesmo documento para
+    // recarregar; só trocar de documento é sair da edição.
+    if (get().currentDocument?.id !== id && !(await get().podeSairDoTexto())) return false
     await get().notesFlush?.()
     const doc = await window.api.documents.get(id)
     // Documento apagado: manter o que esta aberto. Publicar `null` aqui
@@ -458,6 +472,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   restoreVersion: async (id) => {
+    if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     const result = await window.api.versions.restore(id)
     if (!result) return
@@ -614,5 +629,27 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().refreshHistory()
   },
 
-  registerNotesFlush: (fn) => set({ notesFlush: fn })
+  registerNotesFlush: (fn) => set({ notesFlush: fn }),
+
+  textoSujo: false,
+  textoAcoes: null,
+  saidaDoTexto: null,
+  setTextoSujo: (sujo) => {
+    if (get().textoSujo === sujo) return
+    set({ textoSujo: sujo })
+    window.api.app.setTextDirty(sujo)
+  },
+  registerTextoAcoes: (acoes) => set({ textoAcoes: acoes }),
+  podeSairDoTexto: () => {
+    if (!get().textoSujo) return Promise.resolve(true)
+    // Uma pergunta por vez: um segundo pedido enquanto o diálogo está aberto
+    // responde "não" ao primeiro.
+    get().saidaDoTexto?.(false)
+    return new Promise<boolean>((resolve) => set({ saidaDoTexto: resolve }))
+  },
+  responderSaidaDoTexto: (ok) => {
+    const resolve = get().saidaDoTexto
+    set({ saidaDoTexto: null })
+    resolve?.(ok)
+  }
 }))

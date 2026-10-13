@@ -34,6 +34,18 @@ ipcMain.on(IPC.view.fontChanged, (_e, font: string) => {
   }
 })
 
+// Texto do documento em edição e ainda não salvo (#31). Só com isto ligado o
+// fechar da janela vira pergunta: sem pendência ele segue direto, e um renderer
+// travado nunca deixa a janela impossível de fechar.
+let textoPendente = false
+ipcMain.on(IPC.app.textDirty, (_e, dirty: boolean) => {
+  textoPendente = dirty
+})
+ipcMain.on(IPC.app.confirmClose, (e) => {
+  textoPendente = false
+  BrowserWindow.fromWebContents(e.sender)?.close()
+})
+
 const isDev = !app.isPackaged
 
 // Em desenvolvimento no Linux, o sandbox setuid do Chromium exige que o binario
@@ -66,6 +78,15 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+  })
+
+  mainWindow.on('close', (e) => {
+    if (!textoPendente) return
+    e.preventDefault()
+    mainWindow.webContents.send(IPC.app.closeRequested)
+  })
+  mainWindow.webContents.on('render-process-gone', () => {
+    textoPendente = false
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {

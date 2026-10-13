@@ -122,6 +122,17 @@ const api: Api = {
         ipcRenderer.removeListener(IPC.view.fontDyslexic, handler)
       }
     }
+  },
+  app: {
+    setTextDirty: (dirty) => ipcRenderer.send(IPC.app.textDirty, dirty),
+    onCloseRequested: (listener) => {
+      const handler = (): void => listener()
+      ipcRenderer.on(IPC.app.closeRequested, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.app.closeRequested, handler)
+      }
+    },
+    confirmClose: () => ipcRenderer.send(IPC.app.confirmClose)
   }
 }
 
