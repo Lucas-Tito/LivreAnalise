@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type JSX, useState } from 'react'
 import { FileText, FilePlus, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,8 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { SimplePromptDialog } from './SimplePromptDialog'
 import { cn } from '@/lib/utils'
+import { casaBusca } from '@shared/busca'
+import { SearchButton, SearchField } from './SearchField'
 import type { DocumentRecord } from '@shared/types'
 
 export function DocumentsPanel(): JSX.Element {
@@ -22,28 +24,54 @@ export function DocumentsPanel(): JSX.Element {
   const busy = useAppStore((s) => s.busy)
 
   const [renaming, setRenaming] = useState<DocumentRecord | null>(null)
+  const [buscaAberta, setBuscaAberta] = useState(false)
+  const [termo, setTermo] = useState('')
+  const fecharBusca = (): void => {
+    setBuscaAberta(false)
+    setTermo('')
+  }
+  const visiveis = documents.filter((doc) => casaBusca(doc.name, termo))
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b p-2">
-        <Button
-          size="sm"
-          variant="secondary"
-          className="w-full"
-          disabled={busy}
-          onClick={importDocuments}
-        >
-          <FilePlus className="h-4 w-4" /> Importar documentos
-        </Button>
+      <div className="space-y-2 border-b p-2">
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="min-w-0 flex-1"
+            disabled={busy}
+            onClick={importDocuments}
+          >
+            <FilePlus className="h-4 w-4" /> Importar documentos
+          </Button>
+          <SearchButton
+            active={buscaAberta}
+            title="Buscar documento"
+            onClick={() => (buscaAberta ? fecharBusca() : setBuscaAberta(true))}
+          />
+        </div>
+        {buscaAberta && (
+          <SearchField
+            value={termo}
+            onChange={setTermo}
+            onClose={fecharBusca}
+            placeholder="Nome do documento"
+          />
+        )}
       </div>
       <div className="flex-1 overflow-auto p-1">
         {documents.length === 0 ? (
           <p className="p-4 text-center text-xs text-muted-foreground">
             Nenhum documento importado.
           </p>
+        ) : visiveis.length === 0 ? (
+          <p className="p-4 text-center text-xs text-muted-foreground">
+            Nenhum documento encontrado.
+          </p>
         ) : (
           <ul className="space-y-0.5">
-            {documents.map((doc) => (
+            {visiveis.map((doc) => (
               <li key={doc.id}>
                 <div
                   className={cn(

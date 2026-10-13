@@ -1,22 +1,34 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type JSX, useEffect, useMemo, useRef, useState } from 'react'
 import { casaBusca, mesmoTermo } from '@shared/busca'
 import { Link2, Plus, StickyNote } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { applicableCodes } from '@shared/codeTree'
-import { randomColor } from '@/lib/utils'
 
 interface Props {
   x: number
   y: number
   onClose: () => void
   onApply: (codeId: number) => void
+  // Criar código abre o diálogo de configuração (cor, descrição) com o nome já
+  // digitado; quem chama aplica ao trecho depois de salvo.
+  onCreate: (name: string) => void
+  // Texto do trecho selecionado no documento, para o Ctrl+C (#72).
+  selectedText: string
   onAddNote?: () => void
   onReattachNote?: () => void
 }
 
-export function CodingPopover({ x, y, onClose, onApply, onAddNote, onReattachNote }: Props): JSX.Element {
+export function CodingPopover({
+  x,
+  y,
+  onClose,
+  onApply,
+  onCreate,
+  selectedText,
+  onAddNote,
+  onReattachNote
+}: Props): JSX.Element {
   const allCodes = useAppStore((s) => s.codes)
-  const createCode = useAppStore((s) => s.createCode)
   const lastUsedCodeId = useAppStore((s) => s.lastUsedCodeId)
   const [filter, setFilter] = useState('')
   const ref = useRef<HTMLDivElement>(null)
@@ -46,14 +58,25 @@ export function CodingPopover({ x, y, onClose, onApply, onAddNote, onReattachNot
     (c) => mesmoTermo(c.name, filter)
   )
 
-  const handleCreate = async (): Promise<void> => {
+  const handleCreate = (): void => {
     const name = filter.trim()
-    if (!name) return
-    const code = await createCode({ name, color: randomColor() })
-    onApply(code.id)
+    if (name) onCreate(name)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent): void => {
+    // O popover abre com o foco no campo de busca, então o Ctrl+C ia para o
+    // campo vazio e o trecho selecionado no texto não era copiado (#72). Com
+    // nada selecionado no campo, o Ctrl+C copia o trecho.
+    const campo = e.currentTarget as HTMLInputElement
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      e.key.toLowerCase() === 'c' &&
+      campo.selectionStart === campo.selectionEnd
+    ) {
+      e.preventDefault()
+      void navigator.clipboard.writeText(selectedText)
+      return
+    }
     if (e.key === 'Escape') {
       onClose()
     } else if (e.key === 'Enter') {
@@ -109,7 +132,7 @@ export function CodingPopover({ x, y, onClose, onApply, onAddNote, onReattachNot
             style={{ backgroundColor: lastUsed.color }}
           />
           <span className="truncate">{lastUsed.name}</span>
-          <span className="ml-auto text-xs text-muted-foreground">ultimo</span>
+          <span className="ml-auto text-xs text-muted-foreground">último</span>
         </button>
       )}
       <div className="max-h-56 overflow-auto">

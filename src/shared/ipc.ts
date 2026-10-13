@@ -102,8 +102,7 @@ export const IPC = {
     cliInstructions: 'aiExport:cliInstructions'
   },
   qdpx: {
-    export: 'qdpx:export',
-    importAsProject: 'qdpx:importAsProject'
+    export: 'qdpx:export'
   },
   history: {
     state: 'history:state',
@@ -126,13 +125,18 @@ export const IPC = {
     fontSerif: 'view:font-serif',
     fontDyslexic: 'view:font-dyslexic',
     fontChanged: 'view:font-changed'
+  },
+  app: {
+    textDirty: 'app:text-dirty',
+    closeRequested: 'app:close-requested',
+    confirmClose: 'app:confirm-close'
   }
 } as const
 
 export interface Api {
   project: {
     create: () => Promise<OpenProjectResult | null>
-    open: () => Promise<OpenProjectResult | null>
+    open: () => Promise<(OpenProjectResult & { report?: ImportReport }) | null>
     openPath: (path: string) => Promise<OpenProjectResult | null>
     current: () => Promise<ProjectMeta | null>
     close: () => Promise<void>
@@ -196,17 +200,22 @@ export interface Api {
     export: (
       scope: AiExportScope,
       documentId: number | null,
-      includeNotes?: boolean
+      includeNotes?: boolean,
+      includeQuotes?: boolean
     ) => Promise<ExportResult | null>
     cliInstructions: () => Promise<string>
   }
   qdpx: {
     export: () => Promise<ExportResult | null>
-    importAsProject: () => Promise<(OpenProjectResult & { report: ImportReport }) | null>
   }
   view: {
     notifyFont: (font: string) => void
     onAction: (listener: (action: string) => void) => () => void
+  }
+  app: {
+    setTextDirty: (dirty: boolean) => void
+    onCloseRequested: (listener: () => void) => () => void
+    confirmClose: () => void
   }
   history: {
     state: () => Promise<HistoryState>

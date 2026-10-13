@@ -3,6 +3,7 @@ import { join } from 'path'
 import { closeDatabase } from './db'
 import { registerIpcHandlers } from './ipc'
 import { IPC } from '@shared/ipc'
+import icon from '../../resources/icon.png?asset'
 
 // A saida padrao pode estar com o pipe fechado (AppImage aberto pelo menu,
 // terminal que ja fechou, saida redirecionada). O proprio Electron faz um
@@ -33,6 +34,18 @@ ipcMain.on(IPC.view.fontChanged, (_e, font: string) => {
   }
 })
 
+// Texto do documento em edição e ainda não salvo (#31). Só com isto ligado o
+// fechar da janela vira pergunta: sem pendência ele segue direto, e um renderer
+// travado nunca deixa a janela impossível de fechar.
+let textoPendente = false
+ipcMain.on(IPC.app.textDirty, (_e, dirty: boolean) => {
+  textoPendente = dirty
+})
+ipcMain.on(IPC.app.confirmClose, (e) => {
+  textoPendente = false
+  BrowserWindow.fromWebContents(e.sender)?.close()
+})
+
 const isDev = !app.isPackaged
 
 // Em desenvolvimento no Linux, o sandbox setuid do Chromium exige que o binario
@@ -52,6 +65,9 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     title: 'LivreAnalise',
+    // No Linux o ícone da janela não vem do pacote: o AppImage não instala um
+    // .desktop, e sem isto a barra de tarefas mostra um ícone genérico (#40).
+    ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -62,6 +78,15 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+  })
+
+  mainWindow.on('close', (e) => {
+    if (!textoPendente) return
+    e.preventDefault()
+    mainWindow.webContents.send(IPC.app.closeRequested)
+  })
+  mainWindow.webContents.on('render-process-gone', () => {
+    textoPendente = false
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {

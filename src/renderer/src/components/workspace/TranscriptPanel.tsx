@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type JSX, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, FileText, Pencil, Save, Search, Trash2, X } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { useZoomStore } from '@/stores/zoomStore'
@@ -20,9 +20,11 @@ import {
 } from '@/lib/barLayout'
 import { acharOcorrencias } from '@shared/busca'
 import { applyCodingAdjustments } from '@shared/editAdjust'
-import { contrastText, formatCount } from '@/lib/utils'
+import { contrastText, formatCount, randomColor } from '@/lib/utils'
+import { mensagemDeErro } from '@/lib/erros'
 import { Button } from '@/components/ui/button'
 import { CodingPopover } from './CodingPopover'
+import { CodeDialog, type CodeDialogValue } from './CodeDialog'
 import type { CodeWithCount } from '@shared/types'
 
 interface PendingSelection {
@@ -114,9 +116,13 @@ export function TranscriptPanel(): JSX.Element {
   const codings = useAppStore((s) => s.codings)
   const codes = useAppStore((s) => s.codes)
   const addCoding = useAppStore((s) => s.addCoding)
+  const createCode = useAppStore((s) => s.createCode)
   const updateCoding = useAppStore((s) => s.updateCoding)
   const removeCoding = useAppStore((s) => s.removeCoding)
   const updateDocumentText = useAppStore((s) => s.updateDocumentText)
+  const setTextoSujo = useAppStore((s) => s.setTextoSujo)
+  const registerTextoAcoes = useAppStore((s) => s.registerTextoAcoes)
+  const podeSairDoTexto = useAppStore((s) => s.podeSairDoTexto)
   const documentNotes = useAppStore((s) => s.documentNotes)
   const projectNotes = useAppStore((s) => s.projectNotes)
   const editorNoteId = useAppStore((s) => s.editorNoteId)
@@ -134,6 +140,14 @@ export function TranscriptPanel(): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
   const [pending, setPending] = useState<PendingSelection | null>(null)
+  // Código novo criado a partir de um trecho: guarda o trecho enquanto o
+  // diálogo de configuração está aberto, porque o popover já fechou. A cor
+  // sorteada mora aqui para não mudar a cada render do diálogo.
+  const [novoCodigo, setNovoCodigo] = useState<{
+    start: number
+    end: number
+    initial: Partial<CodeDialogValue>
+  } | null>(null)
   const [bars, setBars] = useState<Bar[]>([])
   const [columnCount, setColumnCount] = useState(1)
   const columnFloorRef = useRef(1)
@@ -586,6 +600,33 @@ export function TranscriptPanel(): JSX.Element {
     window.getSelection()?.removeAllRanges()
   }
 
+  const startCreateCode = (name: string): void => {
+    if (!pending) return
+    setNovoCodigo({
+      start: pending.start,
+      end: pending.end,
+      initial: { name, color: randomColor() }
+    })
+    setPending(null)
+  }
+
+  const submitNovoCodigo = async (value: CodeDialogValue): Promise<boolean> => {
+    if (!novoCodigo) return false
+    try {
+      const code = await createCode({
+        name: value.name,
+        color: value.color,
+        description: value.description || null
+      })
+      await addCoding(code.id, novoCodigo.start, novoCodigo.end)
+      window.getSelection()?.removeAllRanges()
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err, 'Não foi possível criar o código.'))
+      return false
+    }
+  }
+
   const addNoteForPending = async (): Promise<void> => {
     if (!pending || !currentDocument) return
     const note = await createNote({
@@ -629,22 +670,52 @@ export function TranscriptPanel(): JSX.Element {
     setEditing(true)
   }
 
-  const cancelEditing = (): void => {
+  const cancelEditing = async (): Promise<void> => {
+    if (!(await podeSairDoTexto())) return
     setEditing(false)
     setDraft('')
   }
 
-  const saveEditing = async (): Promise<void> => {
-    if (!currentDocument) return
+  const saveEditing = async (): Promise<boolean> => {
+    if (!currentDocument) return false
     setSaving(true)
     try {
       await updateDocumentText(currentDocument.id, draft)
       setEditing(false)
       setDraft('')
+      return true
     } finally {
       setSaving(false)
     }
   }
+
+  // Texto pendente (#31): o store sabe quando há edição não salva e, pelas
+  // ações registradas aqui, o diálogo de saída consegue salvar ou descartar.
+  const textoSujo = editing && draft !== text
+  useEffect(() => {
+    setTextoSujo(textoSujo)
+  }, [textoSujo, setTextoSujo])
+  useEffect(() => () => setTextoSujo(false), [setTextoSujo])
+
+  const saveRef = useRef(saveEditing)
+  saveRef.current = saveEditing
+  useEffect(() => {
+    registerTextoAcoes({
+      salvar: () => saveRef.current(),
+      descartar: () => {
+        setEditing(false)
+        setDraft('')
+      }
+    })
+    return () => registerTextoAcoes(null)
+  }, [registerTextoAcoes])
+
+  // Trocar de documento encerra a edição: o rascunho é do documento anterior, e
+  // o salvar gravaria esse texto no documento novo.
+  useEffect(() => {
+    setEditing(false)
+    setDraft('')
+  }, [currentDocument?.id])
 
   if (!currentDocument) {
     return (
@@ -671,23 +742,46 @@ export function TranscriptPanel(): JSX.Element {
           </span>
           {editing ? (
             <>
-              <Button size="sm" variant="ghost" onClick={cancelEditing} disabled={saving}>
+              <Button size="sm" variant="ghost" onClick={() => void cancelEditing()} disabled={saving}>
                 <X className="h-4 w-4" /> Cancelar
               </Button>
-              <Button size="sm" onClick={saveEditing} disabled={saving}>
+              <Button size="sm" onClick={() => void saveEditing()} disabled={saving}>
                 <Save className="h-4 w-4" /> Salvar texto
               </Button>
             </>
           ) : (
-            <Button size="sm" variant="outline" onClick={startEditing}>
-              <Pencil className="h-4 w-4" /> Editar texto
-            </Button>
+            <>
+              {/* O Ctrl+F sozinho não se mostra: a lupa é como a busca é descoberta. */}
+              <Button
+                size="sm"
+                variant={buscaAberta ? 'secondary' : 'ghost'}
+                title="Buscar no documento (Ctrl+F)"
+                onClick={() => {
+                  if (buscaAberta) {
+                    setBuscaAberta(false)
+                    setTermo('')
+                  } else {
+                    setBuscaAberta(true)
+                    setTimeout(() => buscaInputRef.current?.select(), 0)
+                  }
+                }}
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+              <Button size="sm" variant="outline" onClick={startEditing}>
+                <Pencil className="h-4 w-4" /> Editar texto
+              </Button>
+            </>
           )}
         </div>
       </div>
 
+      {/* Caixa compacta flutuando no canto, como a busca do Word e do Docs, em
+          vez de uma faixa na largura toda empurrando o texto para baixo. A div
+          de altura zero ancora a caixa logo abaixo do cabeçalho. */}
       {buscaAberta && !editing && (
-        <div className="flex items-center gap-2 border-b bg-muted/30 px-3 py-1.5">
+        <div className="relative z-20 h-0">
+        <div className="absolute right-4 top-2 flex w-96 max-w-[calc(100%-2rem)] items-center gap-1 rounded-md border bg-popover px-2 py-1.5 shadow-md">
           <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <input
             ref={buscaInputRef}
@@ -700,7 +794,7 @@ export function TranscriptPanel(): JSX.Element {
                 irParaHit(e.shiftKey ? -1 : 1)
               }
             }}
-            placeholder="Buscar no documento (ignora acento e maiúscula)"
+            placeholder="Buscar no documento"
             className="h-7 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           />
           <span className="shrink-0 text-xs text-muted-foreground">
@@ -713,6 +807,7 @@ export function TranscriptPanel(): JSX.Element {
           <Button
             size="sm"
             variant="ghost"
+            className="h-7 px-1.5"
             disabled={hits.length === 0}
             onClick={() => irParaHit(-1)}
             title="Anterior (Shift+Enter)"
@@ -722,6 +817,7 @@ export function TranscriptPanel(): JSX.Element {
           <Button
             size="sm"
             variant="ghost"
+            className="h-7 px-1.5"
             disabled={hits.length === 0}
             onClick={() => irParaHit(1)}
             title="Próxima (Enter ou F3)"
@@ -731,6 +827,7 @@ export function TranscriptPanel(): JSX.Element {
           <Button
             size="sm"
             variant="ghost"
+            className="h-7 px-1.5"
             onClick={() => {
               setBuscaAberta(false)
               setTermo('')
@@ -739,6 +836,7 @@ export function TranscriptPanel(): JSX.Element {
           >
             <X className="h-3.5 w-3.5" />
           </Button>
+        </div>
         </div>
       )}
 
@@ -1028,7 +1126,7 @@ export function TranscriptPanel(): JSX.Element {
                 // armazenamento indisponível: só não persiste
               }
             }}
-            title="Arraste para redimensionar a faixa de códigos (duplo clique restaura)"
+            title="Arraste para redimensionar"
             className={`w-1.5 shrink-0 cursor-col-resize self-stretch hover:bg-primary/20 ${
               laneResizing ? 'bg-primary/30' : ''
             }`}
@@ -1080,10 +1178,20 @@ export function TranscriptPanel(): JSX.Element {
           y={pending.y}
           onClose={() => setPending(null)}
           onApply={applyCode}
+          onCreate={startCreateCode}
+          selectedText={text.slice(pending.start, pending.end)}
           onAddNote={() => void addNoteForPending()}
           onReattachNote={podeReligar ? () => void reattachPendingNote() : undefined}
         />
       )}
+
+      <CodeDialog
+        open={novoCodigo !== null}
+        onOpenChange={(o) => !o && setNovoCodigo(null)}
+        title="Novo código"
+        initial={novoCodigo?.initial}
+        onSubmit={submitNovoCodigo}
+      />
     </div>
   )
 }

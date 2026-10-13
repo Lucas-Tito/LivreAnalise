@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { type JSX, useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import {
   Dialog,
@@ -9,6 +9,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/stores/appStore'
 import { cn } from '@/lib/utils'
+import { casaBusca } from '@shared/busca'
+import { SearchButton, SearchField } from './SearchField'
 import type { CodeWithCount, CodingWithCode } from '@shared/types'
 
 interface Props {
@@ -21,6 +23,12 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
   const [somenteDocumento, setSomenteDocumento] = useState(false)
   const [atual, setAtual] = useState(0)
   const [aviso, setAviso] = useState<string | null>(null)
+  const [buscaAberta, setBuscaAberta] = useState(false)
+  const [termo, setTermo] = useState('')
+  const fecharBusca = (): void => {
+    setBuscaAberta(false)
+    setTermo('')
+  }
   const documents = useAppStore((s) => s.documents)
   const codes = useAppStore((s) => s.codes)
   const currentDocument = useAppStore((s) => s.currentDocument)
@@ -48,7 +56,11 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
   useEffect(() => {
     setAtual(0)
     setAviso(null)
-  }, [code, somenteDocumento])
+  }, [code, somenteDocumento, termo])
+
+  useEffect(() => {
+    if (!code) fecharBusca()
+  }, [code])
 
   const docName = (id: number): string =>
     documents.find((d) => d.id === id)?.name ?? '?'
@@ -56,9 +68,11 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
   // sem documento aberto o filtro nao tem a que se referir, entao a lista volta
   // a ser a do projeto inteiro em vez de ficar vazia sem explicacao
   const filtrando = somenteDocumento && currentDocument != null
-  const visiveis = filtrando
-    ? quotes.filter((q) => q.documentId === currentDocument.id)
-    : quotes
+  // A busca casa o nome do documento ou o texto do trecho, e o contador
+  // "1 de N" passa a contar só o que sobrou (#71).
+  const visiveis = (
+    filtrando ? quotes.filter((q) => q.documentId === currentDocument.id) : quotes
+  ).filter((q) => casaBusca(docName(q.documentId), termo) || casaBusca(q.text, termo))
 
   const indice = visiveis.length === 0 ? -1 : Math.min(atual, visiveis.length - 1)
 
@@ -101,7 +115,17 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
 
   return (
     <Dialog open={code !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl" onKeyDown={onKeyDown}>
+      <DialogContent
+        className="max-w-2xl"
+        onKeyDown={onKeyDown}
+        onEscapeKeyDown={(e) => {
+          // Esc com a busca aberta fecha só a busca, não o diálogo inteiro.
+          if (buscaAberta) {
+            e.preventDefault()
+            fecharBusca()
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {code && (
@@ -114,61 +138,75 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 items-start gap-3">
           <p className="min-w-0 flex-1 text-sm text-muted-foreground">
             {code?.description}
           </p>
 
-          {visiveis.length > 0 && (
-            <div className="flex shrink-0 items-center gap-1">
-              <span className="text-xs text-muted-foreground">
-                {indice + 1} de {visiveis.length}
-              </span>
-              <Button size="sm" variant="ghost" onClick={() => andar(-1)} title="Anterior (↑)">
-                <ChevronUp className="h-3.5 w-3.5" />
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => andar(1)} title="Próximo (↓)">
-                <ChevronDown className="h-3.5 w-3.5" />
-              </Button>
+          {/* Contador e setas embaixo do switch, no canto: assim a descrição do
+              código fica com a largura toda da linha. */}
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <div className="flex items-center gap-1">
+              <SearchButton
+                active={buscaAberta}
+                title="Buscar por documento ou texto do trecho"
+                onClick={() => (buscaAberta ? fecharBusca() : setBuscaAberta(true))}
+              />
+              {/* Escopo como par de opções, não checkbox: as duas alternativas ficam
+                  visíveis e nomeadas, em vez de uma caixa cujo estado desmarcado a
+                  pessoa tem de deduzir. */}
+              <div className="flex shrink-0 items-center gap-0.5 rounded-md border p-0.5 text-xs">
+                <button
+                  disabled={!currentDocument}
+                  title={currentDocument ? undefined : 'Abra um documento para filtrar os trechos.'}
+                  onClick={() => setSomenteDocumento(true)}
+                  className={cn(
+                    'rounded px-2 py-1 transition-colors',
+                    filtrando
+                      ? 'bg-accent font-medium text-foreground'
+                      : 'text-muted-foreground hover:bg-accent/50',
+                    !currentDocument && 'cursor-not-allowed opacity-50'
+                  )}
+                >
+                  Neste documento
+                </button>
+                <button
+                  onClick={() => setSomenteDocumento(false)}
+                  className={cn(
+                    'rounded px-2 py-1 transition-colors',
+                    !filtrando
+                      ? 'bg-accent font-medium text-foreground'
+                      : 'text-muted-foreground hover:bg-accent/50'
+                  )}
+                >
+                  No projeto todo
+                </button>
+              </div>
             </div>
-          )}
-
-          {/* Escopo como par de opções, não checkbox: as duas alternativas ficam
-              visíveis e nomeadas, em vez de uma caixa cujo estado desmarcado a
-              pessoa tem de deduzir. */}
-          <div className="flex shrink-0 items-center gap-0.5 rounded-md border p-0.5 text-xs">
-            <button
-              disabled={!currentDocument}
-              title={
-                currentDocument
-                  ? 'Limitar as ocorrências ao documento aberto.'
-                  : 'Abra um documento para filtrar os trechos.'
-              }
-              onClick={() => setSomenteDocumento(true)}
-              className={cn(
-                'rounded px-2 py-1 transition-colors',
-                filtrando
-                  ? 'bg-accent font-medium text-foreground'
-                  : 'text-muted-foreground hover:bg-accent/50',
-                !currentDocument && 'cursor-not-allowed opacity-50'
-              )}
-            >
-              Neste documento
-            </button>
-            <button
-              title="Percorrer as ocorrências em todos os documentos."
-              onClick={() => setSomenteDocumento(false)}
-              className={cn(
-                'rounded px-2 py-1 transition-colors',
-                !filtrando
-                  ? 'bg-accent font-medium text-foreground'
-                  : 'text-muted-foreground hover:bg-accent/50'
-              )}
-            >
-              No projeto todo
-            </button>
+            {visiveis.length > 0 && (
+              <div className="flex shrink-0 items-center gap-1">
+                <span className="text-xs text-muted-foreground">
+                  {indice + 1} de {visiveis.length}
+                </span>
+                <Button size="sm" variant="ghost" onClick={() => andar(-1)} title="Anterior (↑)">
+                  <ChevronUp className="h-3.5 w-3.5" />
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => andar(1)} title="Próximo (↓)">
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
           </div>
         </div>
+
+        {buscaAberta && (
+          <SearchField
+            value={termo}
+            onChange={setTermo}
+            onClose={fecharBusca}
+            placeholder="Nome do documento ou texto do trecho"
+          />
+        )}
 
         {aviso && (
           <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-600 dark:text-amber-400">
@@ -176,10 +214,16 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
           </p>
         )}
 
-        <div ref={listaRef} className="max-h-[60vh] space-y-2 overflow-auto">
+        {/* pr-2.5: a barra de rolagem fica por cima do conteúdo e cortava a borda
+            direita dos cards (#63) */}
+        <div ref={listaRef} className="max-h-[60vh] space-y-2 overflow-auto pr-2.5">
           {quotes.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
               Este código ainda não foi aplicado a nenhum trecho.
+            </p>
+          ) : visiveis.length === 0 && termo.trim() !== '' ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Nenhum trecho encontrado.
             </p>
           ) : visiveis.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">

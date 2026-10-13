@@ -38,7 +38,7 @@ export function renameProject(path: string, name: string): RenameProjectResult {
       path,
       fileRenamed: false,
       warning:
-        'O projeto esta aberto: o nome foi alterado, mas o arquivo só pode ser renomeado com ele fechado.'
+        'O projeto está aberto: o nome foi alterado, mas o arquivo só pode ser renomeado com ele fechado.'
     }
   }
 

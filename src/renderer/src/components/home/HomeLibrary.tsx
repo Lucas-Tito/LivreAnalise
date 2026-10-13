@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react'
+import { type JSX, useEffect, useState } from 'react'
 import {
   FilePlus2,
   FolderOpen,
   Clock,
   BookText,
-  FileInput,
   AudioLines,
   FolderOpen as OpenIcon,
   Pencil,
@@ -56,7 +55,6 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
   const createProject = useAppStore((s) => s.createProject)
   const openProject = useAppStore((s) => s.openProject)
   const openRecent = useAppStore((s) => s.openRecent)
-  const importQdpxAsProject = useAppStore((s) => s.importQdpxAsProject)
   const renameProject = useAppStore((s) => s.renameProject)
   const trashProject = useAppStore((s) => s.trashProject)
   const [renaming, setRenaming] = useState<RecentProjectWithStats | null>(null)
@@ -84,7 +82,7 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
               className="text-muted-foreground"
               onClick={() => setConfigAberta(true)}
               aria-label="Configurações"
-              title="Configurações — tema e fonte de leitura"
+              title="Configurações"
             >
               <Settings className="h-4 w-4" />
             </Button>
@@ -136,7 +134,7 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
           </div>
         </div>
 
-        <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-3">
           <button
             onClick={createProject}
             className="flex flex-col items-start gap-2 rounded-lg border bg-card p-5 text-left transition-colors hover:border-primary hover:bg-accent"
@@ -154,7 +152,7 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
             <FolderOpen className="h-6 w-6 text-primary" />
             <span className="font-medium">Abrir projeto</span>
             <span className="text-xs text-muted-foreground">
-              Abre um projeto .liva existente
+              Abre um .liva ou .qdpx existente
             </span>
           </button>
           <button
@@ -165,16 +163,6 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
             <span className="font-medium">Transcrever</span>
             <span className="text-xs text-muted-foreground">
               Gera a transcrição de um áudio ou vídeo no seu computador
-            </span>
-          </button>
-          <button
-            onClick={importQdpxAsProject}
-            className="flex flex-col items-start gap-2 rounded-lg border bg-card p-5 text-left transition-colors hover:border-primary hover:bg-accent"
-          >
-            <FileInput className="h-6 w-6 text-primary" />
-            <span className="font-medium">Importar QDPX</span>
-            <span className="text-xs text-muted-foreground">
-              Cria um projeto novo a partir de um arquivo .qdpx
             </span>
           </button>
         </div>
