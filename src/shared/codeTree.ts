@@ -1,4 +1,5 @@
 import type { Code, Collection, CollectionMember } from '@shared/types'
+import { casaBusca } from './busca'
 
 // Grupo nao e um campo no banco: e a propriedade derivada de um codigo ter
 // filhos. O atomo -- o unico nivel que recebe citacao -- e o codigo sem filhos.
@@ -278,4 +279,28 @@ export function collectCollapsibleKeys<T extends Code>(
   }
   for (const node of tree.loose) walk(node, 'loose')
   return keys
+}
+
+// Filtro da busca na aba de códigos (#71). Um item que casa vem inteiro, com
+// tudo o que está dentro dele; um item que não casa só fica se algum filho
+// casar, para o código nunca aparecer solto, longe da categoria e do grupo.
+export function filterLibraryTree<T extends Code>(
+  tree: LibraryTree<T>,
+  termo: string
+): LibraryTree<T> {
+  if (termo.trim() === '') return tree
+  const filtrar = (nodes: Array<CodeNode<T>>): Array<CodeNode<T>> =>
+    nodes.flatMap((node) => {
+      if (casaBusca(node.code.name, termo)) return [node]
+      const children = filtrar(node.children)
+      return children.length > 0 ? [{ code: node.code, children }] : []
+    })
+  return {
+    collections: tree.collections.flatMap((node) => {
+      if (casaBusca(node.collection.name, termo)) return [node]
+      const children = filtrar(node.children)
+      return children.length > 0 ? [{ collection: node.collection, children }] : []
+    }),
+    loose: filtrar(tree.loose)
+  }
 }

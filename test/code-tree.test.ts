@@ -5,6 +5,7 @@ import {
   canReceiveChild,
   collectCollapsibleKeys,
   computeMoveOrder,
+  filterLibraryTree,
   groupDestinations,
   groupIds,
   isNoopMove,
@@ -288,5 +289,46 @@ describe('collectCollapsibleKeys', () => {
   it('returns an empty set for a flat tree', () => {
     const tree = buildLibraryTree([code(1), code(2)], [], [])
     expect(collectCollapsibleKeys(tree).size).toBe(0)
+  })
+})
+
+describe('filterLibraryTree', () => {
+  const nomeado = (id: number, name: string, parentId: number | null = null): Code => ({
+    ...code(id, parentId),
+    name
+  })
+  const codes = [
+    nomeado(1, 'Comunicação'),
+    nomeado(2, 'Prazo', 1),
+    nomeado(3, 'Ruído', 1),
+    nomeado(4, 'Avaliação'),
+    nomeado(5, 'Solto')
+  ]
+  const tree = buildLibraryTree(codes, [collection(10, 'Questão 1')], [member(10, 1), member(10, 4)])
+  const ids = (nodes: { code: Code; children: unknown[] }[]): number[] =>
+    nodes.map((n) => n.code.id)
+
+  it('keeps the category and the group of a child that matches, and only that child', () => {
+    const f = filterLibraryTree(tree, 'prazo')
+    expect(f.collections).toHaveLength(1)
+    expect(ids(f.collections[0].children)).toEqual([1])
+    expect(ids(f.collections[0].children[0].children)).toEqual([2])
+    expect(f.loose).toEqual([])
+  })
+
+  it('brings everything inside a category that matches, ignoring accents', () => {
+    const f = filterLibraryTree(tree, 'comunicacao')
+    expect(ids(f.collections[0].children[0].children)).toEqual([2, 3])
+  })
+
+  it('brings the whole group when the group name matches', () => {
+    const f = filterLibraryTree(tree, 'questao')
+    expect(ids(f.collections[0].children)).toEqual([4, 1])
+  })
+
+  it('drops groups with nothing left and returns the tree untouched for an empty term', () => {
+    expect(filterLibraryTree(tree, 'solto').collections).toEqual([])
+    expect(ids(filterLibraryTree(tree, 'solto').loose)).toEqual([5])
+    expect(filterLibraryTree(tree, '  ')).toBe(tree)
   })
 })

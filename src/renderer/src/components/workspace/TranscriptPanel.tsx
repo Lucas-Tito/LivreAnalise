@@ -717,9 +717,28 @@ export function TranscriptPanel(): JSX.Element {
               </Button>
             </>
           ) : (
-            <Button size="sm" variant="outline" onClick={startEditing}>
-              <Pencil className="h-4 w-4" /> Editar texto
-            </Button>
+            <>
+              {/* O Ctrl+F sozinho não se mostra: a lupa é como a busca é descoberta. */}
+              <Button
+                size="sm"
+                variant={buscaAberta ? 'secondary' : 'ghost'}
+                title="Buscar no documento (Ctrl+F)"
+                onClick={() => {
+                  if (buscaAberta) {
+                    setBuscaAberta(false)
+                    setTermo('')
+                  } else {
+                    setBuscaAberta(true)
+                    setTimeout(() => buscaInputRef.current?.select(), 0)
+                  }
+                }}
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+              <Button size="sm" variant="outline" onClick={startEditing}>
+                <Pencil className="h-4 w-4" /> Editar texto
+              </Button>
+            </>
           )}
         </div>
       </div>
