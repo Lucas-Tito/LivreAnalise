@@ -29,32 +29,31 @@ export function registerQdpxHandlers(): void {
     return exportQdpx(result.filePath, projectName)
   })
 
-  ipcMain.handle(IPC.qdpx.importAsProject, async (): Promise<(OpenProjectResult & { report: ImportReport }) | null> => {
-    const openResult = await dialog.showOpenDialog({
-      title: 'Selecionar arquivo QDPX',
-      properties: ['openFile'],
-      filters: [{ name: 'REFI-QDA Project', extensions: ['qdpx'] }]
-    })
-    if (openResult.canceled || openResult.filePaths.length === 0) return null
-    const qdpxPath = openResult.filePaths[0]
-    const suggestedName = basename(qdpxPath).replace(/\.qdpx$/i, '')
+}
 
-    const saveResult = await dialog.showSaveDialog({
-      title: 'Salvar novo projeto',
-      defaultPath: `${suggestedName}.${PROJECT_EXT}`,
-      filters: [{ name: 'Projeto LivreAnalise', extensions: [PROJECT_EXT] }],
-      properties: SAVE_DIALOG_PROPERTIES
-    })
-    if (saveResult.canceled || !saveResult.filePath) return null
-    const livaPath = saveResult.filePath
+// Importar um .qdpx sempre cria um projeto novo: pergunta onde salvar o .liva e
+// importa para dentro dele. Entra pelo "Abrir projeto", que aceita os dois
+// formatos (#41).
+export async function importQdpxAsProject(
+  qdpxPath: string
+): Promise<(OpenProjectResult & { report: ImportReport }) | null> {
+  const suggestedName = basename(qdpxPath).replace(/\.qdpx$/i, '')
 
-    const prev = getActivePath()
-    if (prev) clearHistoryFor(prev)
-    openDatabase(livaPath)
-    const report = await importQdpx(qdpxPath)
-    const name = basename(livaPath).replace(/\.liva$/i, '')
-    const meta = ensureMeta(name)
-    pushRecent(livaPath, meta.name)
-    return { meta, path: livaPath, report }
+  const saveResult = await dialog.showSaveDialog({
+    title: 'Salvar novo projeto',
+    defaultPath: `${suggestedName}.${PROJECT_EXT}`,
+    filters: [{ name: 'Projeto LivreAnalise', extensions: [PROJECT_EXT] }],
+    properties: SAVE_DIALOG_PROPERTIES
   })
+  if (saveResult.canceled || !saveResult.filePath) return null
+  const livaPath = saveResult.filePath
+
+  const prev = getActivePath()
+  if (prev) clearHistoryFor(prev)
+  openDatabase(livaPath)
+  const report = await importQdpx(qdpxPath)
+  const name = basename(livaPath).replace(/\.liva$/i, '')
+  const meta = ensureMeta(name)
+  pushRecent(livaPath, meta.name)
+  return { meta, path: livaPath, report }
 }

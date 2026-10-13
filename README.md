@@ -85,7 +85,7 @@ citações).
 
 ### Importação e exportação REFI-QDA (`.qdpx`)
 
-Interopera com o ATLAS.ti pelo formato aberto REFI-QDA. Importar um `.qdpx` cria um
+Interopera com o ATLAS.ti pelo formato aberto REFI-QDA. Abrir um `.qdpx` (pelo "Abrir projeto") cria um
 projeto novo — a importação não mistura dados em um projeto existente.
 
 O mapeamento é direto nos dois sentidos:

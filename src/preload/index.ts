@@ -83,8 +83,7 @@ const api: Api = {
     cliInstructions: () => ipcRenderer.invoke(IPC.aiExport.cliInstructions)
   },
   qdpx: {
-    export: () => ipcRenderer.invoke(IPC.qdpx.export),
-    importAsProject: () => ipcRenderer.invoke(IPC.qdpx.importAsProject)
+    export: () => ipcRenderer.invoke(IPC.qdpx.export)
   },
   history: {
     state: () => ipcRenderer.invoke(IPC.history.state),

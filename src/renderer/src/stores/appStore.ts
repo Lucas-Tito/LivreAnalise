@@ -42,7 +42,6 @@ interface AppState {
   createProject: () => Promise<void>
   openProject: () => Promise<void>
   openRecent: (path: string) => Promise<void>
-  importQdpxAsProject: () => Promise<void>
   closeProject: () => Promise<void>
 
   refreshDocuments: () => Promise<void>
@@ -241,26 +240,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().loadRecents()
   },
 
+  // "Abrir projeto" aceita .liva e .qdpx (#41). O .qdpx vira um projeto novo e
+  // volta com o relatório da importação.
   openProject: async () => {
     const result = await window.api.project.open()
-    if (!result) return
-    await get().notesFlush?.()
-    set({ project: result.meta, currentDocument: null, codings: [], ...resetNotesState() })
-    await loadProjectData(set)
-    await get().loadRecents()
-  },
-
-  openRecent: async (path) => {
-    const result = await window.api.project.openPath(path)
-    if (!result) return
-    await get().notesFlush?.()
-    set({ project: result.meta, currentDocument: null, codings: [], ...resetNotesState() })
-    await loadProjectData(set)
-    await get().loadRecents()
-  },
-
-  importQdpxAsProject: async () => {
-    const result = await window.api.qdpx.importAsProject()
     if (!result) return
     await get().notesFlush?.()
     set({
@@ -275,10 +258,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
     await loadProjectData(set)
     await get().loadRecents()
-    const skipped = result.report.skipped
-    if (skipped.length > 0) {
+    const skipped = result.report?.skipped ?? []
+    if (result.report && skipped.length > 0) {
       alert(`Importado com ${result.report.codes} códigos, ${result.report.documents} documentos, ${result.report.codings} citações e ${result.report.notes} notas.\n\nIgnorado:\n- ${skipped.join('\n- ')}`)
     }
+  },
+
+  openRecent: async (path) => {
+    const result = await window.api.project.openPath(path)
+    if (!result) return
+    await get().notesFlush?.()
+    set({ project: result.meta, currentDocument: null, codings: [], ...resetNotesState() })
+    await loadProjectData(set)
+    await get().loadRecents()
   },
 
   closeProject: async () => {

@@ -102,8 +102,7 @@ export const IPC = {
     cliInstructions: 'aiExport:cliInstructions'
   },
   qdpx: {
-    export: 'qdpx:export',
-    importAsProject: 'qdpx:importAsProject'
+    export: 'qdpx:export'
   },
   history: {
     state: 'history:state',
@@ -132,7 +131,7 @@ export const IPC = {
 export interface Api {
   project: {
     create: () => Promise<OpenProjectResult | null>
-    open: () => Promise<OpenProjectResult | null>
+    open: () => Promise<(OpenProjectResult & { report?: ImportReport }) | null>
     openPath: (path: string) => Promise<OpenProjectResult | null>
     current: () => Promise<ProjectMeta | null>
     close: () => Promise<void>
@@ -203,7 +202,6 @@ export interface Api {
   }
   qdpx: {
     export: () => Promise<ExportResult | null>
-    importAsProject: () => Promise<(OpenProjectResult & { report: ImportReport }) | null>
   }
   view: {
     notifyFont: (font: string) => void
