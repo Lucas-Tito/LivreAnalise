@@ -149,15 +149,24 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
     }
   }
 
+  // Transcrever precisa de duas peças: o programa (poucos MB) e o modelo
+  // (centenas de MB). O aviso baixava só o programa, terminava rápido e o modelo
+  // era pedido depois, o que parecia um download que não tinha funcionado (#42).
+  // Agora o mesmo botão emenda o modelo escolhido, se ele ainda não existir.
   const downloadBinary = async (): Promise<void> => {
     try {
       await window.api.transcription.downloadBinary()
+      if (selectedModel && !selectedModel.ready) {
+        await window.api.transcription.downloadModel(modelId)
+      }
       await refreshEnv()
       setStage({ kind: 'idle' })
     } catch (e) {
       showFailure(e)
     }
   }
+
+  const faltaModelo = selectedModel != null && !selectedModel.ready
 
   const lastSegment = segments[segments.length - 1]
 
@@ -183,11 +192,21 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
       {env && !env.binaryPath && (
         <div className="rounded-md border bg-card p-3 text-sm">
           <p className="mb-2">
-            O programa de transcrição (whisper.cpp) não foi encontrado.
+            {env.canDownloadBinary && faltaModelo ? (
+              <>
+                Para transcrever são dois downloads, feitos uma vez só: o programa de
+                transcrição (whisper.cpp, poucos MB) e o modelo{' '}
+                <strong>{selectedModel.label}</strong> (
+                {formatBytes(selectedModel.approxBytes)}).
+              </>
+            ) : (
+              'O programa de transcrição (whisper.cpp) não foi encontrado.'
+            )}
           </p>
           {env.canDownloadBinary ? (
             <Button size="sm" variant="secondary" onClick={downloadBinary} disabled={busy}>
-              <Download className="h-4 w-4" /> Baixar o programa
+              <Download className="h-4 w-4" />{' '}
+              {faltaModelo ? 'Baixar tudo' : 'Baixar o programa'}
             </Button>
           ) : (
             <p className="text-muted-foreground">
