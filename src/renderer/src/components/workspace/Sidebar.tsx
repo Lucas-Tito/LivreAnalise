@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type JSX, useCallback, useEffect, useRef, useState } from 'react'
 import { FileText, Tags } from 'lucide-react'
 import { DocumentsPanel } from './DocumentsPanel'
 import { CodesPanel } from './CodesPanel'

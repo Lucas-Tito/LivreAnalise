@@ -24,6 +24,10 @@ export interface AiExportInput {
   // opt-in explícito: notas entram como comentário do pesquisador, nunca
   // escondidas no escopo "só estrutura" sem aviso
   includeNotes?: boolean
+  // Só no escopo estrutura: o texto de cada trecho marcado, agrupado por código,
+  // sem o documento inteiro. Os documentos vêm aqui só para tirar o texto.
+  includeQuotes?: boolean
+  quoteDocuments?: AiExportDocument[]
   projectNotes?: Note[]
   notesByDocument?: Map<number, Note[]> | Record<number, Note[]>
 }
@@ -51,9 +55,9 @@ function linhaDoCodigo(
   nivel: number
 ): string[] {
   const recuo = '  '.repeat(nivel)
-  const grupo = node.children.length > 0
+  const categoria = node.children.length > 0
   const uso = usos.get(node.code.id) ?? 0
-  const sufixo = grupo ? ' (grupo)' : uso > 0 ? ` — ${uso} citações` : ''
+  const sufixo = categoria ? ' (categoria)' : uso > 0 ? ` — ${uso} citações` : ''
   const linhas = [`${recuo}- ${node.code.name}${sufixo}`]
   for (const filho of node.children) {
     linhas.push(...linhaDoCodigo(filho, usos, nivel + 1))
@@ -69,17 +73,17 @@ export function buildStructureSection(
 ): string {
   const usos = contagem(todasAsCodings)
   const arvore = buildLibraryTree(codes, collections, members)
-  const linhas: string[] = ['## Códigos, grupos e coleções', '']
+  const linhas: string[] = ['## Códigos, categorias e grupos', '']
 
-  for (const colecao of arvore.collections) {
-    linhas.push(`### Coleção: ${colecao.collection.name}`)
-    if (colecao.children.length === 0) linhas.push('_(vazia)_')
-    for (const filho of colecao.children) linhas.push(...linhaDoCodigo(filho, usos, 0))
+  for (const grupo of arvore.collections) {
+    linhas.push(`### Grupo: ${grupo.collection.name}`)
+    if (grupo.children.length === 0) linhas.push('_(vazio)_')
+    for (const filho of grupo.children) linhas.push(...linhaDoCodigo(filho, usos, 0))
     linhas.push('')
   }
 
   if (arvore.loose.length > 0) {
-    linhas.push('### Sem coleção')
+    linhas.push('### Sem grupo')
     for (const node of arvore.loose) linhas.push(...linhaDoCodigo(node, usos, 0))
     linhas.push('')
   }
@@ -134,7 +138,13 @@ const NOTA_MAX = 2000
 export function sanearNota(texto: string): string {
   const cortado =
     texto.length > NOTA_MAX ? `${texto.slice(0, NOTA_MAX)}… (nota truncada)` : texto
-  return cortado
+  return sanearLinha(cortado)
+}
+
+// O mesmo cuidado vale para o texto de um trecho citado: ele também pode ter
+// quebra de linha, cabeçalho ou aspas angulares.
+function sanearLinha(texto: string): string {
+  return texto
     // cabecalho no comeco de linha e o que define secao no arquivo
     .replace(/^(\s*)(#{1,6})(\s)/gm, '$1\u200b$2$3')
     // as aspas angulares delimitam trecho codificado
@@ -205,6 +215,47 @@ export function buildNotesSection(
   return linhas.join('\n')
 }
 
+// Trechos marcados sem o documento: cada código-folha com o texto dos trechos
+// dele, na ordem da árvore. A categoria entra no título para desfazer nomes
+// iguais em categorias diferentes.
+export function buildQuotesSection(
+  codes: Code[],
+  allCodings: Coding[],
+  documents: AiExportDocument[]
+): string {
+  const porId = new Map(codes.map((c) => [c.id, c]))
+  const docPorId = new Map(documents.map((d) => [d.id, d]))
+  const porCodigo = new Map<number, Coding[]>()
+  for (const c of allCodings) {
+    const lista = porCodigo.get(c.codeId) ?? []
+    lista.push(c)
+    porCodigo.set(c.codeId, lista)
+  }
+
+  const linhas = ['## Trechos marcados por código', '']
+  let algum = false
+  for (const code of codes) {
+    const codings = porCodigo.get(code.id)
+    if (!codings || codings.length === 0) continue
+    algum = true
+    const pai = code.parentId != null ? porId.get(code.parentId) : undefined
+    const titulo = pai ? `${pai.name} › ${code.name}` : code.name
+    linhas.push(`### ${titulo} (${codings.length})`)
+    const ordenados = [...codings].sort(
+      (a, b) => a.documentId - b.documentId || a.startPos - b.startPos
+    )
+    for (const c of ordenados) {
+      const doc = docPorId.get(c.documentId)
+      if (!doc) continue
+      const trecho = sanearLinha(doc.plainText.slice(c.startPos, c.endPos))
+      linhas.push(`- [${doc.name}] «${trecho}»`)
+    }
+    linhas.push('')
+  }
+  if (!algum) linhas.push('_(nenhum trecho marcado)_', '')
+  return linhas.join('\n').trimEnd()
+}
+
 export function buildAiExport(input: AiExportInput): string {
   const blocos: string[] = [
     `# ${input.projectName} — exportação para IA`,
@@ -228,6 +279,13 @@ export function buildAiExport(input: AiExportInput): string {
       input.allCodings
     )
   )
+
+  if (input.includeQuotes && input.scope === 'structure') {
+    blocos.push(
+      '',
+      buildQuotesSection(input.codes, input.allCodings, input.quoteDocuments ?? [])
+    )
+  }
 
   for (const documento of input.documents) {
     blocos.push('', buildDocumentSection(documento, input.codes))
@@ -263,13 +321,30 @@ export function buildAiExport(input: AiExportInput): string {
 }
 
 // Nome sugerido no diálogo de salvar; o usuário pode trocar.
+// No escopo de documento o nome do documento entra no arquivo: sem ele, exportar
+// duas entrevistas sugeria o mesmo nome e a segunda sobrescrevia a primeira.
 export function suggestedFileName(
   projectName: string,
-  scope: AiExportScope
+  scope: AiExportScope,
+  documentName?: string,
+  includeQuotes?: boolean
 ): string {
+  if (scope === 'document' && documentName) {
+    return `${projectName} - ${semBarras(documentName)} - para IA.txt`
+  }
   const rotulo =
-    scope === 'structure' ? 'estrutura' : scope === 'document' ? 'documento' : 'completo'
+    scope === 'structure'
+      ? includeQuotes
+        ? 'estrutura e trechos'
+        : 'estrutura'
+      : scope === 'document'
+        ? 'documento'
+        : 'completo'
   return `${projectName} - para IA (${rotulo}).txt`
+}
+
+function semBarras(nome: string): string {
+  return nome.replace(/[\\/]/g, '-')
 }
 
 // Modo avançado: instruções para uma IA de terminal ler o projeto direto, sem
@@ -287,10 +362,9 @@ Em Node:    new Database("CAMINHO", { readonly: true })
 
 Três regras do modelo que o esquema não deixa óbvias:
 
-1. "grupo" não é tabela: é um código que tem filhos (codes.parent_id apontando
-   para ele). O código-folha é o único que recebe citação.
-2. "coleção" é a tabela code_groups, e code_group_members liga coleção a código.
-   O nome da tabela é histórico.
+1. "categoria" não é tabela: é um código que tem filhos (codes.parent_id
+   apontando para ele). O código-folha é o único que recebe citação.
+2. "grupo" é a tabela code_groups, e code_group_members liga grupo a código.
 3. A citação é posição de caractere no texto do documento. O trecho sai com:
    substr(d.plain_text, c.start_pos + 1, c.end_pos - c.start_pos)
 
@@ -310,13 +384,13 @@ SELECT d.name, substr(d.plain_text, g.start_pos + 1, g.end_pos - g.start_pos) AS
 FROM codings g JOIN documents d ON d.id = g.document_id
 JOIN codes c ON c.id = g.code_id WHERE c.name = 'NOME DO CÓDIGO';
 
--- a árvore coleção > grupo > código
-SELECT col.name AS colecao, pai.name AS grupo, f.name AS codigo
-FROM code_groups col
-JOIN code_group_members m ON m.group_id = col.id
+-- a árvore grupo > categoria > código
+SELECT gr.name AS grupo, pai.name AS categoria, f.name AS codigo
+FROM code_groups gr
+JOIN code_group_members m ON m.group_id = gr.id
 JOIN codes pai ON pai.id = m.code_id
 LEFT JOIN codes f ON f.parent_id = pai.id
-ORDER BY col.name, pai.name, f.name;
+ORDER BY gr.name, pai.name, f.name;
 
 -- códigos que aparecem no mesmo trecho (co-ocorrência)
 SELECT a.name, b.name, COUNT(*) AS juntos

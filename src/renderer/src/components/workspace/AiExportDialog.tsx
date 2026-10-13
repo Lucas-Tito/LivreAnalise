@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { type JSX, useEffect, useRef, useState } from 'react'
 import {
   Check,
   Copy,
@@ -40,7 +40,7 @@ const ESCOPOS: {
     id: 'structure',
     label: 'Somente estrutura',
     explicacao:
-      'Seus códigos, grupos e coleções, sem nenhum trecho de entrevista.'
+      'Seus códigos, categorias e grupos, com quantas vezes cada código foi usado, sem o texto dos documentos. Com "Incluir notas", entram só os títulos das notas, nunca o conteúdo. Com "Incluir trechos marcados", entra o texto de cada trecho, agrupado por código.'
   },
   {
     id: 'document',
@@ -61,6 +61,7 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
   const currentDocument = useAppStore((s) => s.currentDocument)
   const [scope, setScope] = useState<AiExportScope>('structure')
   const [includeNotes, setIncludeNotes] = useState(false)
+  const [includeQuotes, setIncludeQuotes] = useState(false)
   const tocouNotas = useRef(false)
   const [exportando, setExportando] = useState(false)
   const [salvoEm, setSalvoEm] = useState<string | null>(null)
@@ -75,6 +76,7 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
       setCopiado(false)
       setMostrarCli(false)
       setMostrarArquivo(true)
+      setIncludeQuotes(false)
       tocouNotas.current = false
     }
   }, [open])
@@ -100,7 +102,8 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
       const resultado = await window.api.aiExport.export(
         scope,
         currentDocument?.id ?? null,
-        includeNotes
+        includeNotes,
+        scope === 'structure' && includeQuotes
       )
       if (resultado) setSalvoEm(resultado.path)
     } catch (e) {
@@ -196,25 +199,29 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
             Exportar
           </Button>
 
-          <label className="flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent/50">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={includeNotes}
-              onChange={(e) => {
-                tocouNotas.current = true
-                setIncludeNotes(e.target.checked)
-              }}
-            />
-            <span>
-              Incluir notas como comentário do pesquisador
-              {scope === 'structure' && (
-                <span className="block text-xs text-muted-foreground">
-                  No escopo só-estrutura, só títulos/contagem — nunca o corpo.
-                </span>
-              )}
-            </span>
-          </label>
+          <div className="flex gap-2">
+            <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent/50">
+              <input
+                type="checkbox"
+                checked={includeNotes}
+                onChange={(e) => {
+                  tocouNotas.current = true
+                  setIncludeNotes(e.target.checked)
+                }}
+              />
+              Incluir notas
+            </label>
+            {scope === 'structure' && (
+              <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent/50">
+                <input
+                  type="checkbox"
+                  checked={includeQuotes}
+                  onChange={(e) => setIncludeQuotes(e.target.checked)}
+                />
+                Incluir trechos marcados
+              </label>
+            )}
+          </div>
 
           {salvoEm && (
             <p className="text-xs text-muted-foreground">
@@ -231,7 +238,7 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors hover:bg-accent"
           >
             <Terminal className="h-4 w-4 shrink-0" />
-            Avançado — IA por CLI
+            Avançado: IA pelo terminal
             <span className="ml-auto text-xs text-muted-foreground">
               {mostrarCli ? 'ocultar' : 'mostrar'}
             </span>
@@ -240,10 +247,8 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
           {mostrarCli && (
             <div className="mt-2 space-y-2">
               <p className="text-xs text-muted-foreground">
-                Uma IA de terminal pode ler o projeto direto, sem exportar arquivo. O
-                acesso é somente-leitura: o banco é aberto em modo readonly, então
-                escrever é recusado pelo próprio driver. Copie as instruções abaixo e
-                cole na sua IA.
+                Copie as instruções e cole na sua IA de terminal: ela lê o projeto
+                direto, só para leitura, sem exportar arquivo.
               </p>
               <pre className="max-h-40 w-full min-w-0 overflow-auto whitespace-pre rounded-md border bg-muted/40 p-2 text-[11px] leading-4">
                 {instrucoes || 'Carregando...'}

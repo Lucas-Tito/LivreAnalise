@@ -14,6 +14,7 @@ import {
   resolveVersionFile,
   versionsDir
 } from '../services/projectVersions'
+import { SAVE_DIALOG_PROPERTIES } from './saveDialog'
 
 function requireActivePath(): string {
   const path = getActivePath()
@@ -47,7 +48,8 @@ export function registerVersionHandlers(): void {
     const result = await dialog.showSaveDialog({
       title: 'Restaurar versão como novo projeto',
       defaultPath: join(dirname(activePath), `${basename(activePath).replace(/\.liva$/i, '')} (versão).liva`),
-      filters: [{ name: 'Projeto LivreAnalise', extensions: ['liva'] }]
+      filters: [{ name: 'Projeto LivreAnalise', extensions: ['liva'] }],
+      properties: SAVE_DIALOG_PROPERTIES
     })
     if (result.canceled || !result.filePath) return null
     // O destino nunca pode ser o próprio projeto aberto: a conexão continua

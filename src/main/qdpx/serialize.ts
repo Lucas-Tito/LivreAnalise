@@ -18,7 +18,7 @@ export async function deserializeQdpx(buffer: Buffer): Promise<ParsedQdpx> {
   const zip = await JSZip.loadAsync(buffer)
   const qde = zip.file(QDE_FILENAME) ?? zip.file(/project\.qde$/i)[0]
   if (!qde) {
-    throw new Error('Arquivo .qdpx invalido: project.qde não encontrado')
+    throw new Error('Arquivo .qdpx inválido: project.qde não encontrado')
   }
   const xml = await qde.async('string')
   const { project, skipped, sourcePaths } = parseQde(xml)

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { type JSX, useEffect, useState } from 'react'
 import { casaBusca } from '@shared/busca'
+import { groupIds } from '@shared/codeTree'
 import {
   Dialog,
   DialogContent,
@@ -46,25 +47,30 @@ export function CollectionMembersDialog({ collection, onOpenChange }: Props): JS
     }
   }
 
-  const filtered = codes.filter((c) =>
-    casaBusca(c.name, filter)
+  // Grupo reúne categorias. Um código solto que já é membro (de projeto antigo
+  // ou importado do ATLAS.ti) continua na lista para poder ser tirado.
+  const categorias = groupIds(codes)
+  const filtered = codes.filter(
+    (c) => (categorias.has(c.id) || members.has(c.id)) && casaBusca(c.name, filter)
   )
 
   return (
     <Dialog open={collection !== null} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Códigos no grupo "{collection?.name}"</DialogTitle>
+          <DialogTitle>Categorias no grupo "{collection?.name}"</DialogTitle>
         </DialogHeader>
         <Input
-          placeholder="Filtrar códigos..."
+          placeholder="Filtrar categorias..."
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
         <div className="max-h-72 overflow-auto rounded-md border">
           {filtered.length === 0 ? (
             <p className="p-4 text-center text-xs text-muted-foreground">
-              Nenhum código encontrado.
+              {categorias.size === 0
+                ? 'Nenhuma categoria ainda. Categorias são códigos de 1º nível que já têm filhos.'
+                : 'Nenhuma categoria encontrada.'}
             </p>
           ) : (
             <ul className="divide-y">

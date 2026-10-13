@@ -10,7 +10,7 @@ material analisado é entrevista com participante identificável.
 
 [![CI](https://github.com/Lucas-Tito/LivreAnalise/actions/workflows/ci.yml/badge.svg)](https://github.com/Lucas-Tito/LivreAnalise/actions/workflows/ci.yml)
 
-<!-- imagem: codificacao de um documento -- a arvore de colecoes, grupos e
+<!-- imagem: codificacao de um documento -- a arvore de grupos, categorias e
      codigos a esquerda e as etiquetas alinhadas na margem direita.
      Arraste o print aqui ao editar o README pelo GitHub. -->
 
@@ -62,17 +62,20 @@ destacadas na cor do código, com etiquetas na margem direita alinhadas ao iníc
 trecho. Codificações do mesmo código que se sobrepõem são mescladas automaticamente, e a
 extensão de uma citação pode ser ajustada arrastando as extremidades.
 
-### Código, grupo e coleção
+### Código, categoria e grupo
 
 A hierarquia tem exatamente três níveis:
 
 - **código** — o átomo. É o único nível que recebe citação.
-- **grupo** — um código que contém outros códigos. Não é um campo no banco: é a
-  propriedade derivada de ter filhos. Um grupo não pode ser aplicado a um trecho.
-- **coleção** — reúne grupos e códigos, de forma transversal.
+- **categoria** — um código que contém outros códigos. Não é um campo no banco: é a
+  propriedade derivada de ter filhos. Uma categoria não pode ser aplicada a um trecho.
+- **grupo** — reúne categorias e códigos, de forma transversal.
 
-Grupo e coleção nascem a partir de quem eles agrupam ("criar grupo com este código",
-"criar coleção com este grupo"), então um grupo nunca existe vazio.
+Categoria e grupo nascem a partir de quem eles reúnem ("criar categoria com este
+código", "criar grupo com esta categoria"), então uma categoria nunca existe vazia.
+
+No código-fonte os nomes são os antigos: categoria é `group` (`groupIds`,
+`createGroupFromCodes`) e grupo é `Collection` (tabela `code_groups`).
 
 ### Citações e métricas
 
@@ -82,7 +85,7 @@ citações).
 
 ### Importação e exportação REFI-QDA (`.qdpx`)
 
-Interopera com o ATLAS.ti pelo formato aberto REFI-QDA. Importar um `.qdpx` cria um
+Interopera com o ATLAS.ti pelo formato aberto REFI-QDA. Abrir um `.qdpx` (pelo "Abrir projeto") cria um
 projeto novo — a importação não mistura dados em um projeto existente.
 
 O mapeamento é direto nos dois sentidos:
@@ -90,8 +93,8 @@ O mapeamento é direto nos dois sentidos:
 | LivreAnalise | `.qdpx` |
 | --- | --- |
 | código | `Code` folha |
-| grupo | `Code` aninhado |
-| coleção | `Set` + `MemberCode` |
+| categoria | `Code` aninhado |
+| grupo | `Set` + `MemberCode` |
 | citação | `PlainTextSelection` + `Coding` |
 
 A hierarquia de códigos para em dois níveis, igual ao ATLAS.ti, que também só oferece

@@ -78,13 +78,12 @@ const api: Api = {
     }
   },
   aiExport: {
-    export: (scope, documentId, includeNotes) =>
-      ipcRenderer.invoke(IPC.aiExport.export, scope, documentId, includeNotes),
+    export: (scope, documentId, includeNotes, includeQuotes) =>
+      ipcRenderer.invoke(IPC.aiExport.export, scope, documentId, includeNotes, includeQuotes),
     cliInstructions: () => ipcRenderer.invoke(IPC.aiExport.cliInstructions)
   },
   qdpx: {
-    export: () => ipcRenderer.invoke(IPC.qdpx.export),
-    importAsProject: () => ipcRenderer.invoke(IPC.qdpx.importAsProject)
+    export: () => ipcRenderer.invoke(IPC.qdpx.export)
   },
   history: {
     state: () => ipcRenderer.invoke(IPC.history.state),
@@ -123,6 +122,17 @@ const api: Api = {
         ipcRenderer.removeListener(IPC.view.fontDyslexic, handler)
       }
     }
+  },
+  app: {
+    setTextDirty: (dirty) => ipcRenderer.send(IPC.app.textDirty, dirty),
+    onCloseRequested: (listener) => {
+      const handler = (): void => listener()
+      ipcRenderer.on(IPC.app.closeRequested, handler)
+      return () => {
+        ipcRenderer.removeListener(IPC.app.closeRequested, handler)
+      }
+    },
+    confirmClose: () => ipcRenderer.send(IPC.app.confirmClose)
   }
 }
 

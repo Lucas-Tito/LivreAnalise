@@ -22,6 +22,7 @@ import {
   listProjectNotes
 } from '../db/repositories'
 import { currentProjectName } from './project'
+import { SAVE_DIALOG_PROPERTIES } from './saveDialog'
 
 function documentosDoEscopo(
   scope: AiExportScope,
@@ -53,15 +54,20 @@ export function registerAiExportHandlers(): void {
       _e,
       scope: AiExportScope,
       documentId: number | null,
-      includeNotes?: boolean
+      includeNotes?: boolean,
+      includeQuotes?: boolean
     ): Promise<ExportResult | null> => {
+      const comTrechos = scope === 'structure' && includeQuotes === true
       if (!hasActiveProject()) throw new Error('Nenhum projeto aberto')
       const projectName = currentProjectName()
 
+      const documentName =
+        scope === 'document' && documentId != null ? getDocument(documentId)?.name : undefined
       const result = await dialog.showSaveDialog({
         title: 'Exportar para IA',
-        defaultPath: suggestedFileName(projectName, scope),
-        filters: [{ name: 'Texto', extensions: ['txt'] }]
+        defaultPath: suggestedFileName(projectName, scope, documentName, comTrechos),
+        filters: [{ name: 'Texto', extensions: ['txt'] }],
+        properties: SAVE_DIALOG_PROPERTIES
       })
       if (result.canceled || !result.filePath) return null
 
@@ -86,6 +92,8 @@ export function registerAiExportHandlers(): void {
         documents: docs,
         allCodings: listAllCodings(),
         includeNotes: includeNotes ?? false,
+        includeQuotes: comTrechos,
+        quoteDocuments: comTrechos ? documentosDoEscopo('full', null) : [],
         projectNotes: includeNotes ? listProjectNotes() : [],
         notesByDocument
       })

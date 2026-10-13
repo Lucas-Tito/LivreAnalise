@@ -3,6 +3,7 @@ import { basename } from 'path'
 import { v4 as uuid } from 'uuid'
 import { IPC } from '@shared/ipc'
 import type {
+  ImportReport,
   OpenProjectResult,
   ProjectMeta,
   RenameProjectResult
@@ -20,6 +21,8 @@ import { renameProject, trashProject } from '../services/projectFile'
 import { readProjectStats } from '../db/projectStats'
 import { clearHistoryFor } from '../history/stack'
 import { createVersionSnapshot, snapshotBeforeMigration } from '../services/projectVersions'
+import { SAVE_DIALOG_PROPERTIES } from './saveDialog'
+import { importQdpxAsProject } from './qdpx'
 
 const PROJECT_EXT = 'liva'
 
@@ -57,7 +60,8 @@ export function registerProjectHandlers(): void {
     const result = await dialog.showSaveDialog({
       title: 'Criar novo projeto',
       defaultPath: `projeto.${PROJECT_EXT}`,
-      filters: [{ name: 'Projeto LivreAnalise', extensions: [PROJECT_EXT] }]
+      filters: [{ name: 'Projeto LivreAnalise', extensions: [PROJECT_EXT] }],
+      properties: SAVE_DIALOG_PROPERTIES
     })
     if (result.canceled || !result.filePath) return null
     const path = result.filePath
@@ -71,15 +75,24 @@ export function registerProjectHandlers(): void {
     return { meta, path }
   })
 
-  ipcMain.handle(IPC.project.open, async (): Promise<OpenProjectResult | null> => {
-    const result = await dialog.showOpenDialog({
-      title: 'Abrir projeto',
-      properties: ['openFile'],
-      filters: [{ name: 'Projeto LivreAnalise', extensions: [PROJECT_EXT] }]
-    })
-    if (result.canceled || result.filePaths.length === 0) return null
-    return openProjectPath(result.filePaths[0])
-  })
+  ipcMain.handle(
+    IPC.project.open,
+    async (): Promise<(OpenProjectResult & { report?: ImportReport }) | null> => {
+      const result = await dialog.showOpenDialog({
+        title: 'Abrir projeto',
+        properties: ['openFile'],
+        filters: [
+          { name: 'Projeto LivreAnalise ou QDPX', extensions: [PROJECT_EXT, 'qdpx'] },
+          { name: 'Projeto LivreAnalise', extensions: [PROJECT_EXT] },
+          { name: 'REFI-QDA Project', extensions: ['qdpx'] }
+        ]
+      })
+      if (result.canceled || result.filePaths.length === 0) return null
+      const path = result.filePaths[0]
+      if (/\.qdpx$/i.test(path)) return importQdpxAsProject(path)
+      return openProjectPath(path)
+    }
+  )
 
   ipcMain.handle(
     IPC.project.openPath,

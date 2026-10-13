@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type JSX, useState } from 'react'
 import { BookText, ChevronDown, Download, History, Loader2, Redo2, Sparkles, StickyNote, Undo2 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { mensagemDeErro } from '@/lib/erros'
@@ -96,7 +96,7 @@ export function TopBar(): JSX.Element {
           variant="ghost"
           onClick={() => setVersoes(true)}
           aria-label="Versões do projeto"
-          title="Versões do projeto — checkpoints (restaurar abre uma cópia)"
+          title="Versões do projeto"
         >
           <History className="h-4 w-4" />
         </Button>

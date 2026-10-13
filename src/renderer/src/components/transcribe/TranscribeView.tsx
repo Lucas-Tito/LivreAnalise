@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { type JSX, useEffect, useRef, useState } from 'react'
 import { mensagemDeErro } from '@/lib/erros'
 import {
   ArrowLeft,
@@ -149,15 +149,24 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
     }
   }
 
+  // Transcrever precisa de duas peças: o programa (poucos MB) e o modelo
+  // (centenas de MB). O aviso baixava só o programa, terminava rápido e o modelo
+  // era pedido depois, o que parecia um download que não tinha funcionado (#42).
+  // Agora o mesmo botão emenda o modelo escolhido, se ele ainda não existir.
   const downloadBinary = async (): Promise<void> => {
     try {
       await window.api.transcription.downloadBinary()
+      if (selectedModel && !selectedModel.ready) {
+        await window.api.transcription.downloadModel(modelId)
+      }
       await refreshEnv()
       setStage({ kind: 'idle' })
     } catch (e) {
       showFailure(e)
     }
   }
+
+  const faltaModelo = selectedModel != null && !selectedModel.ready
 
   const lastSegment = segments[segments.length - 1]
 
@@ -176,18 +185,28 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
       {env && !env.ffmpeg && (
         <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
           O ffmpeg embutido não foi localizado e não existe ffmpeg no sistema. Sem ele
-          não e possível extrair o áudio.
+          não é possível extrair o áudio.
         </p>
       )}
 
       {env && !env.binaryPath && (
         <div className="rounded-md border bg-card p-3 text-sm">
           <p className="mb-2">
-            O programa de transcrição (whisper.cpp) não foi encontrado.
+            {env.canDownloadBinary && faltaModelo ? (
+              <>
+                Para transcrever são dois downloads, feitos uma vez só: o programa de
+                transcrição (whisper.cpp, poucos MB) e o modelo{' '}
+                <strong>{selectedModel.label}</strong> (
+                {formatBytes(selectedModel.approxBytes)}).
+              </>
+            ) : (
+              'O programa de transcrição (whisper.cpp) não foi encontrado.'
+            )}
           </p>
           {env.canDownloadBinary ? (
             <Button size="sm" variant="secondary" onClick={downloadBinary} disabled={busy}>
-              <Download className="h-4 w-4" /> Baixar o programa
+              <Download className="h-4 w-4" />{' '}
+              {faltaModelo ? 'Baixar tudo' : 'Baixar o programa'}
             </Button>
           ) : (
             <p className="text-muted-foreground">
@@ -232,8 +251,8 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
               >
                 {models.map((model) => (
                   <option key={model.id} value={model.id}>
-                    {model.label} — {formatBytes(model.approxBytes)}
-                    {model.ready ? ' (baixado)' : ''}
+                    {model.label} ({formatBytes(model.approxBytes)}
+                    {model.ready ? ', baixado' : ''})
                   </option>
                 ))}
               </select>
@@ -271,9 +290,9 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
       {stage.kind === 'confirm' && (
         <div className="rounded-lg border bg-card p-4">
           <p className="text-sm">
-            O modelo <strong>{selectedModel?.label}</strong> ainda não esta no seu
-            computador. Baixar agora? Sao <strong>{formatBytes(stage.bytes)}</strong>,
-            uma vez so — depois ele fica salvo.
+            O modelo <strong>{selectedModel?.label}</strong> ainda não está no seu
+            computador. Baixar agora? São <strong>{formatBytes(stage.bytes)}</strong>,
+            uma vez só — depois ele fica salvo.
           </p>
           <div className="mt-3 flex gap-2">
             <Button size="sm" onClick={confirmDownload}>
@@ -319,7 +338,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
 
       {stage.kind === 'done' && (
         <div className="rounded-lg border border-primary/40 bg-primary/5 p-4 text-sm">
-          <p className="font-medium">Transcrição concluida</p>
+          <p className="font-medium">Transcrição concluída</p>
           <p className="mt-1 text-muted-foreground">
             {stage.segments} trechos salvos em <code>{stage.outputPath}</code>
           </p>
