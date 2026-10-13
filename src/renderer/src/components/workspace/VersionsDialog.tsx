@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type JSX, useEffect, useState } from 'react'
 import { mensagemDeErro } from '@/lib/erros'
 import { History, RotateCcw, Trash2 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type JSX, useEffect, useMemo, useRef, useState } from 'react'
 import { casaBusca, mesmoTermo } from '@shared/busca'
 import { Link2, Plus, StickyNote } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'

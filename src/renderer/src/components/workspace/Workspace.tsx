@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type JSX, useState } from 'react'
 import { TopBar } from './TopBar'
 import { Sidebar } from './Sidebar'
 import { TranscriptPanel } from './TranscriptPanel'
