@@ -1146,6 +1146,7 @@ export function TranscriptPanel(): JSX.Element {
           onClose={() => setPending(null)}
           onApply={applyCode}
           onCreate={startCreateCode}
+          selectedText={text.slice(pending.start, pending.end)}
           onAddNote={() => void addNoteForPending()}
           onReattachNote={podeReligar ? () => void reattachPendingNote() : undefined}
         />

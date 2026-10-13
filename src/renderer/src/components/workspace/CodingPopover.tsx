@@ -12,6 +12,8 @@ interface Props {
   // Criar código abre o diálogo de configuração (cor, descrição) com o nome já
   // digitado; quem chama aplica ao trecho depois de salvo.
   onCreate: (name: string) => void
+  // Texto do trecho selecionado no documento, para o Ctrl+C (#72).
+  selectedText: string
   onAddNote?: () => void
   onReattachNote?: () => void
 }
@@ -22,6 +24,7 @@ export function CodingPopover({
   onClose,
   onApply,
   onCreate,
+  selectedText,
   onAddNote,
   onReattachNote
 }: Props): JSX.Element {
@@ -61,6 +64,19 @@ export function CodingPopover({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent): void => {
+    // O popover abre com o foco no campo de busca, então o Ctrl+C ia para o
+    // campo vazio e o trecho selecionado no texto não era copiado (#72). Com
+    // nada selecionado no campo, o Ctrl+C copia o trecho.
+    const campo = e.currentTarget as HTMLInputElement
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      e.key.toLowerCase() === 'c' &&
+      campo.selectionStart === campo.selectionEnd
+    ) {
+      e.preventDefault()
+      void navigator.clipboard.writeText(selectedText)
+      return
+    }
     if (e.key === 'Escape') {
       onClose()
     } else if (e.key === 'Enter') {
