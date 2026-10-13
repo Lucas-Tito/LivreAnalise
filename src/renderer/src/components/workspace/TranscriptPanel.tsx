@@ -743,8 +743,12 @@ export function TranscriptPanel(): JSX.Element {
         </div>
       </div>
 
+      {/* Caixa compacta flutuando no canto, como a busca do Word e do Docs, em
+          vez de uma faixa na largura toda empurrando o texto para baixo. A div
+          de altura zero ancora a caixa logo abaixo do cabeçalho. */}
       {buscaAberta && !editing && (
-        <div className="flex items-center gap-2 border-b bg-muted/30 px-3 py-1.5">
+        <div className="relative z-20 h-0">
+        <div className="absolute right-4 top-2 flex w-96 max-w-[calc(100%-2rem)] items-center gap-1 rounded-md border bg-popover px-2 py-1.5 shadow-md">
           <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <input
             ref={buscaInputRef}
@@ -757,7 +761,7 @@ export function TranscriptPanel(): JSX.Element {
                 irParaHit(e.shiftKey ? -1 : 1)
               }
             }}
-            placeholder="Buscar no documento (ignora acento e maiúscula)"
+            placeholder="Buscar no documento"
             className="h-7 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           />
           <span className="shrink-0 text-xs text-muted-foreground">
@@ -770,6 +774,7 @@ export function TranscriptPanel(): JSX.Element {
           <Button
             size="sm"
             variant="ghost"
+            className="h-7 px-1.5"
             disabled={hits.length === 0}
             onClick={() => irParaHit(-1)}
             title="Anterior (Shift+Enter)"
@@ -779,6 +784,7 @@ export function TranscriptPanel(): JSX.Element {
           <Button
             size="sm"
             variant="ghost"
+            className="h-7 px-1.5"
             disabled={hits.length === 0}
             onClick={() => irParaHit(1)}
             title="Próxima (Enter ou F3)"
@@ -788,6 +794,7 @@ export function TranscriptPanel(): JSX.Element {
           <Button
             size="sm"
             variant="ghost"
+            className="h-7 px-1.5"
             onClick={() => {
               setBuscaAberta(false)
               setTermo('')
@@ -796,6 +803,7 @@ export function TranscriptPanel(): JSX.Element {
           >
             <X className="h-3.5 w-3.5" />
           </Button>
+        </div>
         </div>
       )}
 
