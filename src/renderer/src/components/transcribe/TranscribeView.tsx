@@ -176,7 +176,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
       {env && !env.ffmpeg && (
         <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
           O ffmpeg embutido não foi localizado e não existe ffmpeg no sistema. Sem ele
-          não e possível extrair o áudio.
+          não é possível extrair o áudio.
         </p>
       )}
 
@@ -272,7 +272,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
         <div className="rounded-lg border bg-card p-4">
           <p className="text-sm">
             O modelo <strong>{selectedModel?.label}</strong> ainda não está no seu
-            computador. Baixar agora? Sao <strong>{formatBytes(stage.bytes)}</strong>,
+            computador. Baixar agora? São <strong>{formatBytes(stage.bytes)}</strong>,
             uma vez só — depois ele fica salvo.
           </p>
           <div className="mt-3 flex gap-2">
