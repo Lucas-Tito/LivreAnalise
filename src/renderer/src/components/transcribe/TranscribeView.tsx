@@ -271,9 +271,9 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
       {stage.kind === 'confirm' && (
         <div className="rounded-lg border bg-card p-4">
           <p className="text-sm">
-            O modelo <strong>{selectedModel?.label}</strong> ainda não esta no seu
+            O modelo <strong>{selectedModel?.label}</strong> ainda não está no seu
             computador. Baixar agora? Sao <strong>{formatBytes(stage.bytes)}</strong>,
-            uma vez so — depois ele fica salvo.
+            uma vez só — depois ele fica salvo.
           </p>
           <div className="mt-3 flex gap-2">
             <Button size="sm" onClick={confirmDownload}>
@@ -319,7 +319,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
 
       {stage.kind === 'done' && (
         <div className="rounded-lg border border-primary/40 bg-primary/5 p-4 text-sm">
-          <p className="font-medium">Transcrição concluida</p>
+          <p className="font-medium">Transcrição concluída</p>
           <p className="mt-1 text-muted-foreground">
             {stage.segments} trechos salvos em <code>{stage.outputPath}</code>
           </p>

@@ -109,7 +109,7 @@ export function CodingPopover({ x, y, onClose, onApply, onAddNote, onReattachNot
             style={{ backgroundColor: lastUsed.color }}
           />
           <span className="truncate">{lastUsed.name}</span>
-          <span className="ml-auto text-xs text-muted-foreground">ultimo</span>
+          <span className="ml-auto text-xs text-muted-foreground">último</span>
         </button>
       )}
       <div className="max-h-56 overflow-auto">

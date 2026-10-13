@@ -64,7 +64,7 @@ export function toWav(ffmpeg: string, mediaPath: string, wavPath: string): void 
   )
   if (res.status !== 0) {
     throw new Error(
-      `ffmpeg falhou ao converter o audio: ${(res.stderr ?? '').slice(-400)}`
+      `ffmpeg falhou ao converter o áudio: ${(res.stderr ?? '').slice(-400)}`
     )
   }
 }

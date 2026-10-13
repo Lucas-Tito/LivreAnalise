@@ -194,7 +194,7 @@ export function parseQde(xml: string): ParseResult {
   const parsed = parser.parse(xml)
   const project = parsed.Project
   if (!project) {
-    throw new Error('Arquivo QDPX invalido: elemento Project ausente')
+    throw new Error('Arquivo QDPX inválido: elemento Project ausente')
   }
 
   const skipped: string[] = []
