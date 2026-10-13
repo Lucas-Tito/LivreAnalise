@@ -40,7 +40,7 @@ const ESCOPOS: {
     id: 'structure',
     label: 'Somente estrutura',
     explicacao:
-      'Seus códigos, grupos e coleções, sem nenhum trecho de entrevista.'
+      'Seus códigos, categorias e grupos, sem nenhum trecho de entrevista.'
   },
   {
     id: 'document',

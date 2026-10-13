@@ -90,13 +90,13 @@ describe('buildStructureSection', () => {
       [membro],
       [coding(1, 2, 0, 5)]
     )
-    expect(saida).toContain('### Coleção: Conceituação')
-    expect(saida).toContain('- GRUPO (grupo)')
+    expect(saida).toContain('### Grupo: Conceituação')
+    expect(saida).toContain('- GRUPO (categoria)')
     expect(saida).toContain('  - codigo filho — 1 citações')
   })
 
   it('marks an empty collection instead of hiding it', () => {
-    expect(buildStructureSection([], [colecao], [], [])).toContain('_(vazia)_')
+    expect(buildStructureSection([], [colecao], [], [])).toContain('_(vazio)_')
   })
 })
 

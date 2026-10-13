@@ -2,6 +2,10 @@ import type { Code, Collection, CollectionMember } from '@shared/types'
 
 // Grupo nao e um campo no banco: e a propriedade derivada de um codigo ter
 // filhos. O atomo -- o unico nivel que recebe citacao -- e o codigo sem filhos.
+//
+// Os nomes do codigo nao sao os da interface (#64): o que aqui e "group" a
+// pessoa ve como CATEGORIA, e o que aqui e "collection" (tabela code_groups)
+// ela ve como GRUPO. Texto visivel sempre usa os nomes da interface.
 export function groupIds(codes: Code[]): Set<number> {
   const ids = new Set<number>()
   for (const code of codes) {
@@ -37,15 +41,15 @@ export function validateParentChange(
   const moving = byId.get(id)
   const target = byId.get(newParentId)
   if (!moving) throw new Error('Código a mover não encontrado.')
-  if (!target) throw new Error('Grupo de destino não encontrado.')
+  if (!target) throw new Error('Categoria de destino não encontrada.')
   // Destino precisa ser raiz (sem 3º nível).
   if (target.parentId != null) {
-    throw new Error('O destino precisa ser um grupo de 1º nível (sem criar 3º nível).')
+    throw new Error('O destino precisa ser uma categoria de 1º nível (sem criar 3º nível).')
   }
   // Código com filhos não pode descer para dentro de outro.
   const hasChildren = codes.some((c) => c.parentId === id)
   if (hasChildren) {
-    throw new Error('Um grupo não pode ser movido para dentro de outro grupo.')
+    throw new Error('Uma categoria não pode ser movida para dentro de outra categoria.')
   }
   // Sem ciclo: sobe a cadeia do alvo.
   let cursor: Code | undefined = target

@@ -353,9 +353,9 @@ export function createCode(input: CreateCodeInput): Code {
     const all = db.select().from(codes).all() as Code[]
     const byId = new Map(all.map((c) => [c.id, c]))
     const target = byId.get(input.parentId)
-    if (!target) throw new Error('Grupo de destino não encontrado.')
+    if (!target) throw new Error('Categoria de destino não encontrada.')
     if (target.parentId != null) {
-      throw new Error('O destino precisa ser um grupo de 1º nível (sem criar 3º nível).')
+      throw new Error('O destino precisa ser uma categoria de 1º nível (sem criar 3º nível).')
     }
   }
   const guid = uuid()
@@ -421,7 +421,7 @@ export function updateCode(input: UpdateCodeInput): void {
   pushHistory({
     label: isMove
       ? input.parentId == null
-        ? `remover "${after.name}" do grupo`
+        ? `remover "${after.name}" da categoria`
         : `mover "${after.name}"`
       : `editar código "${after.name}"`,
     undo: () => {
@@ -504,7 +504,7 @@ export function moveCodes(input: MoveCodesInput): void {
   const afterParent = input.parentId
   const count = unique.length
   pushHistory({
-    label: afterParent == null ? `remover ${count} do grupo` : `mover ${count} código${count > 1 ? 's' : ''}`,
+    label: afterParent == null ? `remover ${count} da categoria` : `mover ${count} código${count > 1 ? 's' : ''}`,
     undo: () => {
       const db2 = getDb()
       db2.transaction((tx) => {
@@ -546,7 +546,7 @@ export function createGroupCode(name: string, color: string, codeId: number): Co
   const origin = all.find((c) => c.id === codeId)
   if (!origin) throw new Error('Código de origem não encontrado.')
   if (origin.parentId != null || all.some((c) => c.parentId === codeId)) {
-    throw new Error('Só um código solto sem filhos pode virar grupo.')
+    throw new Error('Só um código solto sem filhos pode virar categoria.')
   }
   return createGroupFromCodes(name, color, [codeId])
 }
@@ -566,7 +566,7 @@ export function createGroupFromCodes(
     const code = all.find((c) => c.id === id)
     if (!code) throw new Error('Código não encontrado.')
     if (all.some((c) => c.parentId === id)) {
-      throw new Error(`"${code.name}" já é um grupo e não pode entrar em outro.`)
+      throw new Error(`"${code.name}" já é uma categoria e não pode entrar em outra.`)
     }
     return code
   })
@@ -602,7 +602,7 @@ export function createGroupFromCodes(
   const previous = members.map((m) => ({ parentId: m.parentId, sortOrder: m.sortOrder }))
   const ids = members.map((m) => m.id)
   pushHistory({
-    label: `criar grupo "${name}"`,
+    label: `criar categoria "${name}"`,
     undo: () => {
       const db2 = getDb()
       db2.transaction((tx) => {
@@ -716,7 +716,7 @@ export function createCollection(input: CreateCollectionInput): Collection {
   const created = getCollection(Number(res.lastInsertRowid))
   touchProject()
   pushHistory({
-    label: `criar coleção "${created.name}"`,
+    label: `criar grupo "${created.name}"`,
     undo: () => {
       getDb().delete(collections).where(eq(collections.id, created.id)).run()
       touchProject()
@@ -743,7 +743,7 @@ export function updateCollection(input: UpdateCollectionInput): void {
   const b = { ...before }
   const a = { ...after }
   pushHistory({
-    label: `editar coleção "${a.name}"`,
+    label: `editar grupo "${a.name}"`,
     undo: () => {
       getDb().update(collections).set({ name: b.name, description: b.description, sortOrder: b.sortOrder }).where(eq(collections.id, b.id)).run()
       touchProject()
@@ -764,7 +764,7 @@ export function deleteCollection(id: number): void {
   if (!snapshot) return
   const snap = { ...snapshot }
   pushHistory({
-    label: `excluir coleção "${snap.name}"`,
+    label: `excluir grupo "${snap.name}"`,
     undo: () => {
       const db2 = getDb()
       db2.transaction((tx) => {
@@ -810,7 +810,7 @@ export function addCollectionMember(collectionId: number, codeId: number): void 
   touchProject()
   if (res.changes === 0) return
   pushHistory({
-    label: `adicionar à coleção`,
+    label: `adicionar ao grupo`,
     undo: () => {
       getDb().delete(collectionMembers).where(
         and(eq(collectionMembers.collectionId, collectionId), eq(collectionMembers.codeId, codeId))
@@ -840,7 +840,7 @@ export function removeCollectionMember(collectionId: number, codeId: number): vo
   touchProject()
   if (!existed) return
   pushHistory({
-    label: `remover da coleção`,
+    label: `remover do grupo`,
     undo: () => {
       getDb().insert(collectionMembers).values({ collectionId, codeId }).onConflictDoNothing().run()
       touchProject()

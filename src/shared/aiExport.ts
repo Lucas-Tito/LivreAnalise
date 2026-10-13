@@ -51,9 +51,9 @@ function linhaDoCodigo(
   nivel: number
 ): string[] {
   const recuo = '  '.repeat(nivel)
-  const grupo = node.children.length > 0
+  const categoria = node.children.length > 0
   const uso = usos.get(node.code.id) ?? 0
-  const sufixo = grupo ? ' (grupo)' : uso > 0 ? ` — ${uso} citações` : ''
+  const sufixo = categoria ? ' (categoria)' : uso > 0 ? ` — ${uso} citações` : ''
   const linhas = [`${recuo}- ${node.code.name}${sufixo}`]
   for (const filho of node.children) {
     linhas.push(...linhaDoCodigo(filho, usos, nivel + 1))
@@ -69,17 +69,17 @@ export function buildStructureSection(
 ): string {
   const usos = contagem(todasAsCodings)
   const arvore = buildLibraryTree(codes, collections, members)
-  const linhas: string[] = ['## Códigos, grupos e coleções', '']
+  const linhas: string[] = ['## Códigos, categorias e grupos', '']
 
-  for (const colecao of arvore.collections) {
-    linhas.push(`### Coleção: ${colecao.collection.name}`)
-    if (colecao.children.length === 0) linhas.push('_(vazia)_')
-    for (const filho of colecao.children) linhas.push(...linhaDoCodigo(filho, usos, 0))
+  for (const grupo of arvore.collections) {
+    linhas.push(`### Grupo: ${grupo.collection.name}`)
+    if (grupo.children.length === 0) linhas.push('_(vazio)_')
+    for (const filho of grupo.children) linhas.push(...linhaDoCodigo(filho, usos, 0))
     linhas.push('')
   }
 
   if (arvore.loose.length > 0) {
-    linhas.push('### Sem coleção')
+    linhas.push('### Sem grupo')
     for (const node of arvore.loose) linhas.push(...linhaDoCodigo(node, usos, 0))
     linhas.push('')
   }
@@ -297,10 +297,9 @@ Em Node:    new Database("CAMINHO", { readonly: true })
 
 Três regras do modelo que o esquema não deixa óbvias:
 
-1. "grupo" não é tabela: é um código que tem filhos (codes.parent_id apontando
-   para ele). O código-folha é o único que recebe citação.
-2. "coleção" é a tabela code_groups, e code_group_members liga coleção a código.
-   O nome da tabela é histórico.
+1. "categoria" não é tabela: é um código que tem filhos (codes.parent_id
+   apontando para ele). O código-folha é o único que recebe citação.
+2. "grupo" é a tabela code_groups, e code_group_members liga grupo a código.
 3. A citação é posição de caractere no texto do documento. O trecho sai com:
    substr(d.plain_text, c.start_pos + 1, c.end_pos - c.start_pos)
 
@@ -320,13 +319,13 @@ SELECT d.name, substr(d.plain_text, g.start_pos + 1, g.end_pos - g.start_pos) AS
 FROM codings g JOIN documents d ON d.id = g.document_id
 JOIN codes c ON c.id = g.code_id WHERE c.name = 'NOME DO CÓDIGO';
 
--- a árvore coleção > grupo > código
-SELECT col.name AS colecao, pai.name AS grupo, f.name AS codigo
-FROM code_groups col
-JOIN code_group_members m ON m.group_id = col.id
+-- a árvore grupo > categoria > código
+SELECT gr.name AS grupo, pai.name AS categoria, f.name AS codigo
+FROM code_groups gr
+JOIN code_group_members m ON m.group_id = gr.id
 JOIN codes pai ON pai.id = m.code_id
 LEFT JOIN codes f ON f.parent_id = pai.id
-ORDER BY col.name, pai.name, f.name;
+ORDER BY gr.name, pai.name, f.name;
 
 -- códigos que aparecem no mesmo trecho (co-ocorrência)
 SELECT a.name, b.name, COUNT(*) AS juntos

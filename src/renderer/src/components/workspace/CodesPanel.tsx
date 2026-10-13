@@ -142,7 +142,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const [dropPos, setDropPos] = useState<DropZone | null>(null)
   const [dropKind, setDropKind] = useState<DropKind | null>(null)
   const DEFAULT_HINT =
-    'Bordas: reordenar • centro: agrupar • fundo: 1º nível'
+    'Bordas: reordenar • centro: pôr na categoria • fundo: 1º nível'
   const [dropHint, setDropHint] = useState(DEFAULT_HINT)
   const [rootHover, setRootHover] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -459,7 +459,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         return `Mover para dentro de “${codeName(hit.id)}”`
       return 'Mover de nível'
     }
-    return `Criar grupo com “${hit !== null && hit !== 'root' ? codeName(hit.id) : ''}”`
+    return `Criar categoria com “${hit !== null && hit !== 'root' ? codeName(hit.id) : ''}”`
   }
 
   const updateDropTarget = (x: number, y: number): void => {
@@ -716,7 +716,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
       anchorRef.current = null
     } catch (err) {
       flashNotice(
-        mensagemDeErro(err, 'Não foi possível criar o grupo.')
+        mensagemDeErro(err, 'Não foi possível criar a categoria.')
       )
     }
   }
@@ -790,7 +790,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
               data-code-children={hasChildren ? '1' : '0'}
               className={`group relative flex cursor-grab select-none items-center gap-1 rounded-md py-1 pr-1 text-sm transition-all duration-150 ease-out hover:bg-accent/50 ${isSelected ? 'bg-accent ring-1 ring-inset ring-primary/40' : ''} ${isDragging ? 'scale-[0.98] opacity-50' : ''} ${isGroupTarget ? 'code-drop-group' : ''} ${isNestTarget && !isGroupTarget ? 'code-drop-inside' : ''} ${isInsertBefore ? 'code-insert-before' : ''} ${isInsertAfter ? 'code-insert-after' : ''} ${isSameSpot ? 'code-drop-same' : ''}`}
               style={{ paddingLeft: depth * 14 + 4 }}
-              title="Arrastar: bordas reordenam • centro agrupa • fundo tira do grupo"
+              title="Arrastar: bordas reordenam • centro põe na categoria • fundo tira da categoria"
               onPointerDown={(e) => startPointerDrag(e, node.code)}
               onContextMenu={(e) => {
                 // O container da lista tambem tem menu de contexto (fundo
@@ -887,7 +887,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                       setMoveOpen(true)
                     }}
                   >
-                    <FolderInput className="h-4 w-4" /> Mover para grupo…
+                    <FolderInput className="h-4 w-4" /> Mover para categoria…
                   </DropdownMenuItem>
                   {canReceiveChild(node.code) && (
                     <DropdownMenuItem
@@ -908,7 +908,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                         })
                       }
                     >
-                      <Layers className="h-4 w-4" /> Criar coleção com este grupo
+                      <Layers className="h-4 w-4" /> Criar grupo com esta categoria
                     </DropdownMenuItem>
                   )}
                   {!hasChildren && node.code.parentId == null && (
@@ -917,14 +917,14 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                         setPrompt({ kind: 'groupFromCode', code: node.code })
                       }
                     >
-                      <Tags className="h-4 w-4" /> Criar grupo com este código
+                      <Tags className="h-4 w-4" /> Criar categoria com este código
                     </DropdownMenuItem>
                   )}
                   {node.code.parentId != null && (
                     <DropdownMenuItem
                       onClick={() => void doMove([node.code.id], null)}
                     >
-                      <CornerUpLeft className="h-4 w-4" /> Remover do grupo
+                      <CornerUpLeft className="h-4 w-4" /> Remover da categoria
                     </DropdownMenuItem>
                   )}
                   {collectionId != null && (
@@ -933,7 +933,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                         removeFromCollection(collectionId, node.code.id)
                       }
                     >
-                      <FolderMinus className="h-4 w-4" /> Remover da coleção
+                      <FolderMinus className="h-4 w-4" /> Remover do grupo
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuItem
@@ -982,7 +982,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                   setPrompt({ kind: 'groupFromCode', code: node.code })
                 }
               >
-                <Tags className="h-4 w-4" /> Criar grupo com este código
+                <Tags className="h-4 w-4" /> Criar categoria com este código
               </ContextMenuItem>
             ) : (
               // O motivo vai no proprio item, nao num title: item desabilitado
@@ -991,12 +991,12 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
               // e texto que a maioria nao le.
               <ContextMenuItem disabled className="flex-col items-start gap-0.5">
                 <span className="flex items-center gap-2">
-                  <Tags className="h-4 w-4" /> Criar grupo com este código
+                  <Tags className="h-4 w-4" /> Criar categoria com este código
                 </span>
                 <span className="pl-6 text-xs text-muted-foreground">
                   {hasChildren
-                    ? 'Este código já é um grupo.'
-                    : 'Remova o código do grupo atual primeiro.'}
+                    ? 'Este código já é uma categoria.'
+                    : 'Remova o código da categoria atual primeiro.'}
                 </span>
               </ContextMenuItem>
             )}
@@ -1055,7 +1055,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         {selected.size === 0 && !notice && (
           <p className="mt-1.5 px-1 text-[11px] leading-tight text-muted-foreground/70">
             Ctrl+clique soma • Shift+clique intervala • arraste: borda
-            reordena, centro agrupa
+            reordena, centro põe na categoria
           </p>
         )}
         {notice && (
@@ -1138,7 +1138,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                               onClick={() => {
                                 if (
                                   confirm(
-                                    `Excluir a coleção "${node.collection.name}"? Os códigos permanecem.`
+                                    `Excluir o grupo "${node.collection.name}"? Os códigos permanecem.`
                                   )
                                 ) {
                                   deleteCollection(node.collection.id)
@@ -1165,7 +1165,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                   <li>
                     {tree.collections.length > 0 && (
                       <p className="px-2 pb-1 pt-3 text-xs uppercase tracking-wide text-muted-foreground/60">
-                        Sem coleção
+                        Sem grupo
                       </p>
                     )}
                     <ul>
@@ -1229,17 +1229,17 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         onOpenChange={(o) => !o && setPrompt(null)}
         title={
           prompt?.kind === 'renameCollection'
-            ? 'Renomear coleção'
+            ? 'Renomear grupo'
             : prompt?.kind === 'groupFromCode'
-              ? `Novo grupo com "${prompt.code.name}"`
+              ? `Nova categoria com "${prompt.code.name}"`
               : prompt?.kind === 'collectionFromGroup'
-                ? `Nova coleção com "${prompt.code.name}"`
+                ? `Novo grupo com "${prompt.code.name}"`
                 : ''
         }
         label={
           prompt?.kind === 'groupFromCode'
-            ? 'Nome do grupo'
-            : 'Nome da coleção'
+            ? 'Nome da categoria'
+            : 'Nome do grupo'
         }
         initialValue={
           prompt?.kind === 'renameCollection' ? prompt.collection.name : ''
@@ -1250,8 +1250,8 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
       <SimplePromptDialog
         open={groupPrompt !== null}
         onOpenChange={(o) => !o && setGroupPrompt(null)}
-        title={`Novo grupo com ${groupNames(groupPrompt)}`}
-        label="Nome do grupo"
+        title={`Nova categoria com ${groupNames(groupPrompt)}`}
+        label="Nome da categoria"
         initialValue=""
         onSubmit={submitGroupPrompt}
       />
@@ -1260,11 +1260,11 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Mover {selected.size > 0 ? `${selected.size} código${selected.size > 1 ? 's' : ''}` : 'códigos'} para grupo…
+              Mover {selected.size > 0 ? `${selected.size} código${selected.size > 1 ? 's' : ''}` : 'códigos'} para categoria…
             </DialogTitle>
           </DialogHeader>
           <Input
-            placeholder="Pesquisar grupo..."
+            placeholder="Pesquisar categoria..."
             value={moveFilter}
             onChange={(e) => setMoveFilter(e.target.value)}
           />
@@ -1283,11 +1283,11 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
               }}
             >
               <CornerUpLeft className="h-4 w-4 text-muted-foreground" />
-              Sem grupo (1º nível)
+              Sem categoria (1º nível)
             </button>
             {filteredDestinations.length === 0 ? (
               <p className="p-4 text-center text-xs text-muted-foreground">
-                Nenhum grupo ainda. Grupos são códigos de 1º nível que já têm
+                Nenhuma categoria ainda. Categorias são códigos de 1º nível que já têm
                 filhos.
               </p>
             ) : (
