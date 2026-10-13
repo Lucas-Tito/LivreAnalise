@@ -20,9 +20,11 @@ import {
 } from '@/lib/barLayout'
 import { acharOcorrencias } from '@shared/busca'
 import { applyCodingAdjustments } from '@shared/editAdjust'
-import { contrastText, formatCount } from '@/lib/utils'
+import { contrastText, formatCount, randomColor } from '@/lib/utils'
+import { mensagemDeErro } from '@/lib/erros'
 import { Button } from '@/components/ui/button'
 import { CodingPopover } from './CodingPopover'
+import { CodeDialog, type CodeDialogValue } from './CodeDialog'
 import type { CodeWithCount } from '@shared/types'
 
 interface PendingSelection {
@@ -114,6 +116,7 @@ export function TranscriptPanel(): JSX.Element {
   const codings = useAppStore((s) => s.codings)
   const codes = useAppStore((s) => s.codes)
   const addCoding = useAppStore((s) => s.addCoding)
+  const createCode = useAppStore((s) => s.createCode)
   const updateCoding = useAppStore((s) => s.updateCoding)
   const removeCoding = useAppStore((s) => s.removeCoding)
   const updateDocumentText = useAppStore((s) => s.updateDocumentText)
@@ -134,6 +137,14 @@ export function TranscriptPanel(): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
   const [pending, setPending] = useState<PendingSelection | null>(null)
+  // Código novo criado a partir de um trecho: guarda o trecho enquanto o
+  // diálogo de configuração está aberto, porque o popover já fechou. A cor
+  // sorteada mora aqui para não mudar a cada render do diálogo.
+  const [novoCodigo, setNovoCodigo] = useState<{
+    start: number
+    end: number
+    initial: Partial<CodeDialogValue>
+  } | null>(null)
   const [bars, setBars] = useState<Bar[]>([])
   const [columnCount, setColumnCount] = useState(1)
   const columnFloorRef = useRef(1)
@@ -584,6 +595,33 @@ export function TranscriptPanel(): JSX.Element {
     await addCoding(codeId, pending.start, pending.end)
     setPending(null)
     window.getSelection()?.removeAllRanges()
+  }
+
+  const startCreateCode = (name: string): void => {
+    if (!pending) return
+    setNovoCodigo({
+      start: pending.start,
+      end: pending.end,
+      initial: { name, color: randomColor() }
+    })
+    setPending(null)
+  }
+
+  const submitNovoCodigo = async (value: CodeDialogValue): Promise<boolean> => {
+    if (!novoCodigo) return false
+    try {
+      const code = await createCode({
+        name: value.name,
+        color: value.color,
+        description: value.description || null
+      })
+      await addCoding(code.id, novoCodigo.start, novoCodigo.end)
+      window.getSelection()?.removeAllRanges()
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err, 'Não foi possível criar o código.'))
+      return false
+    }
   }
 
   const addNoteForPending = async (): Promise<void> => {
@@ -1080,10 +1118,19 @@ export function TranscriptPanel(): JSX.Element {
           y={pending.y}
           onClose={() => setPending(null)}
           onApply={applyCode}
+          onCreate={startCreateCode}
           onAddNote={() => void addNoteForPending()}
           onReattachNote={podeReligar ? () => void reattachPendingNote() : undefined}
         />
       )}
+
+      <CodeDialog
+        open={novoCodigo !== null}
+        onOpenChange={(o) => !o && setNovoCodigo(null)}
+        title="Novo código"
+        initial={novoCodigo?.initial}
+        onSubmit={submitNovoCodigo}
+      />
     </div>
   )
 }

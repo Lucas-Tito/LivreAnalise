@@ -3,20 +3,29 @@ import { casaBusca, mesmoTermo } from '@shared/busca'
 import { Link2, Plus, StickyNote } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { applicableCodes } from '@shared/codeTree'
-import { randomColor } from '@/lib/utils'
 
 interface Props {
   x: number
   y: number
   onClose: () => void
   onApply: (codeId: number) => void
+  // Criar código abre o diálogo de configuração (cor, descrição) com o nome já
+  // digitado; quem chama aplica ao trecho depois de salvo.
+  onCreate: (name: string) => void
   onAddNote?: () => void
   onReattachNote?: () => void
 }
 
-export function CodingPopover({ x, y, onClose, onApply, onAddNote, onReattachNote }: Props): JSX.Element {
+export function CodingPopover({
+  x,
+  y,
+  onClose,
+  onApply,
+  onCreate,
+  onAddNote,
+  onReattachNote
+}: Props): JSX.Element {
   const allCodes = useAppStore((s) => s.codes)
-  const createCode = useAppStore((s) => s.createCode)
   const lastUsedCodeId = useAppStore((s) => s.lastUsedCodeId)
   const [filter, setFilter] = useState('')
   const ref = useRef<HTMLDivElement>(null)
@@ -46,11 +55,9 @@ export function CodingPopover({ x, y, onClose, onApply, onAddNote, onReattachNot
     (c) => mesmoTermo(c.name, filter)
   )
 
-  const handleCreate = async (): Promise<void> => {
+  const handleCreate = (): void => {
     const name = filter.trim()
-    if (!name) return
-    const code = await createCode({ name, color: randomColor() })
-    onApply(code.id)
+    if (name) onCreate(name)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent): void => {
