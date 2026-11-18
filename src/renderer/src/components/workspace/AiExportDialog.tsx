@@ -99,6 +99,8 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
     setExportando(true)
     setSalvoEm(null)
     try {
+      if (!(await useAppStore.getState().podeSairDoTexto())) return
+      await useAppStore.getState().notesFlush?.()
       const resultado = await window.api.aiExport.export(
         scope,
         currentDocument?.id ?? null,

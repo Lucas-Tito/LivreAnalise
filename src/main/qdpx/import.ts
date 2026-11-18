@@ -1,7 +1,7 @@
-import { readFile } from 'fs/promises'
+import { readFile, stat } from 'fs/promises'
 import { v4 as uuid } from 'uuid'
 import type { ImportReport } from '@shared/types'
-import { getDb } from '../db'
+import { getDb, type ProjectDb } from '../db'
 import {
   collectionMembers,
   collections,
@@ -10,12 +10,15 @@ import {
   documents,
   notes
 } from '../db/schema'
-import { normalizeText } from '../services/textExtract'
 import { deserializeQdpx } from './serialize'
 import type { ParsedQdpx } from './model'
+import { MAX_QDPX_BYTES } from './zipReader'
 
-export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
-  const db = getDb()
+export function importProjectIntoDb(parsed: ParsedQdpx, db: ProjectDb = getDb()): ImportReport {
+  return db.$client.transaction(() => importRecords(parsed, db))()
+}
+
+function importRecords(parsed: ParsedQdpx, db: ProjectDb): ImportReport {
   const report: ImportReport = {
     codes: 0,
     groups: 0,
@@ -59,7 +62,8 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
         name: code.name,
         color: code.color ?? '#2563eb',
         description: code.description ?? null,
-        parentId
+        parentId,
+        sortOrder: report.codes
       })
       .run()
     codeIdByGuid.set(code.guid, Number(res.lastInsertRowid))
@@ -73,7 +77,8 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
       .values({
         guid: set.guid || uuid(),
         name: set.name,
-        description: set.description ?? null
+        description: set.description ?? null,
+        sortOrder: report.groups
       })
       .run()
     const collectionId = Number(res.lastInsertRowid)
@@ -91,7 +96,9 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
 
   const docGuidToId = new Map<string, number>()
   for (const doc of parsed.project.documents) {
-    const content = normalizeText(doc.plainText)
+    // Os offsets do QDPX se referem a estes bytes de texto decodificados.
+    // Remover BOM ou encurtar CRLF deslocaria todas as âncoras posteriores.
+    const content = doc.plainText
     const res = db
       .insert(documents)
       .values({
@@ -115,11 +122,15 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
         sel.endPosition <= sel.startPosition ||
         sel.endPosition > content.length
       ) {
+        report.skipped.push(`Seleção fora da faixa em "${doc.name}": ${sel.startPosition}–${sel.endPosition}`)
         continue
       }
       for (const codeGuid of sel.codeGuids) {
         const codeId = codeIdByGuid.get(codeGuid)
-        if (!codeId) continue
+        if (!codeId) {
+          report.skipped.push(`Código não encontrado em "${doc.name}": ${codeGuid}`)
+          continue
+        }
         const res = db.insert(codings)
           .values({
             guid: uuid(),
@@ -139,6 +150,7 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
   // Notas: resolve targetGUID → nota; âncora inválida vira detached com o
   // texto original preservado, nunca falha o import.
   const noteBodyByGuid = new Map(parsed.project.notes.map((n) => [n.guid, n]))
+  const importedNoteGuids = new Set<string>()
   const insertNote = (
     guid: string,
     scope: 'project' | 'document' | 'excerpt',
@@ -167,9 +179,11 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
     const anchorText = status === 'detached' || scope === 'document'
       ? (found.description ?? null)
       : null
+    const repeated = importedNoteGuids.has(found.guid)
+    if (repeated) report.skipped.push(`Nota com múltiplos vínculos copiada para preservar cada vínculo: ${found.name ?? found.guid}`)
     const res = db.insert(notes)
       .values({
-        guid: found.guid || uuid(),
+        guid: repeated ? uuid() : found.guid || uuid(),
         title: found.name,
         body: found.plainText ?? '',
         scope,
@@ -179,8 +193,8 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
         anchorStatus: status,
         anchorText
       })
-      .onConflictDoNothing()
       .run()
+    importedNoteGuids.add(found.guid)
     if (res.changes > 0) report.notes += 1
   }
 
@@ -191,7 +205,7 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
   for (const doc of parsed.project.documents) {
     const documentId = docIdByGuid.get(doc.guid)
     if (documentId == null) continue
-    const docLen = normalizeText(doc.plainText).length
+    const docLen = doc.plainText.length
     for (const guid of doc.noteGuids) {
       insertNote(guid, 'document', documentId, null, null, docLen)
     }
@@ -231,8 +245,9 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
   return report
 }
 
-export async function importQdpx(filePath: string): Promise<ImportReport> {
+export async function importQdpx(filePath: string, db: ProjectDb = getDb()): Promise<ImportReport> {
+  if ((await stat(filePath)).size > MAX_QDPX_BYTES) throw new Error('QDPX excede o limite de 128 MiB.')
   const buffer = await readFile(filePath)
   const parsed = await deserializeQdpx(buffer)
-  return importProjectIntoDb(parsed)
+  return importProjectIntoDb(parsed, db)
 }

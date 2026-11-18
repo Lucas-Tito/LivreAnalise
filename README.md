@@ -55,6 +55,11 @@ copiado para o `.liva`, então mover ou apagar o arquivo original depois não qu
 projeto. O texto pode ser editado dentro do app, e as codificações existentes acompanham
 a edição em vez de se deslocarem.
 
+A extração de DOCX roda em worker isolado, com limite de memória e prazo de
+30 segundos. Por segurança, são aceitos até 50 MiB de arquivo DOCX, 16 MiB por
+entrada XML e 32 MiB de XML expandido no total; arquivos TXT têm limite de 32 MiB.
+Mídia embutida no DOCX não é expandida para extrair texto puro.
+
 ### Codificação
 
 Selecione um trecho do texto e aplique um código. As áreas codificadas aparecem
@@ -87,6 +92,10 @@ citações).
 
 Interopera com o ATLAS.ti pelo formato aberto REFI-QDA. Abrir um `.qdpx` (pelo "Abrir projeto") cria um
 projeto novo — a importação não mistura dados em um projeto existente.
+Escolha um destino que ainda não exista. A importação é preparada separadamente;
+se falhar, o projeto anterior permanece aberto e nenhum lote parcial é publicado.
+O limite é 128 MiB para o arquivo QDPX, 32 MiB por fonte expandida e 256 MiB
+expandidos no total.
 
 O mapeamento é direto nos dois sentidos:
 
@@ -109,6 +118,8 @@ progresso mostra a fração de áudio já processada — não uma roda girando.
 
 O resultado é salvo como `<arquivo>_transcricao.txt`, no formato
 `[HH:MM:SS.mmm -> HH:MM:SS.mmm] texto`, para você importar como documento no projeto.
+Se esse nome já existir, é gerado um nome numerado — uma transcrição revisada
+nunca é substituída silenciosamente.
 
 Em **Avançado** dá para escolher o modelo, o idioma e o caminho do executável.
 
@@ -119,8 +130,8 @@ Em **Avançado** dá para escolher o modelo, o idioma e o caminho do executável
 - **O modelo é baixado no primeiro uso.** O padrão é o `medium` quantizado, com
   **514 MB**. O app pergunta antes de baixar, mostrando o tamanho exato informado pelo
   servidor, com barra de progresso própria e retomada se a conexão cair. O download só é
-  aceito se o tamanho final conferir — download truncado é recusado em vez de virar um
-  modelo corrompido que falha muito depois.
+  aceito se o tamanho final e o SHA-256 conferirem. Os modelos usam uma revisão
+  fixada do upstream, e arquivos já armazenados também são verificados antes do uso.
 - **O modelo quantizado não é um downgrade.** O `faster-whisper` com `compute_type="int8"`
   também roda quantizado; o `medium-q5_0` é o equivalente em ggml, com um terço do
   download do modelo completo (514 MB contra 1462 MB).
@@ -149,11 +160,17 @@ npm run dist:linux   # gera os instaladores localmente
 Electron + React + TypeScript, com SQLite via better-sqlite3 e Drizzle, e Tailwind na
 interface.
 
+No Linux, `npm run dev` e o preview local (`npm start`) passam `--no-sandbox` ao Electron antes da inicialização,
+evitando falhas do sandbox local (incluindo erros `No such process` em `/dev/shm`).
+Isso desabilita o sandbox **nos launchers locais de desenvolvimento e preview**; os aplicativos
+empacotados não recebem essa opção. Use o modo de desenvolvimento apenas com
+conteúdo confiável. Windows e macOS mantêm o comportamento padrão.
+
 ### O detalhe do módulo nativo
 
 O `better-sqlite3` é compilado, e o ABI do Electron é diferente do ABI do Node. Por isso
-`npm test` recompila o módulo para o Node antes de rodar (`pretest`) e devolve para o
-Electron depois (`posttest`).
+`npm test` recompila o módulo para o Node antes de rodar (`pretest`) e o runner
+de testes devolve para o Electron depois, inclusive quando algum teste falha.
 
 Consequência prática: **não rode `npx vitest` direto** — os testes de banco falham com
 erro de ABI. Use `npm test`. Para o modo watch, rode `npm run rebuild:node` antes e

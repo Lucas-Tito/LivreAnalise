@@ -15,8 +15,9 @@ import { useAppStore } from '@/stores/appStore'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { mensagemDeErro } from '@/lib/erros'
-import { aposSalvar, mesmoConteudo } from '@/lib/noteAutosave'
+import { createNoteSaver, type PendingNote } from '@/lib/noteAutosave'
 import type { Note } from '@shared/types'
+import { useAsyncAction } from '@/lib/useAsyncAction'
 
 const AUTOSAVE_DELAY = 800
 
@@ -79,123 +80,103 @@ type SaveStatus = 'saved' | 'dirty' | 'saving' | 'error'
 function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.Element {
   const updateNote = useAppStore((s) => s.updateNote)
   const deleteNote = useAppStore((s) => s.deleteNote)
-  const registerNotesFlush = useAppStore((s) => s.registerNotesFlush)
+  const setNotasSujo = useAppStore((s) => s.setNotasSujo)
   const navigateToNote = useAppStore((s) => s.navigateToNote)
   const currentDocument = useAppStore((s) => s.currentDocument)
-
-  const [title, setTitle] = useState(note.title ?? '')
-  const [body, setBody] = useState(note.body)
-  const [status, setStatus] = useState<SaveStatus>('saved')
-  const [erro, setErro] = useState<string | null>(null)
-  const stateRef = useRef({ title: note.title ?? '', body: note.body })
-  const savedRef = useRef({ title: note.title ?? '', body: note.body })
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const savingRef = useRef(false)
-  // Apagada: a limpeza do efeito nao pode gravar numa nota que nao existe mais
-  const apagadaRef = useRef(false)
-
-  const updateNoteRef = useRef(updateNote)
-  updateNoteRef.current = updateNote
-
-  useEffect(() => {
-    setTitle(note.title ?? '')
-    setBody(note.body)
-    stateRef.current = { title: note.title ?? '', body: note.body }
-    savedRef.current = { title: note.title ?? '', body: note.body }
-    setStatus('saved')
-    // A limpeza grava o que ficou pendente da nota ANTERIOR: ela roda antes do
-    // efeito da nota nova e tambem na desmontagem, entao cobre trocar de nota e
-    // fechar o painel. Antes o timer era so cancelado, e as teclas digitadas nos
-    // ultimos 800ms iam embora sem aviso.
-    const idDesteEfeito = note.id
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current)
-        timerRef.current = null
-      }
-      const naTela = stateRef.current
-      if (apagadaRef.current) return
-      if (mesmoConteudo(naTela, savedRef.current)) return
-      void updateNoteRef.current({
-        id: idDesteEfeito,
-        title: naTela.title.trim() === '' ? null : naTela.title,
-        body: naTela.body
+  const [pending] = useState<PendingNote>(() => {
+    const state = useAppStore.getState()
+    const project = state.project?.guid ?? null
+    if (state.pendingNote?.id === note.id && state.pendingNote.project === project) {
+      return state.pendingNote
+    }
+    return {
+      project,
+      id: note.id,
+      documentId: note.documentId,
+      timer: null,
+      saver: createNoteSaver({ title: note.title ?? '', body: note.body }, async (draft) => {
+        if ((useAppStore.getState().project?.guid ?? null) !== project) {
+          throw new Error('O projeto desta nota não está aberto.')
+        }
+        const updated = await updateNote({
+          id: note.id,
+          title: draft.title.trim() === '' ? null : draft.title,
+          body: draft.body
+        })
+        return { title: updated.title ?? '', body: updated.body }
       })
     }
-  }, [note.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  })
+  const [title, setTitle] = useState(() => pending.saver.read().title)
+  const [body, setBody] = useState(() => pending.saver.read().body)
+  const [status, setStatus] = useState<SaveStatus>(() =>
+    useAppStore.getState().pendingNote === pending ? 'dirty' : 'saved'
+  )
+  const [erro, setErro] = useState<string | null>(null)
+  const apagadaRef = useRef(false)
 
   const saveNow = useCallback(async (): Promise<void> => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current)
-      timerRef.current = null
+    if (pending.timer) {
+      clearTimeout(pending.timer)
+      pending.timer = null
     }
-    const { title: t, body: b } = stateRef.current
-    if (mesmoConteudo({ title: t, body: b }, savedRef.current)) {
+    if (apagadaRef.current || useAppStore.getState().pendingNote !== pending) {
       setStatus('saved')
       return
     }
-    if (savingRef.current) return
-    savingRef.current = true
     setStatus('saving')
     try {
-      const idDoSave = note.id
-      const updated = await updateNote({
-        id: idDoSave,
-        title: t.trim() === '' ? null : t,
-        body: b
-      })
-      // Trocar de nota durante o IPC fazia o savedRef receber o conteudo da
-      // nota ANTERIOR: o editor acusava "Alterações não salvas" sem motivo e
-      // agendava um save espurio da nota nova.
-      if (idDoSave !== note.id) return
-      savedRef.current = { title: updated.title ?? '', body: updated.body }
-      // o texto da tela nunca e sobrescrito: o que foi digitado durante o IPC
-      // continua valendo e vira um save novo, em vez de sumir como "Salvo"
-      const { status: proximo, reagendar } = aposSalvar(stateRef.current, savedRef.current)
-      setStatus(proximo)
-      if (reagendar) {
-        if (timerRef.current) clearTimeout(timerRef.current)
-        timerRef.current = setTimeout(() => void saveRef.current(), AUTOSAVE_DELAY)
+      await pending.saver.flush()
+      if (useAppStore.getState().pendingNote === pending) {
+        useAppStore.setState({ pendingNote: null, notesFlush: null })
+        setNotasSujo(false)
       }
-    } catch {
+      setStatus('saved')
+      setErro(null)
+    } catch (e) {
       setStatus('error')
-    } finally {
-      savingRef.current = false
+      setErro(mensagemDeErro(e, 'Não foi possível salvar a nota.'))
+      throw e
     }
-  }, [note.id, updateNote])
+  }, [pending, setNotasSujo])
 
-  const saveRef = useRef(saveNow)
-  saveRef.current = saveNow
   useEffect(() => {
-    registerNotesFlush(() => saveRef.current())
-    return () => registerNotesFlush(null)
-  }, [registerNotesFlush])
-
+    if (useAppStore.getState().pendingNote !== pending) return
+    // Uma remontagem da mesma nota reassume a gravação e seu estado visual.
+    useAppStore.setState({ notesFlush: saveNow })
+  }, [pending, saveNow])
 
   const handleChange = (t: string, b: string): void => {
     setTitle(t)
     setBody(b)
-    stateRef.current = { title: t, body: b }
-    setStatus(
-      t === savedRef.current.title && b === savedRef.current.body ? 'saved' : 'dirty'
-    )
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => void saveRef.current(), AUTOSAVE_DELAY)
+    pending.saver.change({ title: t, body: b })
+    useAppStore.setState({ pendingNote: pending, notesFlush: saveNow })
+    setNotasSujo(true)
+    setStatus('dirty')
+    if (pending.timer) clearTimeout(pending.timer)
+    pending.timer = setTimeout(() => {
+      const state = useAppStore.getState()
+      if (state.pendingNote === pending) void state.notesFlush?.().catch(() => undefined)
+    }, AUTOSAVE_DELAY)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent): void => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
       e.preventDefault()
-      void saveRef.current()
+      void saveNow().catch(() => undefined)
     }
   }
 
   const handleDelete = async (): Promise<void> => {
     if (!window.confirm('Apagar esta nota? O conteúdo será perdido.')) return
-    if (timerRef.current) clearTimeout(timerRef.current)
+    if (pending.timer) clearTimeout(pending.timer)
     apagadaRef.current = true
     try {
       await deleteNote(note.id)
+      if (useAppStore.getState().pendingNote === pending) {
+        useAppStore.setState({ pendingNote: null, notesFlush: null })
+        setNotasSujo(false)
+      }
     } catch (e) {
       apagadaRef.current = false
       // sem isto o clique nao fazia nada depois de voce ja ter confirmado, e o
@@ -220,10 +201,10 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
   return (
     <div className="flex h-full flex-col" onKeyDown={handleKeyDown}>
       <div className="flex items-center gap-1 border-b px-2 py-2">
-        <Button size="sm" variant="ghost" onClick={() => void saveRef.current().then(onBack)}>
+        <Button size="sm" variant="ghost" onClick={() => void saveNow().then(onBack).catch(() => undefined)}>
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Button>
-        <span className="ml-auto text-[11px] text-muted-foreground">
+        <span role="status" className="ml-auto text-[11px] text-muted-foreground">
           {status === 'saving' && 'Salvando…'}
           {status === 'saved' && 'Salvo'}
           {status === 'dirty' && 'Alterações não salvas'}
@@ -270,12 +251,14 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
           </Button>
         )}
         <input
+          aria-label="Título da nota"
           value={title}
           onChange={(e) => handleChange(e.target.value, body)}
           placeholder="Título da nota"
           className="mb-2 h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
         <textarea
+          aria-label="Conteúdo da nota"
           value={body}
           onChange={(e) => handleChange(title, e.target.value)}
           placeholder="Escreva o memo aqui…"
@@ -296,6 +279,7 @@ export function NotesPanel(): JSX.Element {
   const toggleNotesPanel = useAppStore((s) => s.toggleNotesPanel)
   const createNote = useAppStore((s) => s.createNote)
   const [erroLista, setErroLista] = useState<string | null>(null)
+  const { error: navigationError, run } = useAsyncAction()
 
   const [filter, setFilter] = useState('')
 
@@ -342,7 +326,7 @@ export function NotesPanel(): JSX.Element {
   }
 
   return (
-    <div className="flex h-full w-80 shrink-0 flex-col border-l bg-card">
+    <div className="flex h-full w-80 max-w-[32vw] shrink-0 flex-col border-l bg-card">
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <StickyNote className="h-4 w-4 text-muted-foreground" />
         <span className="font-medium">Notas</span>
@@ -353,12 +337,14 @@ export function NotesPanel(): JSX.Element {
           size="sm"
           variant="ghost"
           className="ml-auto"
-          onClick={toggleNotesPanel}
+          onClick={() => void run(toggleNotesPanel)}
+          aria-label="Fechar painel de notas"
           title="Fechar painel de notas"
         >
           <X className="h-4 w-4" />
         </Button>
       </div>
+      {navigationError && <p role="alert" className="p-2 text-xs text-destructive">{navigationError}</p>}
       {erroLista && (
         <p className="border-b bg-destructive/10 px-3 py-1.5 text-[11px] text-destructive">
           {erroLista}
@@ -366,11 +352,12 @@ export function NotesPanel(): JSX.Element {
       )}
 
       {editingNote ? (
-        <NoteEditor note={editingNote} onBack={() => openNoteEditor(null)} />
+        <NoteEditor key={editingNote.id} note={editingNote} onBack={() => void openNoteEditor(null)} />
       ) : (
         <>
           <div className="border-b p-2">
             <input
+              aria-label="Filtrar notas"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filtrar notas…"
@@ -401,7 +388,7 @@ export function NotesPanel(): JSX.Element {
                       key={n.id}
                       note={n}
                       quote={null}
-                      onOpen={() => openNoteEditor(n.id)}
+                       onOpen={() => void run(() => openNoteEditor(n.id))}
                     />
                   ))}
                   {excerptAttached.map((n) => (
@@ -409,7 +396,7 @@ export function NotesPanel(): JSX.Element {
                       key={n.id}
                       note={n}
                       quote={quoteOf(n)}
-                      onOpen={() => openNoteEditor(n.id)}
+                       onOpen={() => void run(() => openNoteEditor(n.id))}
                     />
                   ))}
                   {docScoped.length === 0 && excerptAttached.length === 0 && (
@@ -436,7 +423,7 @@ export function NotesPanel(): JSX.Element {
                       key={n.id}
                       note={n}
                       quote={quoteOf(n)}
-                      onOpen={() => openNoteEditor(n.id)}
+                       onOpen={() => void run(() => openNoteEditor(n.id))}
                     />
                   ))}
                 </div>
@@ -465,7 +452,7 @@ export function NotesPanel(): JSX.Element {
               </div>
               <div className="space-y-2">
                 {project.map((n) => (
-                  <NoteCard key={n.id} note={n} quote={null} onOpen={() => openNoteEditor(n.id)} />
+                  <NoteCard key={n.id} note={n} quote={null} onOpen={() => void run(() => openNoteEditor(n.id))} />
                 ))}
                 {project.length === 0 && (
                   <p className="text-xs text-muted-foreground">

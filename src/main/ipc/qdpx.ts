@@ -1,5 +1,5 @@
 import { dialog, ipcMain } from 'electron'
-import { basename } from 'path'
+import { basename, dirname } from 'path'
 import { IPC } from '@shared/ipc'
 import type { ExportResult, ImportReport, OpenProjectResult } from '@shared/types'
 import { getActivePath, getDb, hasActiveProject, openDatabase } from '../db'
@@ -10,8 +10,7 @@ import { exportQdpx } from '../qdpx/export'
 import { importQdpx } from '../qdpx/import'
 import { ensureMeta } from './project'
 import { SAVE_DIALOG_PROPERTIES } from './saveDialog'
-
-const PROJECT_EXT = 'liva'
+import { pickNewProjectPath, publishNewProject } from './newProjectFile'
 
 export function registerQdpxHandlers(): void {
   ipcMain.handle(IPC.qdpx.export, async (): Promise<ExportResult | null> => {
@@ -35,25 +34,18 @@ export function registerQdpxHandlers(): void {
 // importa para dentro dele. Entra pelo "Abrir projeto", que aceita os dois
 // formatos (#41).
 export async function importQdpxAsProject(
-  qdpxPath: string
+  qdpxPath: string,
+  name: string
 ): Promise<(OpenProjectResult & { report: ImportReport }) | null> {
-  const suggestedName = basename(qdpxPath).replace(/\.qdpx$/i, '')
-
-  const saveResult = await dialog.showSaveDialog({
-    title: 'Salvar novo projeto',
-    defaultPath: `${suggestedName}.${PROJECT_EXT}`,
-    filters: [{ name: 'Projeto LivreAnalise', extensions: [PROJECT_EXT] }],
-    properties: SAVE_DIALOG_PROPERTIES
+  const path = await pickNewProjectPath(name, dirname(qdpxPath))
+  if (!path) return null
+  const { meta, report } = await publishNewProject(path, async (db) => {
+    const report = await importQdpx(qdpxPath, db)
+    return { report, meta: ensureMeta(basename(path, '.liva'), db) }
   })
-  if (saveResult.canceled || !saveResult.filePath) return null
-  const livaPath = saveResult.filePath
-
   const prev = getActivePath()
+  openDatabase(path)
   if (prev) clearHistoryFor(prev)
-  openDatabase(livaPath)
-  const report = await importQdpx(qdpxPath)
-  const name = basename(livaPath).replace(/\.liva$/i, '')
-  const meta = ensureMeta(name)
-  pushRecent(livaPath, meta.name)
-  return { meta, path: livaPath, report }
+  pushRecent(path, meta.name)
+  return { meta, path, report }
 }

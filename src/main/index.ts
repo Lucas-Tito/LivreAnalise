@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { join } from 'path'
 import { closeDatabase } from './db'
 import { registerIpcHandlers } from './ipc'
 import { IPC } from '@shared/ipc'
 import icon from '../../resources/icon.png?asset'
+import { cancelTranscriptionOperations, hasTranscriptionOperation } from './ipc/transcription'
 
 // A saida padrao pode estar com o pipe fechado (AppImage aberto pelo menu,
 // terminal que ja fechou, saida redirecionada). O proprio Electron faz um
@@ -38,23 +39,23 @@ ipcMain.on(IPC.view.fontChanged, (_e, font: string) => {
 // fechar da janela vira pergunta: sem pendência ele segue direto, e um renderer
 // travado nunca deixa a janela impossível de fechar.
 let textoPendente = false
+let notasPendentes = false
+let quitting = false
+ipcMain.on(IPC.app.notesDirty, (_e, dirty: boolean) => {
+  notasPendentes = dirty
+})
 ipcMain.on(IPC.app.textDirty, (_e, dirty: boolean) => {
   textoPendente = dirty
 })
 ipcMain.on(IPC.app.confirmClose, (e) => {
   textoPendente = false
-  BrowserWindow.fromWebContents(e.sender)?.close()
+  notasPendentes = false
+  if (quitting) app.quit()
+  else BrowserWindow.fromWebContents(e.sender)?.close()
 })
+ipcMain.on(IPC.app.cancelClose, () => { quitting = false })
 
 const isDev = !app.isPackaged
-
-// Em desenvolvimento no Linux, o sandbox setuid do Chromium exige que o binario
-// chrome-sandbox pertenca ao root (mode 4755). Para evitar a necessidade de sudo
-// a cada reinstalacao, desabilitamos o sandbox apenas no modo dev.
-if (isDev && process.platform === 'linux') {
-  app.commandLine.appendSwitch('no-sandbox')
-  app.commandLine.appendSwitch('disable-setuid-sandbox')
-}
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -70,7 +71,7 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -80,18 +81,45 @@ function createWindow(): void {
     mainWindow.show()
   })
 
+  let stoppingOperation = false
   mainWindow.on('close', (e) => {
-    if (!textoPendente) return
+    if (textoPendente || notasPendentes) {
+      e.preventDefault()
+      mainWindow.webContents.send(IPC.app.closeRequested)
+      return
+    }
+    if (!hasTranscriptionOperation()) return
     e.preventDefault()
-    mainWindow.webContents.send(IPC.app.closeRequested)
+    if (stoppingOperation) return
+    stoppingOperation = true
+    void (async () => {
+      const answer = await dialog.showMessageBox(mainWindow, {
+        type: 'question', title: 'Operação em andamento',
+        message: 'Cancelar a transcrição ou download antes de sair?',
+        detail: 'O processamento será interrompido. Áudio temporário será removido; downloads parciais poderão ser retomados.',
+        buttons: ['Continuar trabalhando', 'Cancelar operação e sair'], defaultId: 0, cancelId: 0
+      })
+      if (answer.response !== 1) { quitting = false; return }
+      await cancelTranscriptionOperations()
+      if (quitting) app.quit()
+      else mainWindow.close()
+    })().catch((error) => {
+      quitting = false
+      dialog.showErrorBox('Não foi possível sair', String(error))
+    }).finally(() => { stoppingOperation = false })
   })
   mainWindow.webContents.on('render-process-gone', () => {
     textoPendente = false
+    notasPendentes = false
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    openExternalLink(details.url)
     return { action: 'deny' }
+  })
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    event.preventDefault()
+    openExternalLink(url)
   })
 
   // Resolve a janela na hora do clique: capturar `mainWindow` fazia o menu
@@ -132,6 +160,15 @@ function createWindow(): void {
   }
 }
 
+function openExternalLink(url: string): void {
+  try {
+    if (!['https:', 'http:'].includes(new URL(url).protocol)) return
+    void shell.openExternal(url).catch((error) => console.error('Não foi possível abrir o link:', error))
+  } catch {
+    // URLs inválidas e protocolos locais nunca são enviados ao sistema.
+  }
+}
+
 app.whenReady().then(() => {
   registerIpcHandlers()
   createWindow()
@@ -149,5 +186,9 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  quitting = true
+})
+
+app.on('will-quit', () => {
   closeDatabase()
 })

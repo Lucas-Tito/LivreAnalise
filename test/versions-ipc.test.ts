@@ -1,5 +1,5 @@
 import { createRequire } from 'module'
-import { mkdtempSync, rmSync } from 'fs'
+import { linkSync, mkdtempSync, rmSync, symlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -71,5 +71,35 @@ describe('versions IPC (integration)', () => {
     await handlers.get(IPC.project.openPath)!(null, projectPath)
     await vi.waitFor(() => expect(send).toHaveBeenCalledWith(IPC.versions.changed))
     expect(versions.readManifest(projectPath)).toHaveLength(1)
+  })
+
+  it('restores committed data from the WAL of a pre-migration snapshot', async () => {
+    db.getRaw().pragma('wal_checkpoint(TRUNCATE)')
+    db.getRaw().pragma('wal_autocheckpoint = 0')
+    repos.createDocument({ name: 'No WAL', plainText: 'preservar', originalFormat: 'txt' })
+    db.getRaw().pragma('user_version = 0')
+    const snapshot = versions.snapshotBeforeMigration(projectPath)!
+    expect(snapshot.kind).toBe('premigracao')
+    const dest = join(dir, 'com-wal.liva')
+    showSaveDialog.mockResolvedValue({ canceled: false, filePath: dest })
+    await handlers.get(IPC.versions.restore)!(null, snapshot.id)
+    expect(repos.listDocuments().map((d) => d.name)).toEqual(['No WAL', 'Original'])
+  })
+
+  it('refuses to overwrite the open project through a hard-link alias', async () => {
+    const snapshot = await versions.createVersionSnapshot(projectPath)
+    const alias = join(dir, 'alias.liva')
+    linkSync(projectPath, alias)
+    showSaveDialog.mockResolvedValue({ filePath: alias })
+    await expect(handlers.get(IPC.versions.restore)!(null, snapshot.id)).rejects.toThrow('próprio projeto')
+    expect(repos.listDocuments()).toHaveLength(1)
+  })
+
+  it.skipIf(process.platform === 'win32')('refuses a snapshot destination hidden behind a symlink', async () => {
+    const snapshot = await versions.createVersionSnapshot(projectPath)
+    const alias = join(dir, 'version-alias')
+    symlinkSync(versions.versionsDir(projectPath), alias, 'dir')
+    showSaveDialog.mockResolvedValue({ filePath: join(alias, 'new.liva') })
+    await expect(handlers.get(IPC.versions.restore)!(null, snapshot.id)).rejects.toThrow('pasta de versões')
   })
 })

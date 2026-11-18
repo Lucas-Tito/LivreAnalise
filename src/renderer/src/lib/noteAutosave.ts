@@ -3,8 +3,42 @@ export interface NoteDraft {
   body: string
 }
 
+export interface PendingNote {
+  project: string | null
+  id: number
+  documentId: number | null
+  saver: ReturnType<typeof createNoteSaver>
+  timer: ReturnType<typeof setTimeout> | null
+}
+
 export function mesmoConteudo(a: NoteDraft, b: NoteDraft): boolean {
-  return a.title === b.title && a.body === b.body
+  const title = (value: string): string => value.trim() === '' ? '' : value
+  return title(a.title) === title(b.title) && a.body === b.body
+}
+
+// Uma única escrita por vez. Flush inclui também o que foi digitado enquanto
+// a escrita estava em andamento e nunca esconde uma falha de persistência.
+export function createNoteSaver(initial: NoteDraft, write: (draft: NoteDraft) => Promise<NoteDraft>): {
+  read: () => NoteDraft
+  change: (draft: NoteDraft) => void
+  flush: () => Promise<void>
+} {
+  let draft = initial
+  let saved = initial
+  let pending: Promise<void> | null = null
+  return {
+    read: () => draft,
+    change: (next) => { draft = next },
+    flush: () => {
+      if (pending) return pending
+      pending = (async () => {
+        while (!mesmoConteudo(draft, saved)) {
+          saved = await write({ ...draft })
+        }
+      })().finally(() => { pending = null })
+      return pending
+    }
+  }
 }
 
 /**

@@ -95,6 +95,21 @@ export function CodingPopover({
       ref={ref}
       className="fixed z-50 w-72 rounded-md border bg-popover p-2 shadow-lg"
       style={{ left, top }}
+      onCopy={(e) => {
+        const input = inputRef.current
+        if (document.activeElement === input && input?.selectionStart !== input?.selectionEnd) return
+        e.preventDefault()
+        e.clipboardData.setData('text/plain', selectedText)
+      }}
+      onKeyDown={(e) => {
+        if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'c') return
+        const input = inputRef.current
+        if (document.activeElement === input && input?.selectionStart !== input?.selectionEnd) return
+        e.preventDefault()
+        void navigator.clipboard.writeText(selectedText).catch(() => {
+          alert('Não foi possível copiar o trecho. Tente novamente.')
+        })
+      }}
     >
       <input
         ref={inputRef}

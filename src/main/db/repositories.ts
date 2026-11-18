@@ -92,12 +92,18 @@ export function getDocument(id: number): DocumentWithText | null {
   return (row as DocumentWithText) ?? null
 }
 
-export function createDocument(input: {
+interface DocumentInput {
   name: string
   plainText: string
   originalFormat: string
   sourceFilename?: string | null
-}): DocumentRecord {
+}
+
+export function createDocument(input: DocumentInput): DocumentRecord {
+  return createDocuments([input])[0]
+}
+
+function insertDocument(input: DocumentInput): DocumentWithText {
   const db = getDb()
   const guid = uuid()
   const res = db
@@ -112,20 +118,33 @@ export function createDocument(input: {
     })
     .run()
   const created = getDocument(Number(res.lastInsertRowid)) as DocumentWithText
-  touchProject()
-  const snapshot = { ...created }
+  return created
+}
+
+export function createDocuments(inputs: DocumentInput[]): DocumentRecord[] {
+  if (inputs.length === 0) return []
+  const db = getDb()
+  const snapshots = db.transaction(() => {
+    const created = inputs.map(insertDocument)
+    touchProject()
+    return created
+  })
   pushHistory({
-    label: `importar "${created.name}"`,
+    label: snapshots.length === 1 ? `importar "${snapshots[0].name}"` : `importar ${snapshots.length} documentos`,
     undo: () => {
-      getDb().delete(documents).where(eq(documents.id, snapshot.id)).run()
-      touchProject()
+      getDb().transaction((tx) => {
+        for (const doc of snapshots) tx.delete(documents).where(eq(documents.id, doc.id)).run()
+        touchProject()
+      })
     },
     redo: () => {
-      getDb().insert(documents).values(snapshot).onConflictDoNothing().run()
-      touchProject()
+      getDb().transaction((tx) => {
+        for (const doc of snapshots) tx.insert(documents).values(doc).run()
+        touchProject()
+      })
     }
   })
-  return created as DocumentRecord
+  return snapshots
 }
 
 export function renameDocument(id: number, name: string): void {
@@ -229,11 +248,15 @@ export function updateDocumentText(id: number, newText: string): void {
     for (const rid of citacoesPerdidas) {
       tx.delete(codings).where(eq(codings.id, rid)).run()
     }
-    for (const u of [...updates, ...citacoesRelocalizadas]) {
-      tx.update(codings)
-        .set({ startPos: u.startPos, endPos: u.endPos })
-        .where(eq(codings.id, u.id))
-        .run()
+    // Remove as posições antigas antes de publicar as novas: um destino pode
+    // coincidir com a origem de outra citação que também será deslocada.
+    const ajustes = new Map([...updates, ...citacoesRelocalizadas].map((u) => [u.id, u]))
+    for (const id of ajustes.keys()) tx.delete(codings).where(eq(codings.id, id)).run()
+    for (const original of beforeCodings) {
+      const ajuste = ajustes.get(original.id)
+      if (ajuste) {
+        tx.insert(codings).values({ ...original, startPos: ajuste.startPos, endPos: ajuste.endPos }).run()
+      }
     }
     for (const u of [...noteAdjust.updates, ...notasRelocalizadas]) {
       tx.update(notes)
@@ -883,8 +906,7 @@ export function listCodingsByCode(codeId: number): CodingWithCode[] {
       endPos: codings.endPos,
       createdAt: codings.createdAt,
       codeName: codes.name,
-      codeColor: codes.color,
-      text: sql<string>`substr(${documents.plainText}, ${codings.startPos} + 1, ${codings.endPos} - ${codings.startPos})`
+      codeColor: codes.color
     })
     .from(codings)
     .innerJoin(codes, eq(codings.codeId, codes.id))
@@ -892,7 +914,14 @@ export function listCodingsByCode(codeId: number): CodingWithCode[] {
     .where(eq(codings.codeId, codeId))
     .orderBy(asc(codings.documentId), asc(codings.startPos))
     .all()
-  return rows as CodingWithCode[]
+  // SQLite substr conta code points, mas as posições do editor são UTF-16.
+  // Carrega cada documento uma vez e recorta na mesma unidade do renderer.
+  const texts = db.selectDistinct({ id: documents.id, text: documents.plainText })
+    .from(documents)
+    .innerJoin(codings, eq(codings.documentId, documents.id))
+    .where(eq(codings.codeId, codeId)).all()
+  const byId = new Map(texts.map((d) => [d.id, d.text]))
+  return rows.map((row) => ({ ...row, text: byId.get(row.documentId)!.slice(row.startPos, row.endPos) })) as CodingWithCode[]
 }
 
 function getCoding(id: number): Coding {
@@ -900,8 +929,21 @@ function getCoding(id: number): Coding {
   return db.select().from(codings).where(eq(codings.id, id)).get() as Coding
 }
 
+function validateDocumentRange(documentId: number, start: number, end: number): void {
+  const doc = getDocument(documentId)
+  if (!doc) throw new Error('Documento não encontrado para o trecho.')
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end <= start || end > doc.plainText.length) {
+    throw new Error('O intervalo do trecho é inválido para este documento.')
+  }
+}
+
 export function createCoding(input: CreateCodingInput): Coding {
   const db = getDb()
+  validateDocumentRange(input.documentId, input.startPos, input.endPos)
+  if (!getCode(input.codeId)) throw new Error('Código não encontrado.')
+  if (db.select({ id: codes.id }).from(codes).where(eq(codes.parentId, input.codeId)).get()) {
+    throw new Error('Categorias não recebem citações. Escolha um código dentro da categoria.')
+  }
   const beforeRows = (db.select().from(codings).where(
     and(eq(codings.documentId, input.documentId), eq(codings.codeId, input.codeId))
   ).all() as Array<typeof codings.$inferSelect>)
@@ -1008,6 +1050,8 @@ export function createCoding(input: CreateCodingInput): Coding {
 export function updateCoding(input: UpdateCodingInput): Coding {
   const db = getDb()
   const before = getCoding(input.id)
+  if (!before) throw new Error('Essa citação não existe mais.')
+  validateDocumentRange(before.documentId, input.startPos, input.endPos)
   if (before && before.startPos === input.startPos && before.endPos === input.endPos) {
     return before
   }
@@ -1105,6 +1149,7 @@ function getNote(id: number): Note {
 export function createNote(input: CreateNoteInput): Note {
   const db = getDb()
   const scope = input.scope
+  if (!['project', 'document', 'excerpt'].includes(scope)) throw new Error('Escopo de nota inválido.')
 
   let documentId: number | null = null
   let startPos: number | null = null
@@ -1199,7 +1244,12 @@ export function updateNote(input: UpdateNoteInput): Note {
   // entao uma nota desvinculada por uma edicao de texto nao tinha volta -- so
   // apagar e reescrever. O trecho original guardado na desvinculacao perde o
   // sentido assim que a ancora existe de novo.
-  if (input.startPos !== undefined && input.endPos !== undefined) {
+  // Notas de projeto continuam sem âncora, mesmo se receberem esses campos.
+  if (beforeRow.documentId != null && (input.startPos !== undefined || input.endPos !== undefined)) {
+    if (input.startPos === undefined || input.endPos === undefined) {
+      throw new Error('Religar uma nota exige um documento e um intervalo completo.')
+    }
+    validateDocumentRange(beforeRow.documentId, input.startPos, input.endPos)
     patch.startPos = input.startPos
     patch.endPos = input.endPos
     patch.anchorStatus = 'attached'

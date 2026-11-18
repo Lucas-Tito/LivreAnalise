@@ -4,11 +4,15 @@ import { useThemeStore } from './stores/themeStore'
 import { useZoomStore } from './stores/zoomStore'
 import { IPC } from '@shared/ipc'
 import { HomeLibrary } from './components/home/HomeLibrary'
+import { SimplePromptDialog } from './components/workspace/SimplePromptDialog'
 import { Workspace } from './components/workspace/Workspace'
 import { TranscribeView } from './components/transcribe/TranscribeView'
 
 function App(): JSX.Element {
   const project = useAppStore((s) => s.project)
+  const newProjectPrompt = useAppStore((s) => s.newProjectPrompt)
+  const setNewProjectPrompt = useAppStore((s) => s.setNewProjectPrompt)
+  const saveNewProject = useAppStore((s) => s.saveNewProject)
   const bootstrap = useAppStore((s) => s.bootstrap)
   const initTheme = useThemeStore((s) => s.init)
   const initZoom = useZoomStore((s) => s.init)
@@ -71,9 +75,22 @@ function App(): JSX.Element {
     }
   }, [])
 
-  if (project) return <Workspace />
-  if (transcribing) return <TranscribeView onBack={() => setTranscribing(false)} />
-  return <HomeLibrary onTranscribe={() => setTranscribing(true)} />
+  return (
+    <>
+      {project ? <Workspace /> : transcribing
+        ? <TranscribeView onBack={() => setTranscribing(false)} />
+        : <HomeLibrary onTranscribe={() => setTranscribing(true)} />}
+      <SimplePromptDialog
+        open={newProjectPrompt !== null}
+        onOpenChange={(open) => { if (!open) setNewProjectPrompt(null) }}
+        title={newProjectPrompt?.source ? 'Importar QDPX como novo projeto' : 'Criar novo projeto'}
+        label="Nome do projeto"
+        submitLabel="Escolher pasta"
+        initialValue={newProjectPrompt?.initialName}
+        onSubmit={saveNewProject}
+      />
+    </>
+  )
 }
 
 export default App

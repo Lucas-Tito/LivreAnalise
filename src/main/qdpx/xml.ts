@@ -189,6 +189,7 @@ export function parseQde(xml: string): ParseResult {
     // Sem isso, '0123' vira número 123 e descrições/nomes numéricos se perdem
     // (o código só aceita string; posições já usam Number() explícito).
     parseTagValue: false,
+    trimValues: false,
     isArray: (name) => ARRAY_ELEMENTS.has(name)
   })
   const parsed = parser.parse(xml)

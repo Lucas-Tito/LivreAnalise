@@ -16,7 +16,7 @@ import {
 import {
   assetForPlatform,
   downloadWhisperBinary,
-  modelIsReady,
+  modelIsDownloaded,
   modelPath,
   resolveWhisperBinary
 } from '../services/whisperBinary'
@@ -37,6 +37,24 @@ type BroadcastEvent =
 
 let currentRun: TranscriptionRun | null = null
 let currentDownload: AbortController | null = null
+let currentTask: Promise<unknown> | null = null
+
+export function hasTranscriptionOperation(): boolean {
+  return currentTask !== null
+}
+
+export async function cancelTranscriptionOperations(): Promise<void> {
+  currentDownload?.abort()
+  currentRun?.cancel()
+  await currentTask?.catch(() => undefined)
+}
+
+async function exclusive<T>(operation: () => Promise<T>): Promise<T> {
+  if (currentTask) throw new Error('Há uma transcrição ou download em andamento. Aguarde sua conclusão.')
+  const task = Promise.resolve().then(operation)
+  currentTask = task
+  try { return await task } finally { currentTask = null }
+}
 
 function broadcast(event: BroadcastEvent): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -45,9 +63,9 @@ function broadcast(event: BroadcastEvent): void {
 }
 
 export function registerTranscriptionHandlers(): void {
-  ipcMain.handle(IPC.transcription.env, async (): Promise<TranscriptionEnv> => ({
+  ipcMain.handle(IPC.transcription.env, async (_e, configuredPath?: string | null): Promise<TranscriptionEnv> => ({
     ffmpeg: ffmpegAvailable(),
-    binaryPath: resolveWhisperBinary(null),
+    binaryPath: resolveWhisperBinary(configuredPath),
     canDownloadBinary: assetForPlatform() !== null,
     defaultModelId: DEFAULT_MODEL_ID
   }))
@@ -57,7 +75,7 @@ export function registerTranscriptionHandlers(): void {
       id: model.id,
       label: model.label,
       approxBytes: model.approxBytes,
-      ready: modelIsReady(model.file)
+      ready: modelIsDownloaded(model.file)
     }))
   )
 
@@ -87,7 +105,7 @@ export function registerTranscriptionHandlers(): void {
     return size ?? model.approxBytes
   })
 
-  ipcMain.handle(IPC.transcription.downloadModel, async (_e, modelId: string) => {
+  ipcMain.handle(IPC.transcription.downloadModel, (_e, modelId: string) => exclusive(async () => {
     const model = modelById(modelId)
     currentDownload = new AbortController()
     try {
@@ -95,29 +113,38 @@ export function registerTranscriptionHandlers(): void {
         modelUrl(model),
         modelPath(model.file),
         (progress) => broadcast({ kind: 'download', what: 'modelo', ...progress }),
-        currentDownload.signal
+        currentDownload.signal,
+        model.sha256
       )
       return true
+    } catch (error) {
+      if (!currentDownload.signal.aborted) throw error
+      broadcast({ kind: 'canceled' })
+      return false
     } finally {
       currentDownload = null
     }
-  })
+  }))
 
-  ipcMain.handle(IPC.transcription.downloadBinary, async () => {
+  ipcMain.handle(IPC.transcription.downloadBinary, () => exclusive(async () => {
     currentDownload = new AbortController()
     try {
       return await downloadWhisperBinary(
         (progress) => broadcast({ kind: 'download', what: 'programa', ...progress }),
         currentDownload.signal
       )
+    } catch (error) {
+      if (!currentDownload.signal.aborted) throw error
+      broadcast({ kind: 'canceled' })
+      return null
     } finally {
       currentDownload = null
     }
-  })
+  }))
 
   ipcMain.handle(
     IPC.transcription.start,
-    async (_e, input: TranscriptionStartInput): Promise<void> => {
+    (_e, input: TranscriptionStartInput) => exclusive(async (): Promise<void> => {
       if (currentRun) throw new Error('Já existe uma transcrição em andamento')
       const run = new TranscriptionRun()
       currentRun = run
@@ -126,11 +153,8 @@ export function registerTranscriptionHandlers(): void {
       } finally {
         currentRun = null
       }
-    }
+    })
   )
 
-  ipcMain.handle(IPC.transcription.cancel, async () => {
-    currentDownload?.abort()
-    currentRun?.cancel()
-  })
+  ipcMain.handle(IPC.transcription.cancel, cancelTranscriptionOperations)
 }
