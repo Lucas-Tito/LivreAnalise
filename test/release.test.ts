@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
-import { installers, publish, rehearsal } from '../scripts/release.mjs'
+import { github, installers, publish, rehearsal } from '../scripts/release.mjs'
 
 it('confere a matriz, calcula os hashes e ensaia a retomada sem repetir uploads', async () => {
   const root = await mkdtemp(join(tmpdir(), 'liva-release-'))
@@ -52,4 +52,40 @@ it('recusa release pública incompleta sem alterar os arquivos', () => {
   const client = { read: () => ({ draft: false, assets: [] }), upload: vi.fn() }
   expect(() => publish(client, [file])).toThrow('ausentes')
   expect(client.upload).not.toHaveBeenCalled()
+})
+
+it('publishes a resumed older release without replacing the latest download', () => {
+  const sha = 'a'.repeat(40)
+  const older = { id: 1, tag_name: 'v0.7.1', draft: true, target_commitish: sha }
+  const newer = { id: 2, tag_name: 'v0.10.0', draft: true, target_commitish: sha }
+  const drafts = [older, newer]
+  const assets = new Map([[1, [] as object[]], [2, [{ ...file, state: 'uploaded' }]]])
+  let latest: number | null = null
+  let uploadFails = true
+  const exec = vi.fn((command: string, args: string[]) => {
+    if (command === 'git') return ''
+    if (args[1] === '--paginate') {
+      const match = /\/(\d+)\/assets/.exec(args[3])
+      return JSON.stringify([match ? assets.get(Number(match[1])) : drafts])
+    }
+    if (args[1] === 'upload') {
+      if (uploadFails) throw new Error('upload interrompido')
+      assets.get(1)!.push({ ...file, state: 'uploaded' })
+      return ''
+    }
+    const release = drafts.find((draft) => args[3].endsWith('/' + draft.id))!
+    release.draft = false
+    if (args.includes('make_latest=true')) latest = release.id
+    else expect(args).toContain('make_latest=false')
+    return ''
+  })
+  const artifact = { ...file, path: file.name }
+  const olderClient = github(older.tag_name, sha, exec)
+  expect(() => publish(olderClient, [artifact])).toThrow('upload interrompido')
+  publish(github(newer.tag_name, sha, exec), [artifact])
+  expect(latest).toBe(newer.id)
+  uploadFails = false
+  publish(olderClient, [artifact])
+  expect(older.draft).toBe(false)
+  expect(latest).toBe(newer.id)
 })

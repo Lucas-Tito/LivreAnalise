@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 
@@ -25,8 +25,26 @@ export function executableArchitecture(buffer) {
   throw new Error('Formato de executável desconhecido')
 }
 
+function verifyPackagedSqlite(electron, sqlite, databaseModule) {
+  const probe = [
+    "const Database = require(process.argv[1])",
+    "const db = new Database(':memory:', { nativeBinding: process.argv[2] })",
+    "if (db.prepare('SELECT 1').pluck().get() !== 1) process.exitCode = 1",
+    "db.close()"
+  ].join('\n')
+  const result = spawnSync(resolve(electron), ['-e', probe, databaseModule, resolve(sqlite)], {
+    encoding: 'utf8', timeout: 15000, windowsHide: true,
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+  })
+  if (result.status !== 0) {
+    throw new Error("SQLite empacotado não carrega no Electron: " +
+      (result.error?.message ?? result.stderr.trim()))
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const target = process.argv[2] ?? process.arch
+  const require = createRequire(import.meta.url)
   let executable
   if (process.argv[3] === '--packaged') {
     const candidates = readdirSync('dist', { withFileTypes: true })
@@ -39,8 +57,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     executable = join(modules, 'ffmpeg-static', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
     const sqlite = join(modules, 'better-sqlite3/build/Release/better_sqlite3.node')
     if (executableArchitecture(readFileSync(sqlite)) !== target) throw new Error('SQLite empacotado na arquitetura incorreta')
+    if (target !== process.arch) throw new Error('Use um runner da arquitetura do pacote para testar o ABI do SQLite')
+    const resources = dirname(dirname(modules))
+    const electron = process.platform === 'darwin'
+      ? join(dirname(resources), 'MacOS', 'LivreAnalise')
+      : join(dirname(resources), process.platform === 'win32' ? 'LivreAnalise.exe' : 'livreanalise')
+    verifyPackagedSqlite(electron, sqlite, require.resolve('better-sqlite3'))
+    console.log('SQLite empacotado verificado no Electron')
   } else {
-    const require = createRequire(import.meta.url)
     executable = require('ffmpeg-static')
   }
   if (!executable) throw new Error('ffmpeg-static não forneceu um executável')

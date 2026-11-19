@@ -69,18 +69,29 @@ export function publish(client, files) {
   if (complete.draft) client.finalize(complete.id)
 }
 
-function github(tag, sha) {
-  const gh = (...args) => execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+function stableVersion(tag) {
+  const match = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(tag)
+  return match?.slice(1).map(BigInt)
+}
+
+function isNewerVersion(version, reference) {
+  const difference = version.findIndex((part, i) => part !== reference[i])
+  return difference >= 0 && version[difference] > reference[difference]
+}
+
+export function github(tag, sha, exec = execFileSync) {
+  const gh = (...args) => exec('gh', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
   const pages = (endpoint) => JSON.parse(gh('api', '--paginate', '--slurp', endpoint)).flat()
   const releases = 'repos/{owner}/{repo}/releases'
+  const listReleases = () => pages(releases + '?per_page=100')
   return {
     read() {
       const ref = 'refs/tags/' + tag
-      const refs = execFileSync('git', ['ls-remote', '--tags', 'origin', ref, ref + '^{}'], { encoding: 'utf8' })
+      const refs = exec('git', ['ls-remote', '--tags', 'origin', ref, ref + '^{}'], { encoding: 'utf8' })
       const targets = new Map(refs.trim().split('\n').map((line) => line.split('\t').reverse()))
       const tagCommit = targets.get(ref + '^{}') ?? targets.get(ref)
       if (tagCommit) assert.equal(tagCommit, sha, 'Tag existente aponta para outro commit')
-      const matches = pages(releases + '?per_page=100').filter((release) => release.tag_name === tag)
+      const matches = listReleases().filter((release) => release.tag_name === tag)
       assert.ok(matches.length <= 1, 'Mais de uma release usa a mesma tag')
       const release = matches[0]
       if (!release) return null
@@ -92,7 +103,18 @@ function github(tag, sha) {
     createDraft: () => gh('release', 'create', tag, '--draft', '--target', sha, '--generate-notes', '--title', tag),
     removePlaceholder: (id) => gh('api', '-X', 'DELETE', `${releases}/assets/${id}`),
     upload: (file) => gh('release', 'upload', tag, file.path),
-    finalize: (id) => gh('api', '-X', 'PATCH', `${releases}/${id}`, '-F', 'draft=false')
+    finalize(id) {
+      const version = stableVersion(tag)
+      // Reconsulta após os uploads: um rascunho antigo pode ser retomado
+      // depois de outra versão já ter sido publicada.
+      const newerPublished = version && listReleases().some((release) => {
+        if (release.draft || release.prerelease) return false
+        const published = stableVersion(release.tag_name)
+        return published && isNewerVersion(published, version)
+      })
+      const makeLatest = Boolean(version && !newerPublished)
+      gh('api', '-X', 'PATCH', `${releases}/${id}`, '-F', 'draft=false', '-f', `make_latest=${makeLatest}`)
+    }
   }
 }
 

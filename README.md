@@ -182,6 +182,21 @@ exportado muito depois de a versão ter mudado).
 
 No push para a `master`, a publicação cria um rascunho para o commit. Se o upload falhar, use **Re-run failed jobs** na mesma execução para reaproveitar os instaladores. O job confere os arquivos já enviados por tamanho e SHA-256, envia os pendentes e publica quando os cinco estão completos. Uma divergência de tag, commit ou conteúdo interrompe o job. Uma release publicada e idêntica já está concluída.
 
+Se a finalização do rascunho falhar por falta de permissão para criar a tag em
+um commit antigo que altera workflows, um mantenedor com permissão para
+atualizar workflows deve publicar a tag para o **SHA do run original**. Confira
+a versão em `git show "$SHA:package.json"` e o SHA de destino do rascunho antes
+de publicar a tag:
+
+```sh
+git push origin "$SHA:refs/tags/$TAG"
+```
+
+Use a tag do rascunho (por exemplo, `v0.7.1`) em `TAG`. O comando não usa
+`--force`. Se a tag já existir, confira seu commit e pare se houver divergência.
+Em seguida, use **Re-run failed jobs** no run original. O publicador confere
+se a tag aponta para o mesmo SHA antes de retomar os uploads e a finalização.
+
 Como escolher o incremento:
 
 | Mudança | Incrementa | Exemplo |

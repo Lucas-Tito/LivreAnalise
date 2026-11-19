@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: build-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: false
+  queue: max
 
 jobs:
   package:
@@ -30,15 +30,12 @@ jobs:
             arch: x64
             target: --win
             artifact: windows
-          # Dois pacotes macOS: ARM nativo e Intel cross-compilado. Todos os
-          # módulos e executáveis precisam respeitar a arquitetura-alvo.
+          # Use runners macOS nativos para testar o SQLite em ambas as arquiteturas.
           - os: macos-latest
             arch: arm64
             target: --mac --arm64
             artifact: mac-arm64
-          # o runner macos-13 (Intel) fica horas na fila; o Intel sai por
-          # cross-compilacao no proprio runner arm64
-          - os: macos-latest
+          - os: macos-15-intel
             arch: x64
             target: --mac --x64
             artifact: mac-x64
