@@ -1,3 +1,4 @@
+import { flushPendingMemos } from '@/lib/memoAutosave'
 import { create } from 'zustand'
 import type {
   Code,
@@ -127,6 +128,8 @@ interface AppState {
   registerTextoAcoes: (acoes: AppState['textoAcoes']) => void
   podeSairDoTexto: () => Promise<boolean>
   responderSaidaDoTexto: (ok: boolean) => void
+  sairDoMemo: (() => Promise<boolean>) | null
+  registerSairDoMemo: (fn: (() => Promise<boolean>) | null) => void
 }
 
 async function refreshAfterHistory(
@@ -195,6 +198,12 @@ function resetNotesState(): Partial<AppState> {
   }
 }
 
+async function finishMemo(state: AppState): Promise<boolean> {
+  if (state.sairDoMemo && !(await state.sairDoMemo())) return false
+  await flushPendingMemos()
+  return true
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   project: null,
   recents: [],
@@ -246,12 +255,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   newProjectPrompt: null,
   setNewProjectPrompt: (prompt) => set({ newProjectPrompt: prompt }),
   createProject: async () => {
+    if (!(await finishMemo(get()))) return
     if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     set({ newProjectPrompt: { source: null, initialName: 'projeto' } })
   },
 
   saveNewProject: async (name) => {
+    if (!(await finishMemo(get()))) return
     if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     const prompt = get().newProjectPrompt
@@ -279,6 +290,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   openProject: async () => {
+    if (!(await finishMemo(get()))) return
     if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     const path = await window.api.project.pick()
@@ -292,6 +304,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   openRecent: async (path) => {
+    if (!(await finishMemo(get()))) return
     if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     const result = await window.api.project.openPath(path)
@@ -302,6 +315,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   closeProject: async () => {
+    if (!(await finishMemo(get()))) return
     if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     await window.api.project.close()
@@ -462,6 +476,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   undo: async () => {
+    if (!(await finishMemo(get()))) return null
     if (!(await get().podeSairDoTexto())) return null
     await get().notesFlush?.()
     const label = await window.api.history.undo()
@@ -470,6 +485,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   redo: async () => {
+    if (!(await finishMemo(get()))) return null
     if (!(await get().podeSairDoTexto())) return null
     await get().notesFlush?.()
     const label = await window.api.history.redo()
@@ -486,6 +502,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   createVersion: async (label) => {
+    if (!(await finishMemo(get()))) return
     if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     await window.api.versions.create(label)
@@ -498,6 +515,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   restoreVersion: async (id) => {
+    if (!(await finishMemo(get()))) return
     if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     const result = await window.api.versions.restore(id)
@@ -662,6 +680,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().refreshHistory()
   },
 
+  sairDoMemo: null,
+  registerSairDoMemo: (fn) => set({ sairDoMemo: fn }),
   notasSujo: false,
   setNotasSujo: (sujo) => {
     if (get().notasSujo === sujo) return

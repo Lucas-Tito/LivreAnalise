@@ -40,6 +40,7 @@ ipcMain.on(IPC.view.fontChanged, (_e, font: string) => {
 // travado nunca deixa a janela impossível de fechar.
 let textoPendente = false
 let notasPendentes = false
+let memoPendente = false
 let quitting = false
 ipcMain.on(IPC.app.notesDirty, (_e, dirty: boolean) => {
   notasPendentes = dirty
@@ -47,9 +48,11 @@ ipcMain.on(IPC.app.notesDirty, (_e, dirty: boolean) => {
 ipcMain.on(IPC.app.textDirty, (_e, dirty: boolean) => {
   textoPendente = dirty
 })
+ipcMain.on(IPC.app.memoDirty, (_e, dirty: boolean) => { memoPendente = dirty })
 ipcMain.on(IPC.app.confirmClose, (e) => {
   textoPendente = false
   notasPendentes = false
+  memoPendente = false
   if (quitting) app.quit()
   else BrowserWindow.fromWebContents(e.sender)?.close()
 })
@@ -83,7 +86,7 @@ function createWindow(): void {
 
   let stoppingOperation = false
   mainWindow.on('close', (e) => {
-    if (textoPendente || notasPendentes) {
+    if (textoPendente || notasPendentes || memoPendente) {
       e.preventDefault()
       mainWindow.webContents.send(IPC.app.closeRequested)
       return
@@ -111,6 +114,7 @@ function createWindow(): void {
   mainWindow.webContents.on('render-process-gone', () => {
     textoPendente = false
     notasPendentes = false
+    memoPendente = false
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {

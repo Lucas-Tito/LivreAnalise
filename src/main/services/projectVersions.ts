@@ -12,70 +12,56 @@ import { writeAtomicFile } from './atomicFile'
 const MANIFEST = 'manifest.json'
 export const MAX_AUTO_VERSIONS = 10
 
-/**
- * Copia o `.liva` ANTES de abrir, quando ele ainda vai ser migrado.
- *
- * O checkpoint automatico da abertura roda depois do openDatabase, ou seja
- * depois da migracao: o snapshot mais antigo de qualquer projeto ja era o
- * estado migrado, e nao existia copia pre-migracao em lugar nenhum. A rede de
- * protecao nao cobria justamente a operacao mais arriscada do app.
- *
- * Aqui o banco ainda nao esta aberto -- sem conexao e sem WAL ativo, copiar o
- * arquivo e seguro, e e o unico momento em que e. Devolve a versao registrada,
- * ou null quando nao havia nada a fazer.
- */
-export function snapshotBeforeMigration(projectPath: string): ProjectVersion | null {
-  if (!existsSync(projectPath)) return null
-  let schema = 0
+export function projectSchemaVersion(path: string): number {
+  const raw = new Database(path, { readonly: true })
   try {
-    const raw = new Database(projectPath, { readonly: true })
-    schema = (raw.pragma('user_version') as Array<{ user_version: number }>)[0].user_version
+    return raw.pragma('user_version', { simple: true }) as number
+  } finally {
     raw.close()
-  } catch {
-    // Pode ser arquivo ilegivel, mas tambem um `-wal` pendente: recuperar WAL
-    // exige lock de escrita, que o readonly nao tem. Nos dois casos copiamos
-    // por precaucao, em vez de seguir para a migracao sem rede nenhuma.
-    schema = -1
   }
-  // -1 = nao foi possivel ler a versao; copia do mesmo jeito
+}
+
+// A API de backup inclui os dados confirmados no WAL em um único .liva.
+export async function snapshotBeforeMigration(source: string, projectPath = source): Promise<ProjectVersion | null> {
+  const schema = projectSchemaVersion(source)
   if (schema >= CURRENT_SCHEMA_VERSION) return null
-  const entries = readManifest(projectPath)
+  readManifest(projectPath)
   const dir = versionsDir(projectPath)
   mkdirSync(dir, { recursive: true })
   const when = new Date()
   const file = fileNameFor('premigracao', 'antes de migrar', when)
   const dest = join(dir, file)
-  // Os sidecars vao junto. Copiar so o arquivo principal perdia o que estivesse
-  // num `-wal` sobrado de uma queda anterior: a copia "antes de migrar" sairia
-  // mais ANTIGA que o projeto, e quem restaurasse perderia o trabalho que
-  // estava no WAL.
-  let entry: ProjectVersion
+  const tmp = join(dir, `.tmp-${uuid()}.liva`)
+  const raw = new Database(source, { readonly: true })
   try {
-    copyFileSync(projectPath, dest)
-    for (const sufixo of ['-wal', '-shm']) {
-      if (existsSync(`${projectPath}${sufixo}`)) {
-        copyFileSync(`${projectPath}${sufixo}`, `${dest}${sufixo}`)
+    await raw.backup(tmp)
+    const copy = new Database(tmp, { readonly: true })
+    try {
+      if (copy.pragma('quick_check', { simple: true }) !== 'ok' ||
+          copy.pragma('user_version', { simple: true }) !== schema) {
+        throw new Error('Falha ao verificar a cópia pré-migração.')
       }
+    } finally {
+      copy.close()
     }
-    entry = {
-      id: uuid(),
-      file,
-      createdAt: when.toISOString(),
-      kind: 'premigracao',
-      label: 'antes de migrar',
-      appVersion: APP_VERSION,
-      schemaVersion: schema,
-      projectName: basename(projectPath).replace(/\.liva$/i, ''),
-      sizeBytes: statSync(dest).size
+    const entry: ProjectVersion = {
+      id: uuid(), file, createdAt: when.toISOString(), kind: 'premigracao',
+      label: 'antes de migrar', appVersion: APP_VERSION, schemaVersion: schema,
+      projectName: basename(projectPath).replace(/\.liva$/i, ''), sizeBytes: statSync(tmp).size
     }
-    writeManifest(projectPath, [...entries, entry])
-  } catch (error) {
-    rmSync(dest, { force: true })
-    for (const suffix of ['-wal', '-shm']) rmSync(dest + suffix, { force: true })
-    throw error
+    const entries = readManifest(projectPath)
+    renameSync(tmp, dest)
+    try {
+      writeManifest(projectPath, [...entries, entry])
+    } catch (error) {
+      rmSync(dest, { force: true })
+      throw error
+    }
+    return entry
+  } finally {
+    raw.close()
+    for (const suffix of ['', '-wal', '-shm']) rmSync(tmp + suffix, { force: true })
   }
-  pruneVersions(projectPath)
-  return entry
 }
 
 /** Apaga um checkpoint pelo id, arquivo e entrada do manifesto. */

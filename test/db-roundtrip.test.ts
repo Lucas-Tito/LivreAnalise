@@ -76,4 +76,32 @@ describe.skipIf(!nativeOk)('DB + QDPX round-trip (integration)', () => {
 
     db.closeDatabase()
   })
+
+  it('preserves an empty category through QDPX', async () => {
+    db.openDatabase(':memory:')
+    repos.createCode({ name: 'Categoria vazia', color: '#111111', isCategory: true })
+    repos.createCode({ name: 'Código', color: '#222222' })
+    const { project, warnings } = exportMod.buildProjectFromDb('Projeto')
+    expect(warnings).toEqual([])
+    const buffer = await serialize.serializeQdpx(project)
+    db.openDatabase(':memory:')
+    importMod.importProjectIntoDb(await serialize.deserializeQdpx(buffer))
+    const codes = repos.listCodes()
+    expect(codes.find((c) => c.name === 'Categoria vazia')?.isCategory).toBe(true)
+    expect(codes.find((c) => c.name === 'Código')?.isCategory).toBe(false)
+    db.closeDatabase()
+  })
+
+  it('warns when an empty category with its own citations must be exported as a code', () => {
+    db.openDatabase(':memory:')
+    const code = repos.createCode({ name: 'Categoria com citações', color: '#111111' })
+    const doc = repos.createDocument({ name: 'Doc', plainText: 'texto', originalFormat: 'txt' })
+    repos.createCoding({ documentId: doc.id, codeId: code.id, startPos: 0, endPos: 3 })
+    const child = repos.createCode({ name: 'Filho', color: '#222222', parentId: code.id })
+    repos.deleteCode(child.id)
+    const { project, warnings } = exportMod.buildProjectFromDb('Projeto')
+    expect(project.codes.find((c) => c.guid === code.guid)?.isCodable).toBe(true)
+    expect(warnings.join(' ')).toContain('Categoria com citações')
+    db.closeDatabase()
+  })
 })

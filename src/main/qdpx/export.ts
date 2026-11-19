@@ -28,16 +28,31 @@ export function buildProjectFromDb(projectName: string): {
   const warnings: string[] = []
   const codes = listCodes()
   const codeGuidById = new Map(codes.map((c) => [c.id, c.guid]))
+  const codeMemos: QdpxNote[] = []
 
-  const qdpxCodes: QdpxCode[] = codes.map((c) => ({
-    guid: c.guid,
-    name: c.name,
-    color: c.color,
-    description: c.description,
-    parentGuid: c.parentId ? codeGuidById.get(c.parentId) ?? null : null
-  }))
+  const qdpxCodes: QdpxCode[] = codes.map((c) => {
+    const noteGuid = c.memo ? uuid() : null
+    if (noteGuid) codeMemos.push({ guid: noteGuid, name: `Memo: ${c.name}`, plainText: c.memo, description: null })
+    return {
+      guid: c.guid,
+      name: c.name,
+      color: c.color,
+      description: c.description,
+      parentGuid: c.parentId ? codeGuidById.get(c.parentId) ?? null : null,
+      // Categorias que já tinham citações precisam continuar codificáveis no QDPX.
+      isCodable: !c.isCategory || c.usageCount > 0,
+      noteGuids: noteGuid ? [noteGuid] : []
+    }
+  })
+  for (const code of codes) {
+    if (code.isCategory && code.usageCount > 0 && !codes.some((c) => c.parentId === code.id)) {
+      warnings.push(`A categoria vazia "${code.name}" possui citações e será exportada como código para preservá-las.`)
+    }
+  }
 
   const groups = listCollections()
+  const groupsWithMemo = groups.filter((g) => g.memo !== '')
+  if (groupsWithMemo.length) warnings.push(`Memos de ${groupsWithMemo.length} grupo(s) não foram exportados: o formato não representa memos próprios de grupos.`)
   const qdpxSets: QdpxSet[] = groups.map((g) => ({
     guid: g.guid,
     name: g.name,
@@ -80,7 +95,7 @@ export function buildProjectFromDb(projectName: string): {
   // Notas: projeto → Project/NoteRef; documento → TextSource/NoteRef;
   // trecho attached → NoteRef na seleção (reusa seleção codificada no mesmo
   // span ou cria seleção só-nota). Detached rebaixa com aviso, nunca some.
-  const qdpxNotes: QdpxNote[] = []
+  const qdpxNotes: QdpxNote[] = [...codeMemos]
   const projectNoteGuids: string[] = []
   const docById = new Map(qdpxDocuments.map((d) => [d.guid, d]))
   for (const note of listProjectNotes()) {

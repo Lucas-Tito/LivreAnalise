@@ -27,6 +27,7 @@ import {
   collectCollapsibleKeys,
   filterLibraryTree,
   groupDestinations,
+  groupIds,
   isNoopMove,
   validateParentChange,
   type CodeNode
@@ -57,6 +58,7 @@ import { CodeDialog, type CodeDialogValue } from './CodeDialog'
 import { SimplePromptDialog } from './SimplePromptDialog'
 import { CollectionMembersDialog } from './CollectionMembersDialog'
 import { CategoryCodesDialog } from './CategoryCodesDialog'
+import { MemoDialog, type MemoTarget } from './MemoDialog'
 import { SearchButton, SearchField } from './SearchField'
 import { randomColor } from '@/lib/utils'
 import { mensagemDeErro } from '@/lib/erros'
@@ -82,6 +84,15 @@ interface RowHit {
   parentId: number | null
 }
 
+interface CollectionHit {
+  kind: 'collection'
+  id: number
+  key: string
+  name: string
+}
+
+type DropHit = RowHit | CollectionHit | 'root' | null
+
 // O que o arrasto vai fazer, já validado. As três intenções são distintas de
 // propósito: subir/descer de nível move o código; o centro agrupa. `noop` é
 // o soltar que não muda nada (devolver ao mesmo lugar): não é erro, só não
@@ -90,6 +101,7 @@ type DropIntent =
   | { kind: 'invalid' }
   | { kind: 'noop' }
   | { kind: 'root' }
+  | { kind: 'collection'; collectionId: number }
   | {
       kind: 'move'
       parentId: number | null
@@ -103,6 +115,7 @@ type DropIntent =
 type DropKind = 'up' | 'down' | 'group' | 'inside' | 'root' | 'same'
 
 export function CodesPanel({ onViewCode }: Props): JSX.Element {
+  const [memoTarget, setMemoTarget] = useState<MemoTarget | null>(null)
   const codes = useAppStore((s) => s.codes)
   const collections = useAppStore((s) => s.collections)
   const collectionMembers = useAppStore((s) => s.collectionMembers)
@@ -139,9 +152,11 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     code?: CodeWithCount
   } | null>(null)
   const [prompt, setPrompt] = useState<
+    | { kind: 'newGroup' }
+    | { kind: 'newCategory' }
     | { kind: 'renameCollection'; collection: Collection }
     | { kind: 'renameCategory'; code: CodeWithCount }
-    | { kind: 'groupFromCode'; code: CodeWithCount }
+    | { kind: 'groupFromCode'; code: CodeWithCount; collectionId?: number }
     | { kind: 'collectionFromGroup'; code: CodeWithCount }
     | null
   >(null)
@@ -155,6 +170,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   const [moveError, setMoveError] = useState<string | null>(null)
   const [dragIds, setDragIds] = useState<number[] | null>(null)
   const [dropTarget, setDropTarget] = useState<number | null>(null)
+  const [dropCollection, setDropCollection] = useState<number | null>(null)
   const [dropPos, setDropPos] = useState<DropZone | null>(null)
   const [dropKind, setDropKind] = useState<DropKind | null>(null)
   const DEFAULT_HINT = 'Solte para mover'
@@ -185,6 +201,10 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   // estado atual sem recriá-los a cada render.
   const codesRef = useRef(codes)
   codesRef.current = codes
+  const collectionsRef = useRef(collections)
+  collectionsRef.current = collections
+  const collectionMembersRef = useRef(collectionMembers)
+  collectionMembersRef.current = collectionMembers
   const selectedRef = useRef(selected)
   selectedRef.current = selected
   const collapsedRef = useRef(collapsed)
@@ -316,6 +336,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     dragIdsRef.current = null
     setDragIds(null)
     setDropTarget(null)
+    setDropCollection(null)
     setDropPos(null)
     setDropKind(null)
     setDropHint(DEFAULT_HINT)
@@ -344,12 +365,13 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
 
   const dropKindOf = (
     intent: DropIntent,
-    hit: RowHit | 'root' | null
+    hit: DropHit
   ): DropKind => {
     if (intent.kind === 'noop') return 'same'
     if (intent.kind === 'root') return 'root'
+    if (intent.kind === 'collection') return 'inside'
     if (intent.kind === 'group') return 'group'
-    if (hit !== null && hit !== 'root') {
+    if (hit !== null && hit !== 'root' && !('kind' in hit)) {
       if (hit.zone === 'before') return 'up'
       if (hit.zone === 'after') return 'down'
     }
@@ -368,7 +390,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   }
 
   const isGroup = (id: number): boolean =>
-    codesRef.current.some((c) => c.parentId === id)
+    codesRef.current.some((c) => (c.id === id && c.isCategory) || c.parentId === id)
 
   const canDropIds = (ids: number[], parentId: number | null): boolean =>
     ids.every((id) => {
@@ -384,7 +406,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   // Usa elementsFromPoint (a pilha inteira) em vez de elementFromPoint: um
   // overlay por cima — o painel de trechos, a etiqueta do arrasto, a dica —
   // não pode esconder o destino que está embaixo dele.
-  const hitZone = (x: number, y: number): RowHit | 'root' | null => {
+  const hitZone = (x: number, y: number): DropHit => {
     const stack = document.elementsFromPoint(x, y)
     for (const node of stack) {
       const el = node as HTMLElement
@@ -404,6 +426,13 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
           parentId: codesRef.current.find((c) => c.id === id)?.parentId ?? null
         }
       }
+      const collectionEl = el.closest<HTMLElement>('[data-collection-row]')
+      if (collectionEl) {
+        const id = Number(collectionEl.dataset.collectionRow)
+        const collection = collectionsRef.current.find((item) => item.id === id)
+        if (!collection) return null
+        return { kind: 'collection', id, key: `col-${id}`, name: collection.name }
+      }
       if (el.closest('[data-code-root]')) return 'root'
     }
     return null
@@ -415,13 +444,23 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   // ordem) é `noop`: não é erro, só não faz nada.
   const resolveDrop = (
     ids: number[],
-    hit: RowHit | 'root' | null
+    hit: DropHit
   ): DropIntent => {
     if (hit === null) return { kind: 'invalid' }
     if (hit === 'root') {
       return isNoopMove(codesRef.current, ids, { parentId: null })
         ? { kind: 'noop' }
         : { kind: 'root' }
+    }
+    if ('kind' in hit) {
+      const members = new Set(collectionMembersRef.current
+        .filter((member) => member.collectionId === hit.id)
+        .map((member) => member.codeId))
+      const allPresent = ids.every((id) => {
+        const code = codesRef.current.find((item) => item.id === id)
+        return members.has(id) || (code?.parentId != null && members.has(code.parentId))
+      })
+      return allPresent ? { kind: 'noop' } : { kind: 'collection', collectionId: hit.id }
     }
     if (hit.zone !== 'inside') {
       // Nas bordas, soltar sobre si mesmo é devolver ao mesmo lugar.
@@ -464,14 +503,16 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     return { kind: 'group', codeIds: members }
   }
 
-  const intentLabel = (intent: DropIntent, hit: RowHit | 'root' | null): string => {
+  const intentLabel = (intent: DropIntent, hit: DropHit): string => {
     if (intent.kind === 'noop') return 'Já está aqui'
     if (intent.kind === 'root') return 'Mover para o 1º nível'
     if (intent.kind === 'invalid') return 'Destino inválido'
+    if (intent.kind === 'collection' && hit !== null && hit !== 'root' && 'kind' in hit)
+      return `Adicionar ao grupo “${hit.name}”`
     if (intent.kind === 'move') {
-      if (hit !== null && hit !== 'root' && hit.zone === 'before')
+      if (hit !== null && hit !== 'root' && !('kind' in hit) && hit.zone === 'before')
         return 'Mover para cima'
-      if (hit !== null && hit !== 'root' && hit.zone === 'after')
+      if (hit !== null && hit !== 'root' && !('kind' in hit) && hit.zone === 'after')
         return 'Mover para baixo'
       if (hit !== null && hit !== 'root')
         return `Mover para dentro de “${codeName(hit.id)}”`
@@ -487,6 +528,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     const intent = resolveDrop(ids, hit)
     const clear = (): void => {
       setDropTarget(null)
+      setDropCollection(null)
       setDropPos(null)
       setDropKind(null)
       setRootHover(false)
@@ -503,9 +545,17 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     setRootHover(hit === 'root' && intent.kind !== 'noop')
     if (hit === 'root') {
       setDropTarget(null)
+      setDropCollection(null)
       setDropPos(null)
       cancelExpandTimer()
+    } else if ('kind' in hit) {
+      setDropTarget(null)
+      setDropPos(null)
+      setDropCollection(hit.id)
+      if (collapsedRef.current.has(hit.key)) scheduleAutoExpand(hit.key)
+      else cancelExpandTimer()
     } else {
+      setDropCollection(null)
       setDropTarget(hit.id)
       setDropPos(hit.zone)
       if (
@@ -635,6 +685,11 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         setGroupPrompt(intent.codeIds)
         return
       }
+      if (intent.kind === 'collection') {
+        cleanupDrag()
+        void liveRef.current.addToCollection(intent.collectionId, ids)
+        return
+      }
       cleanupDrag()
       void liveRef.current.doMove(
         ids,
@@ -693,20 +748,25 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     }
   }
 
-  // Grupo e colecao nascem a partir de quem eles agrupam: assim um grupo nunca
-  // existe vazio, e "codigo que tem filhos" continua sendo a unica definicao.
   const handlePrompt = async (name: string): Promise<void> => {
     if (!prompt) return
-    if (prompt.kind === 'renameCollection') {
+    if (prompt.kind === 'newGroup') {
+      await createCollection({ name })
+    } else if (prompt.kind === 'newCategory') {
+      await createCode({ name, color: randomColor(), isCategory: true })
+    } else if (prompt.kind === 'renameCollection') {
       await updateCollection({ id: prompt.collection.id, name })
     } else if (prompt.kind === 'renameCategory') {
       await updateCode({ id: prompt.code.id, name })
     } else if (prompt.kind === 'groupFromCode') {
-      await createGroup({
+      const category = await createGroup({
         name,
         color: prompt.code.color,
         codeId: prompt.code.id
       })
+      if (prompt.collectionId != null) {
+        await addCollectionMember(prompt.collectionId, category.id)
+      }
     } else {
       const collection = await createCollection({ name })
       await addCollectionMember(collection.id, prompt.code.id)
@@ -772,12 +832,31 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
     return true
   }
 
+  const addToCollection = async (collectionId: number, ids: number[]): Promise<void> => {
+    try {
+      const members = new Set(collectionMembersRef.current
+        .filter((member) => member.collectionId === collectionId)
+        .map((member) => member.codeId))
+      for (const id of ids) {
+        const code = codesRef.current.find((item) => item.id === id)
+        if (!code || members.has(id) || (code.parentId != null && members.has(code.parentId))) continue
+        await addCollectionMember(collectionId, id)
+        members.add(id)
+      }
+      setSelected(new Set())
+      anchorRef.current = null
+    } catch (err) {
+      flashNotice(mensagemDeErro(err, 'Não foi possível adicionar ao grupo.'))
+    }
+  }
+
   // Os handlers de pointer são instalados uma única vez, então precisam enxergar
   // as versões mais recentes de `doMove` e `applySelect` (que capturam `codes`).
-  const liveRef = useRef({ applySelect, doMove })
-  liveRef.current = { applySelect, doMove }
+  const liveRef = useRef({ applySelect, doMove, addToCollection })
+  liveRef.current = { applySelect, doMove, addToCollection }
 
   const destinations = useMemo(() => groupDestinations(codes), [codes])
+  const categoryIds = useMemo(() => groupIds(codes), [codes])
   const filteredDestinations = destinations.filter((c) =>
     casaBusca(c.name, moveFilter)
   )
@@ -792,6 +871,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
   ): JSX.Element => {
     const key = `${path}/${node.code.id}`
     const hasChildren = node.children.length > 0
+    const isCategory = categoryIds.has(node.code.id)
     const isCollapsed = recolhido(key)
     const isSelected = selected.has(node.code.id)
     const isDropTarget = dropTarget === node.code.id
@@ -808,7 +888,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
             <div
               data-code-row={node.code.id}
               data-code-key={key}
-              data-code-children={hasChildren ? '1' : '0'}
+              data-code-children={isCategory ? '1' : '0'}
               className={`group relative flex cursor-grab select-none items-center gap-1 rounded-md py-1 pr-1 text-sm transition-all duration-150 ease-out hover:bg-accent/50 ${isSelected ? 'bg-accent ring-1 ring-inset ring-primary/40' : ''} ${isDragging ? 'scale-[0.98] opacity-50' : ''} ${isGroupTarget ? 'code-drop-group' : ''} ${isNestTarget && !isGroupTarget ? 'code-drop-inside' : ''} ${isInsertBefore ? 'code-insert-before' : ''} ${isInsertAfter ? 'code-insert-after' : ''} ${isSameSpot ? 'code-drop-same' : ''}`}
               style={{ paddingLeft: depth * 14 + 4 }}
               title="Arraste para mover"
@@ -870,7 +950,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                 }}
                 title={node.code.description ?? undefined}
               >
-                {hasChildren ? (
+                {isCategory ? (
                   <Tags
                     className="h-3.5 w-3.5 shrink-0"
                     style={{ color: node.code.color }}
@@ -882,6 +962,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                   />
                 )}
                 <span className="truncate">{node.code.name}</span>
+                {node.code.memo && <span title="Possui memo" aria-label="Possui memo" className="text-xs text-muted-foreground">✎</span>}
                 {node.code.usageCount > 0 && (
                   <span className="ml-auto shrink-0 rounded bg-muted px-1.5 text-xs text-muted-foreground">
                     {node.code.usageCount}
@@ -899,9 +980,10 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => onViewCode(node.code)}>
+                  <DropdownMenuItem onClick={() => setMemoTarget({ id: node.code.id, name: node.code.name, kind: isCategory ? 'categoria' : 'código', memo: node.code.memo ?? '' })}>Abrir memo</DropdownMenuItem>
+                  {(!isCategory || node.code.usageCount > 0) && <DropdownMenuItem onClick={() => onViewCode(node.code)}>
                     <List className="h-4 w-4" /> Ver trechos
-                  </DropdownMenuItem>
+                  </DropdownMenuItem>}
                   <DropdownMenuItem
                     onClick={() => {
                       if (!selected.has(node.code.id)) toggleSelect(node.code.id)
@@ -922,7 +1004,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                       dentro
                     </DropdownMenuItem>
                   )}
-                  {hasChildren && (
+                  {isCategory && (
                     <DropdownMenuItem
                       onClick={() =>
                         setPrompt({
@@ -934,10 +1016,10 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                       <Layers className="h-4 w-4" /> Criar grupo com esta categoria
                     </DropdownMenuItem>
                   )}
-                  {!hasChildren && node.code.parentId == null && (
+                  {!isCategory && node.code.parentId == null && (
                     <DropdownMenuItem
                       onClick={() =>
-                        setPrompt({ kind: 'groupFromCode', code: node.code })
+                        setPrompt({ kind: 'groupFromCode', code: node.code, collectionId: collectionId ?? undefined })
                       }
                     >
                       <Tags className="h-4 w-4" /> Criar categoria com este código
@@ -963,20 +1045,20 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                       que é o que recebe citação. */}
                   <DropdownMenuItem
                     onClick={() =>
-                      hasChildren
+                      isCategory
                         ? setPrompt({ kind: 'renameCategory', code: node.code })
                         : setDialogState({ mode: 'edit', code: node.code })
                     }
                   >
                     <Pencil className="h-4 w-4" />{' '}
-                    {hasChildren ? 'Renomear' : 'Editar'}
+                    {isCategory ? 'Renomear' : 'Editar'}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
                     onClick={() => {
                       if (
                         confirm(
-                          hasChildren
+                          isCategory
                             ? `Excluir a categoria "${node.code.name}"? Os códigos dentro dela e as citações serão removidos.`
                             : `Excluir o código "${node.code.name}"? As citações dele serão removidas.`
                         )
@@ -992,10 +1074,14 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
+            <ContextMenuItem onClick={() => setMemoTarget({ id: node.code.id, name: node.code.name, kind: isCategory ? 'categoria' : 'código', memo: node.code.memo ?? '' })}>Abrir memo</ContextMenuItem>
             <ContextMenuItem
               onClick={() => setDialogState({ mode: 'create' })}
             >
               <Plus className="h-4 w-4" /> Novo código
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => setPrompt({ kind: 'newCategory' })}>
+              <Tags className="h-4 w-4" /> Nova categoria
             </ContextMenuItem>
             {canReceiveChild(node.code) && (
               <ContextMenuItem
@@ -1006,10 +1092,10 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                 <CornerDownRight className="h-4 w-4" /> Adicionar código dentro
               </ContextMenuItem>
             )}
-            {!hasChildren && node.code.parentId == null ? (
+            {!isCategory && node.code.parentId == null ? (
               <ContextMenuItem
                 onClick={() =>
-                  setPrompt({ kind: 'groupFromCode', code: node.code })
+                  setPrompt({ kind: 'groupFromCode', code: node.code, collectionId: collectionId ?? undefined })
                 }
               >
                 <Tags className="h-4 w-4" /> Criar categoria com este código
@@ -1024,7 +1110,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                   <Tags className="h-4 w-4" /> Criar categoria com este código
                 </span>
                 <span className="pl-6 text-xs text-muted-foreground">
-                  {hasChildren
+                  {isCategory
                     ? 'Este código já é uma categoria.'
                     : 'Remova o código da categoria atual primeiro.'}
                 </span>
@@ -1136,7 +1222,9 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                   const isCollapsed = recolhido(key)
                   return (
                     <li key={key}>
-                      <div className="group flex items-center gap-1 rounded-md px-1 py-1 text-sm hover:bg-accent/50">
+                      <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                      <div data-collection-row={node.collection.id} className={`group flex items-center gap-1 rounded-md px-1 py-1 text-sm hover:bg-accent/50 ${dropCollection === node.collection.id ? `code-drop-inside ${dropKind === 'same' ? 'code-drop-same' : ''}` : ''}`}>
                         <button
                           aria-label={`${isCollapsed ? 'Expandir' : 'Recolher'} ${node.collection.name}`}
                           aria-expanded={!isCollapsed}
@@ -1157,6 +1245,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                           <span className="truncate">
                             {node.collection.name}
                           </span>
+                          {node.collection.memo && <span title="Possui memo" aria-label="Possui memo" className="text-xs text-muted-foreground">✎</span>}
                         </button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -1165,6 +1254,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                             </button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setMemoTarget({ id: node.collection.id, name: node.collection.name, kind: 'grupo', memo: node.collection.memo ?? '' })}>Abrir memo</DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() =>
                                 setMembersCollection(node.collection)
@@ -1199,6 +1289,11 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent>
+                        <ContextMenuItem onClick={() => setMemoTarget({ id: node.collection.id, name: node.collection.name, kind: 'grupo', memo: node.collection.memo ?? '' })}>Abrir memo</ContextMenuItem>
+                      </ContextMenuContent>
+                      </ContextMenu>
                       {!isCollapsed && (
                         <ul>
                           {node.children.map((c) =>
@@ -1227,6 +1322,12 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          <ContextMenuItem onClick={() => setPrompt({ kind: 'newGroup' })}>
+            <Layers className="h-4 w-4" /> Novo grupo
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => setPrompt({ kind: 'newCategory' })}>
+            <Tags className="h-4 w-4" /> Nova categoria
+          </ContextMenuItem>
           <ContextMenuItem onClick={() => setDialogState({ mode: 'create' })}>
             <Plus className="h-4 w-4" /> Novo código
           </ContextMenuItem>
@@ -1251,6 +1352,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         </div>
       )}
 
+      {memoTarget && <MemoDialog target={memoTarget} onClose={() => setMemoTarget(null)} />}
       <CodeDialog
         open={dialogState !== null}
         onOpenChange={(o) => !o && setDialogState(null)}
@@ -1277,7 +1379,11 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
         open={prompt !== null}
         onOpenChange={(o) => !o && setPrompt(null)}
         title={
-          prompt?.kind === 'renameCollection'
+          prompt?.kind === 'newGroup'
+            ? 'Novo grupo'
+            : prompt?.kind === 'newCategory'
+            ? 'Nova categoria'
+            : prompt?.kind === 'renameCollection'
             ? 'Renomear grupo'
             : prompt?.kind === 'renameCategory'
               ? 'Renomear categoria'
@@ -1288,7 +1394,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
                 : ''
         }
         label={
-          prompt?.kind === 'groupFromCode' || prompt?.kind === 'renameCategory'
+          prompt?.kind === 'newCategory' || prompt?.kind === 'groupFromCode' || prompt?.kind === 'renameCategory'
             ? 'Nome da categoria'
             : 'Nome do grupo'
         }
@@ -1342,7 +1448,7 @@ export function CodesPanel({ onViewCode }: Props): JSX.Element {
             </button>
             {filteredDestinations.length === 0 ? (
               <p className="p-4 text-center text-xs text-muted-foreground">
-                Nenhuma categoria ainda. Categorias são códigos de 1º nível que já têm
+                Nenhuma categoria ainda. Categorias são códigos de 1º nível que reúnem
                 filhos.
               </p>
             ) : (

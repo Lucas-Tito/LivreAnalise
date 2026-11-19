@@ -1,3 +1,4 @@
+import { CURRENT_SCHEMA_VERSION } from '../db/migrations'
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { basename } from 'path'
 import { v4 as uuid } from 'uuid'
@@ -21,7 +22,7 @@ import { pushRecent, readRecents } from '../services/recents'
 import { renameProject, trashProject } from '../services/projectFile'
 import { readProjectStats } from '../db/projectStats'
 import { clearHistoryFor } from '../history/stack'
-import { createVersionSnapshot, snapshotBeforeMigration } from '../services/projectVersions'
+import { createVersionSnapshot, projectSchemaVersion, snapshotBeforeMigration, versionsDir } from '../services/projectVersions'
 import { pickNewProjectPath, publishNewProject } from './newProjectFile'
 import { importQdpxAsProject } from './qdpx'
 import { withProjectOperation } from '../services/projectOperation'
@@ -121,16 +122,25 @@ export function registerProjectHandlers(): void {
   })
 }
 
+export async function prepareProjectMigration(source: string, destination = source): Promise<boolean> {
+  const schema = projectSchemaVersion(source)
+  if (schema > CURRENT_SCHEMA_VERSION) throw new Error('Projeto de uma versão mais nova. Atualize o LivreAnalise para abri-lo.')
+  if (schema === CURRENT_SCHEMA_VERSION) return true
+  const { response } = await dialog.showMessageBox({
+    type: 'warning',
+    title: 'Atualizar formato do projeto',
+    message: 'O projeto precisa ser convertido para abrir nesta versão.',
+    detail: `Após a conversão, o LivreAnalise 0.7.x não abrirá o arquivo atualizado. Uma cópia no formato anterior será salva em:\n${versionsDir(destination)}\n\nPara voltar, copie o .liva pré-migração dessa pasta e abra a cópia na versão anterior.`,
+    buttons: ['Cancelar', 'Criar cópia e converter'], defaultId: 0, cancelId: 0
+  })
+  if (response !== 1) return false
+  await snapshotBeforeMigration(source, destination)
+  return true
+}
+
 async function openProjectPath(path: string): Promise<OpenProjectResult | null> {
   const prev = getActivePath()
-  // Antes de abrir (e portanto antes de migrar): so faz copia quando o arquivo
-  // esta atrasado. Melhor esforco -- se falhar, a abertura segue, porque
-  // recusar abrir o projeto por causa do backup seria pior que nao ter backup.
-  try {
-    snapshotBeforeMigration(path)
-  } catch (err) {
-    console.error(`[versoes] copia pre-migracao falhou: ${(err as Error)?.message ?? err}`)
-  }
+  if (!(await prepareProjectMigration(path))) return null
   openDatabase(path)
   if (prev) clearHistoryFor(prev)
   const name = basename(path).replace(/\.liva$/i, '')

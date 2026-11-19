@@ -1,8 +1,7 @@
 import type { Code, Collection, CollectionMember } from '@shared/types'
 import { casaBusca } from './busca'
 
-// Grupo nao e um campo no banco: e a propriedade derivada de um codigo ter
-// filhos. O atomo -- o unico nivel que recebe citacao -- e o codigo sem filhos.
+// Categorias explícitas podem estar vazias; códigos com filhos também são categorias.
 //
 // Os nomes do codigo nao sao os da interface (#64): o que aqui e "group" a
 // pessoa ve como CATEGORIA, e o que aqui e "collection" (tabela code_groups)
@@ -10,6 +9,7 @@ import { casaBusca } from './busca'
 export function groupIds(codes: Code[]): Set<number> {
   const ids = new Set<number>()
   for (const code of codes) {
+    if (code.isCategory) ids.add(code.id)
     if (code.parentId != null) ids.add(code.parentId)
   }
   return ids
@@ -48,7 +48,7 @@ export function validateParentChange(
     throw new Error('O destino precisa ser uma categoria de 1º nível (sem criar 3º nível).')
   }
   // Código com filhos não pode descer para dentro de outro.
-  const hasChildren = codes.some((c) => c.parentId === id)
+  const hasChildren = moving.isCategory || codes.some((c) => c.parentId === id)
   if (hasChildren) {
     throw new Error('Uma categoria não pode ser movida para dentro de outra categoria.')
   }

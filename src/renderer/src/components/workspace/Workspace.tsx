@@ -1,3 +1,4 @@
+import { flushPendingMemos } from '@/lib/memoAutosave'
 import { type JSX, useCallback, useEffect, useRef, useState } from 'react'
 import { TopBar } from './TopBar'
 import { Sidebar } from './Sidebar'
@@ -33,12 +34,13 @@ export function Workspace(): JSX.Element {
     savingNotes.current = true
     setRetrying(true)
     try {
+      await flushPendingMemos()
       await useAppStore.getState().notesFlush?.()
       closePending.current = false
       setCloseError(null)
       window.api.app.confirmClose()
     } catch (error) {
-      setCloseError(mensagemDeErro(error, 'Não foi possível salvar a nota.'))
+      setCloseError(mensagemDeErro(error, 'Não foi possível salvar as alterações.'))
     } finally {
       savingNotes.current = false
       setRetrying(false)
@@ -74,7 +76,7 @@ export function Workspace(): JSX.Element {
       }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Não foi possível salvar a nota</DialogTitle>
+            <DialogTitle>Não foi possível salvar as alterações</DialogTitle>
             <DialogDescription>
               {closeError} Se você sair agora, as alterações ainda não gravadas serão perdidas.
             </DialogDescription>

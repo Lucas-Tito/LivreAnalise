@@ -7,7 +7,7 @@ import { NOTES_DDL, SCHEMA_DDL } from './ddl'
  * versionamento, não têm carimbo (`user_version = 0`) e correspondem à
  * versão 1.
  */
-export const CURRENT_SCHEMA_VERSION = 2
+export const CURRENT_SCHEMA_VERSION = 4
 
 export interface Migration {
   version: number
@@ -31,6 +31,29 @@ export const MIGRATIONS: Migration[] = [
     description: 'cria a tabela de notas (memos de projeto, documento e trecho)',
     up: (raw) => {
       raw.exec(NOTES_DDL)
+    }
+  },
+  {
+    version: 3,
+    description: 'permite categorias vazias',
+    up: (raw) => {
+      const columns = raw.pragma('table_info(codes)') as { name: string }[]
+      if (!columns.some((column) => column.name === 'is_category')) {
+        raw.exec('ALTER TABLE codes ADD COLUMN is_category INTEGER NOT NULL DEFAULT 0')
+      }
+      raw.exec('UPDATE codes SET is_category = 1 WHERE id IN (SELECT parent_id FROM codes WHERE parent_id IS NOT NULL)')
+    }
+  },
+  {
+    version: 4,
+    description: 'adiciona memos de códigos, categorias e grupos',
+    up: (raw) => {
+      for (const table of ['codes', 'code_groups']) {
+        const columns = raw.pragma(`table_info(${table})`) as { name: string }[]
+        if (!columns.some((column) => column.name === 'memo')) {
+          raw.exec(`ALTER TABLE ${table} ADD COLUMN memo TEXT NOT NULL DEFAULT ''`)
+        }
+      }
     }
   }
 ]

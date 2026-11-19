@@ -349,7 +349,9 @@ export function listCodes(): CodeWithCount[] {
       name: codes.name,
       color: codes.color,
       description: codes.description,
+      memo: codes.memo,
       parentId: codes.parentId,
+      isCategory: codes.isCategory,
       sortOrder: codes.sortOrder,
       createdAt: codes.createdAt,
       usageCount: sql<number>`cast(count(${codings.id}) as integer)`
@@ -372,11 +374,14 @@ function getCode(id: number): Code {
 
 export function createCode(input: CreateCodeInput): Code {
   const db = getDb()
+  let parentWasCategory = false
+  if (input.isCategory && input.parentId != null) throw new Error('Uma categoria deve ficar no 1º nível.')
   if (input.parentId != null) {
     const all = db.select().from(codes).all() as Code[]
     const byId = new Map(all.map((c) => [c.id, c]))
     const target = byId.get(input.parentId)
     if (!target) throw new Error('Categoria de destino não encontrada.')
+    parentWasCategory = target.isCategory ?? false
     if (target.parentId != null) {
       throw new Error('O destino precisa ser uma categoria de 1º nível (sem criar 3º nível).')
     }
@@ -389,27 +394,41 @@ export function createCode(input: CreateCodeInput): Code {
     siblings
       .filter((c) => c.parentId === (input.parentId ?? null))
       .reduce((max, c) => Math.max(max, c.sortOrder), -1) + 1
-  const res = db
-    .insert(codes)
-    .values({
+  const res = db.transaction((tx) => {
+    if (input.parentId != null) {
+      tx.update(codes).set({ isCategory: true }).where(eq(codes.id, input.parentId)).run()
+    }
+    return tx.insert(codes).values({
       guid,
       name: input.name,
       color: input.color,
       description: input.description ?? null,
       parentId: input.parentId ?? null,
+      isCategory: input.isCategory ?? false,
       sortOrder: nextOrder
     })
     .run()
+  })
   touchProject()
   const created = getCode(Number(res.lastInsertRowid))
   pushHistory({
-    label: `criar código "${created.name}"`,
+    label: `criar ${created.isCategory ? 'categoria' : 'código'} "${created.name}"`,
     undo: () => {
-      getDb().delete(codes).where(eq(codes.id, created.id)).run()
+      getDb().transaction((tx) => {
+        tx.delete(codes).where(eq(codes.id, created.id)).run()
+        if (created.parentId != null && !parentWasCategory) {
+          tx.update(codes).set({ isCategory: false }).where(eq(codes.id, created.parentId)).run()
+        }
+      })
       touchProject()
     },
     redo: () => {
-      getDb().insert(codes).values(created).onConflictDoNothing().run()
+      getDb().transaction((tx) => {
+        if (created.parentId != null) {
+          tx.update(codes).set({ isCategory: true }).where(eq(codes.id, created.parentId)).run()
+        }
+        tx.insert(codes).values(created).onConflictDoNothing().run()
+      })
       touchProject()
     }
   })
@@ -418,9 +437,11 @@ export function createCode(input: CreateCodeInput): Code {
 
 export function updateCode(input: UpdateCodeInput): void {
   const db = getDb()
+  let parentWasCategory = false
   if (input.parentId !== undefined) {
     const all = db.select().from(codes).all() as Code[]
     validateParentChange(all, input.id, input.parentId)
+    parentWasCategory = all.find((c) => c.id === input.parentId)?.isCategory ?? false
   }
   const before = getCode(input.id)
   if (!before) return
@@ -428,6 +449,7 @@ export function updateCode(input: UpdateCodeInput): void {
   if (input.name !== undefined) patch.name = input.name
   if (input.color !== undefined) patch.color = input.color
   if (input.description !== undefined) patch.description = input.description
+  if (input.memo !== undefined) patch.memo = input.memo
   if (input.parentId !== undefined) patch.parentId = input.parentId
   if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder
   if (Object.keys(patch).length === 0) return
@@ -435,7 +457,10 @@ export function updateCode(input: UpdateCodeInput): void {
     ([k, v]) => (before as unknown as Record<string, unknown>)[k] === v
   )
   if (unchanged) return
-  db.update(codes).set(patch).where(eq(codes.id, input.id)).run()
+  db.transaction((tx) => {
+    if (input.parentId != null) tx.update(codes).set({ isCategory: true }).where(eq(codes.id, input.parentId)).run()
+    tx.update(codes).set(patch).where(eq(codes.id, input.id)).run()
+  })
   touchProject()
   const after = getCode(input.id)
   const beforeSnap = { ...before }
@@ -447,21 +472,28 @@ export function updateCode(input: UpdateCodeInput): void {
         ? `remover "${after.name}" da categoria`
         : `mover "${after.name}"`
       : `editar código "${after.name}"`,
+    coalesceKey: Object.keys(patch).length === 1 && input.memo !== undefined ? `memo:code:${input.id}` : undefined,
     undo: () => {
       getDb().update(codes).set({
         name: beforeSnap.name,
         color: beforeSnap.color,
         description: beforeSnap.description,
+        memo: beforeSnap.memo,
         parentId: beforeSnap.parentId,
         sortOrder: beforeSnap.sortOrder
       }).where(eq(codes.id, beforeSnap.id)).run()
+      if (input.parentId != null && !parentWasCategory) {
+        getDb().update(codes).set({ isCategory: false }).where(eq(codes.id, input.parentId)).run()
+      }
       touchProject()
     },
     redo: () => {
+      if (input.parentId != null) getDb().update(codes).set({ isCategory: true }).where(eq(codes.id, input.parentId)).run()
       getDb().update(codes).set({
         name: afterSnap.name,
         color: afterSnap.color,
         description: afterSnap.description,
+        memo: afterSnap.memo,
         parentId: afterSnap.parentId,
         sortOrder: afterSnap.sortOrder
       }).where(eq(codes.id, afterSnap.id)).run()
@@ -498,6 +530,7 @@ export function moveCodes(input: MoveCodesInput): void {
     input.anchorId,
     input.position
   )
+  const parentWasCategory = all.find((c) => c.id === input.parentId)?.isCategory ?? false
 
   // Um sort_order novo para todos os irmãos do destino: é o que faz a lista
   // obedecer à ordem escolhida no arrasto em vez de ao alfabeto.
@@ -508,6 +541,7 @@ export function moveCodes(input: MoveCodesInput): void {
     }
   }
   db.transaction((tx) => {
+    if (input.parentId != null) tx.update(codes).set({ isCategory: true }).where(eq(codes.id, input.parentId)).run()
     ordered.forEach((code, position) => {
       if (unique.includes(code.id)) {
         tx.update(codes)
@@ -537,12 +571,16 @@ export function moveCodes(input: MoveCodesInput): void {
             .where(eq(codes.id, id))
             .run()
         }
+        if (afterParent != null && !parentWasCategory) {
+          tx.update(codes).set({ isCategory: false }).where(eq(codes.id, afterParent)).run()
+        }
       })
       touchProject()
     },
     redo: () => {
       const db2 = getDb()
       db2.transaction((tx) => {
+        if (afterParent != null) tx.update(codes).set({ isCategory: true }).where(eq(codes.id, afterParent)).run()
         ordered.forEach((code, position) => {
           if (unique.includes(code.id)) {
             tx.update(codes)
@@ -568,7 +606,7 @@ export function createGroupCode(name: string, color: string, codeId: number): Co
   const all = getDb().select().from(codes).all() as Code[]
   const origin = all.find((c) => c.id === codeId)
   if (!origin) throw new Error('Código de origem não encontrado.')
-  if (origin.parentId != null || all.some((c) => c.parentId === codeId)) {
+  if (origin.parentId != null || origin.isCategory || all.some((c) => c.parentId === codeId)) {
     throw new Error('Só um código solto sem filhos pode virar categoria.')
   }
   return createGroupFromCodes(name, color, [codeId])
@@ -588,7 +626,7 @@ export function createGroupFromCodes(
   const members = unique.map((id) => {
     const code = all.find((c) => c.id === id)
     if (!code) throw new Error('Código não encontrado.')
-    if (all.some((c) => c.parentId === id)) {
+    if (code.isCategory || all.some((c) => c.parentId === id)) {
       throw new Error(`"${code.name}" já é uma categoria e não pode entrar em outra.`)
     }
     return code
@@ -606,7 +644,7 @@ export function createGroupFromCodes(
   db.transaction((tx) => {
     const res = tx
       .insert(codes)
-      .values({ guid, name, color, description: null, parentId: null, sortOrder })
+      .values({ guid, name, color, description: null, parentId: null, isCategory: true, sortOrder })
       .run()
     group = tx
       .select()
@@ -758,8 +796,10 @@ export function updateCollection(input: UpdateCollectionInput): void {
   const patch: Record<string, unknown> = {}
   if (input.name !== undefined) patch.name = input.name
   if (input.description !== undefined) patch.description = input.description
+  if (input.memo !== undefined) patch.memo = input.memo
   if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder
   if (Object.keys(patch).length === 0) return
+  if (Object.entries(patch).every(([key, value]) => (before as unknown as Record<string, unknown>)[key] === value)) return
   db.update(collections).set(patch).where(eq(collections.id, input.id)).run()
   touchProject()
   const after = getCollection(input.id)
@@ -767,12 +807,13 @@ export function updateCollection(input: UpdateCollectionInput): void {
   const a = { ...after }
   pushHistory({
     label: `editar grupo "${a.name}"`,
+    coalesceKey: Object.keys(patch).length === 1 && input.memo !== undefined ? `memo:group:${input.id}` : undefined,
     undo: () => {
-      getDb().update(collections).set({ name: b.name, description: b.description, sortOrder: b.sortOrder }).where(eq(collections.id, b.id)).run()
+      getDb().update(collections).set({ name: b.name, description: b.description, memo: b.memo, sortOrder: b.sortOrder }).where(eq(collections.id, b.id)).run()
       touchProject()
     },
     redo: () => {
-      getDb().update(collections).set({ name: a.name, description: a.description, sortOrder: a.sortOrder }).where(eq(collections.id, a.id)).run()
+      getDb().update(collections).set({ name: a.name, description: a.description, memo: a.memo, sortOrder: a.sortOrder }).where(eq(collections.id, a.id)).run()
       touchProject()
     }
   })
@@ -940,8 +981,9 @@ function validateDocumentRange(documentId: number, start: number, end: number): 
 export function createCoding(input: CreateCodingInput): Coding {
   const db = getDb()
   validateDocumentRange(input.documentId, input.startPos, input.endPos)
-  if (!getCode(input.codeId)) throw new Error('Código não encontrado.')
-  if (db.select({ id: codes.id }).from(codes).where(eq(codes.parentId, input.codeId)).get()) {
+  const code = getCode(input.codeId)
+  if (!code) throw new Error('Código não encontrado.')
+  if (code.isCategory || db.select({ id: codes.id }).from(codes).where(eq(codes.parentId, input.codeId)).get()) {
     throw new Error('Categorias não recebem citações. Escolha um código dentro da categoria.')
   }
   const beforeRows = (db.select().from(codings).where(

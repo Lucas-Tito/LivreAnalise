@@ -14,6 +14,10 @@ material analisado é entrevista com participante identificável.
      codigos a esquerda e as etiquetas alinhadas na margem direita.
      Arraste o print aqui ao editar o README pelo GitHub. -->
 
+## Abrir um projeto da série 0.7.x na 0.8.0
+
+Ao abrir ou restaurar um projeto antigo, o aplicativo pede confirmação antes de converter o arquivo. Cancelar mantém o formato anterior. Ao confirmar, o LivreAnalise cria e verifica uma cópia no formato original na pasta `<nome>.liva-versoes`, ao lado do destino. Se a cópia falhar, a conversão é interrompida. Para voltar à versão anterior, copie o arquivo identificado como `premigracao` para outra pasta e abra essa cópia com o aplicativo antigo. Alterações feitas depois da conversão ficam no projeto atualizado.
+
 ## Download
 
 Os instaladores de cada versão ficam na
@@ -72,12 +76,12 @@ extensão de uma citação pode ser ajustada arrastando as extremidades.
 A hierarquia tem exatamente três níveis:
 
 - **código** — o átomo. É o único nível que recebe citação.
-- **categoria** — um código que contém outros códigos. Não é um campo no banco: é a
-  propriedade derivada de ter filhos. Uma categoria não pode ser aplicada a um trecho.
+- **categoria** — reúne códigos e também pode ser criada vazia. Uma categoria não
+  pode ser aplicada a um trecho.
 - **grupo** — reúne categorias e códigos, de forma transversal.
 
-Categoria e grupo nascem a partir de quem eles reúnem ("criar categoria com este
-código", "criar grupo com esta categoria"), então uma categoria nunca existe vazia.
+Categoria e grupo podem nascer vazios ou a partir de quem eles reúnem ("criar
+categoria com este código", "criar grupo com esta categoria").
 
 No código-fonte os nomes são os antigos: categoria é `group` (`groupIds`,
 `createGroupFromCodes`) e grupo é `Collection` (tabela `code_groups`).

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { packBarColumns } from '../src/renderer/src/lib/barLayout'
+import { distributeExcerptBars, packBarColumns } from '../src/renderer/src/lib/barLayout'
 
 function layout(tops: number[], minColumns = 1) {
   return packBarColumns(tops.map((top, id) => ({ id, top })), minColumns)
@@ -70,5 +70,83 @@ describe('packBarColumns', () => {
         expect(verticallyDisjoint || horizontallyDisjoint).toBe(true)
       }
     }
+  })
+})
+
+describe('distributeExcerptBars', () => {
+  it('centers an isolated label in the visible lines of its excerpt', () => {
+    expect(distributeExcerptBars([{ item: 'a', lineTops: [10, 38, 66] }]))
+      .toEqual([{ items: ['a'], top: 38 }])
+  })
+
+  it('uses the exact midpoint for an isolated excerpt with an even number of lines', () => {
+    expect(distributeExcerptBars([{ item: 'a', lineTops: [10, 38] }]))
+      .toEqual([{ items: ['a'], top: 24 }])
+  })
+
+  it('distributes multiline codes around the middle without creating columns', () => {
+    const result = distributeExcerptBars(['a', 'b', 'c'].map((item) => ({ item, lineTops: [10, 38, 66, 94, 122] })))
+    expect(result.map((bar) => bar.top).sort((a, b) => a - b)).toEqual([38, 66, 94])
+    expect(packBarColumns(result).columnCount).toBe(1)
+  })
+
+  it('reserves short excerpts first and respects each excerpt bounds', () => {
+    const excerpts = [
+      { item: 'long', lineTops: [10, 38, 66, 94, 122] },
+      { item: 'short', lineTops: [66] },
+      { item: 'overlap', lineTops: [38, 66] }
+    ]
+    const result = distributeExcerptBars(excerpts)
+    expect(packBarColumns(result).columnCount).toBe(1)
+    for (const bar of result) {
+      for (const item of bar.items) {
+        const tops = excerpts.find((e) => e.item === item)!.lineTops
+        expect(bar.top).toBeGreaterThanOrEqual(Math.min(...tops))
+        expect(bar.top).toBeLessThanOrEqual(Math.max(...tops))
+      }
+    }
+  })
+
+  it('allows side-by-side labels only for single-line excerpts', () => {
+    const result = distributeExcerptBars(['a', 'b'].map((item) => ({ item, lineTops: [10] })))
+    expect(result).toHaveLength(2)
+    expect(packBarColumns(result).columnCount).toBe(2)
+  })
+
+  it('groups dense multiline labels instead of placing them outside their excerpts', () => {
+    const result = distributeExcerptBars(['a', 'b', 'c', 'd'].map((item) => ({ item, lineTops: [10, 38] })))
+    expect(result).toHaveLength(2)
+    expect(result.flatMap((bar) => bar.items).sort()).toEqual(['a', 'b', 'c', 'd'])
+    expect(packBarColumns(result).columnCount).toBe(1)
+  })
+
+  it('groups occupied single-line labels when a multiline excerpt has no free line', () => {
+    const result = distributeExcerptBars([
+      { item: 'a', lineTops: [10] }, { item: 'b', lineTops: [10] },
+      { item: 'c', lineTops: [38] }, { item: 'multi', lineTops: [10, 38] }
+    ])
+    expect(result.find((bar) => bar.top === 10)?.items).toEqual(['a', 'b', 'multi'])
+    expect(packBarColumns(result).columnCount).toBe(1)
+  })
+
+  it('ignores empty geometry and deduplicates fragment rects on the same line', () => {
+    expect(distributeExcerptBars([
+      { item: 'empty', lineTops: [] }, { item: 'a', lineTops: [10.1, 10.2] }
+    ])).toEqual([{ items: ['a'], top: 10 }])
+  })
+
+  it('uses the actual label height when packing zoomed-out lines', () => {
+    expect(packBarColumns([{ top: 10 }, { top: 30 }], 1, 20).columnCount).toBe(1)
+  })
+
+  it('reserves single-line excerpts split into duplicate fragment rects first', () => {
+    // Notas e busca dividem a linha em vários spans: os fragmentos repetidos
+    // não podem fazer o trecho curto perder a vez para o multilinha.
+    const result = distributeExcerptBars([
+      { item: 'short', lineTops: [10, 10, 10] },
+      { item: 'multiline', lineTops: [10, 38] }
+    ])
+    expect(result).toHaveLength(2)
+    expect(result.map((bar) => bar.top).sort((a, b) => a - b)).toEqual([10, 38])
   })
 })

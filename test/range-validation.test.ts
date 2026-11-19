@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { closeDatabase, openDatabase } from '../src/main/db'
 import * as repos from '../src/main/db/repositories'
+import { applicableCodes, groupDestinations, validateParentChange } from '../src/shared/codeTree'
+import { clearAllHistory, historyRedo, historyUndo } from '../src/main/history/stack'
 
 let documentId: number
 let codeId: number
@@ -29,4 +31,39 @@ it('validates both note reattachment and coding adjustment before writing', () =
 it('does not apply a category as if it were a leaf code', () => {
   repos.createCode({ name: 'Child', color: '#112233', parentId: codeId })
   expect(() => repos.createCoding({ documentId, codeId, startPos: 1, endPos: 3 })).toThrow('Categorias')
+})
+
+it('persists an empty category and keeps it distinct from a code', () => {
+  const category = repos.createCode({ name: 'Tema', color: '#112233', isCategory: true })
+  const all = repos.listCodes()
+  expect(all.find((c) => c.id === category.id)?.isCategory).toBe(true)
+  expect(groupDestinations(all).map((c) => c.id)).toContain(category.id)
+  expect(applicableCodes(all).map((c) => c.id)).not.toContain(category.id)
+  expect(() => repos.createCoding({ documentId, codeId: category.id, startPos: 1, endPos: 3 })).toThrow('Categorias')
+  expect(() => validateParentChange(all, category.id, codeId)).toThrow('categoria')
+  repos.moveCodes({ ids: [codeId], parentId: category.id })
+  repos.moveCodes({ ids: [codeId], parentId: null })
+  expect(groupDestinations(repos.listCodes()).map((c) => c.id)).toContain(category.id)
+})
+
+it('keeps categories created from codes or by adding a child after they become empty', () => {
+  const group = repos.createGroupCode('Categoria', '#112233', codeId)
+  repos.moveCodes({ ids: [codeId], parentId: null })
+  expect(groupDestinations(repos.listCodes()).map((c) => c.id)).toContain(group.id)
+
+  const parent = repos.createCode({ name: 'Pai', color: '#112233' })
+  const child = repos.createCode({ name: 'Filho', color: '#112233', parentId: parent.id })
+  repos.deleteCode(child.id)
+  expect(groupDestinations(repos.listCodes()).map((c) => c.id)).toContain(parent.id)
+})
+
+it('restores the original code type when undoing and redoing conversion to a category', () => {
+  const child = repos.createCode({ name: 'Filho', color: '#112233' })
+  clearAllHistory()
+  repos.moveCodes({ ids: [child.id], parentId: codeId })
+  expect(repos.listCodes().find((c) => c.id === codeId)?.isCategory).toBe(true)
+  historyUndo()
+  expect(repos.listCodes().find((c) => c.id === codeId)?.isCategory).toBe(false)
+  historyRedo()
+  expect(repos.listCodes().find((c) => c.id === codeId)?.isCategory).toBe(true)
 })

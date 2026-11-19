@@ -1,5 +1,5 @@
 import { createRequire } from 'module'
-import { linkSync, mkdtempSync, rmSync, symlinkSync } from 'fs'
+import { existsSync, linkSync, mkdtempSync, writeFileSync, rmSync, symlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -10,16 +10,17 @@ import * as versions from '../src/main/services/projectVersions'
 import { registerVersionHandlers } from '../src/main/ipc/versions'
 import { registerProjectHandlers } from '../src/main/ipc/project'
 
-const { handlers, showSaveDialog, send } = vi.hoisted(() => ({
+const { handlers, showSaveDialog, showMessageBox, send } = vi.hoisted(() => ({
   handlers: new Map<string, (...args: any[]) => any>(),
   showSaveDialog: vi.fn(),
+  showMessageBox: vi.fn(async () => ({ response: 1 })),
   send: vi.fn()
 }))
 
 vi.mock('electron', () => ({
   app: { getVersion: () => '0.5.0' },
   ipcMain: { handle: (channel: string, handler: (...args: any[]) => any) => handlers.set(channel, handler) },
-  dialog: { showSaveDialog },
+  dialog: { showSaveDialog, showMessageBox },
   BrowserWindow: { getAllWindows: () => [{ webContents: { send } }] }
 }))
 vi.mock('../src/main/services/recents', () => ({ pushRecent: vi.fn() }))
@@ -67,6 +68,52 @@ describe('versions IPC (integration)', () => {
     original.close()
   })
 
+  function legacyProject(): string {
+    const path = join(dir, 'antigo.liva')
+    const Database = require('better-sqlite3')
+    const raw = new Database(path)
+    raw.exec("CREATE TABLE codes(id INTEGER PRIMARY KEY, guid TEXT, name TEXT, color TEXT, parent_id INTEGER, description TEXT, sort_order INTEGER, created_at TEXT); INSERT INTO codes(id,name) VALUES(1,'Tema'); PRAGMA user_version=2")
+    raw.close()
+    return path
+  }
+
+  it('cancelar antes da conversão preserva o projeto ativo e o schema anterior', async () => {
+    const path = legacyProject()
+    showMessageBox.mockResolvedValueOnce({ response: 0 })
+    expect(await handlers.get(IPC.project.openPath)!(null, path)).toBeNull()
+    expect(showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
+      detail: expect.stringContaining(versions.versionsDir(path)), cancelId: 0, defaultId: 0
+    }))
+    expect(db.getActivePath()).toBe(projectPath)
+    expect(versions.projectSchemaVersion(path)).toBe(2)
+    expect(existsSync(versions.versionsDir(path))).toBe(false)
+  })
+
+  it('interrompe a conversão se a cópia obrigatória não puder ser criada', async () => {
+    const path = legacyProject()
+    writeFileSync(versions.versionsDir(path), 'bloqueia a criação da pasta')
+    await expect(handlers.get(IPC.project.openPath)!(null, path)).rejects.toThrow()
+    expect(db.getActivePath()).toBe(projectPath)
+    expect(versions.projectSchemaVersion(path)).toBe(2)
+  })
+
+  it('converte depois de confirmar e guarda os dados em uma cópia no schema 2', async () => {
+    const path = legacyProject()
+    await handlers.get(IPC.project.openPath)!(null, path)
+    expect(versions.projectSchemaVersion(path)).toBe(4)
+    const entry = versions.readManifest(path).find((entry) => entry.kind === 'premigracao')!
+    const backup = versions.resolveVersionFile(path, entry.id)!
+    expect(versions.projectSchemaVersion(backup)).toBe(2)
+    const Database = require('better-sqlite3')
+    const old = new Database(backup, { readonly: true })
+    try {
+      expect(old.prepare('SELECT name FROM codes').pluck().get()).toBe('Tema')
+      expect(old.pragma('table_info(codes)').map((c: { name: string }) => c.name)).not.toContain('memo')
+    } finally {
+      old.close()
+    }
+  })
+
   it('notifies the renderer once the automatic opening checkpoint finishes', async () => {
     await handlers.get(IPC.project.openPath)!(null, projectPath)
     await vi.waitFor(() => expect(send).toHaveBeenCalledWith(IPC.versions.changed))
@@ -78,7 +125,7 @@ describe('versions IPC (integration)', () => {
     db.getRaw().pragma('wal_autocheckpoint = 0')
     repos.createDocument({ name: 'No WAL', plainText: 'preservar', originalFormat: 'txt' })
     db.getRaw().pragma('user_version = 0')
-    const snapshot = versions.snapshotBeforeMigration(projectPath)!
+    const snapshot = (await versions.snapshotBeforeMigration(projectPath))!
     expect(snapshot.kind).toBe('premigracao')
     const dest = join(dir, 'com-wal.liva')
     showSaveDialog.mockResolvedValue({ canceled: false, filePath: dest })

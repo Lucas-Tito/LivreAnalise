@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/stores/appStore'
 import { mensagemDeErro } from '@/lib/erros'
 import type { CodeWithCount } from '@shared/types'
+import { MemoEditor } from './MemoDialog'
 
 interface Props {
   category: CodeWithCount | null
@@ -27,6 +28,7 @@ export function CategoryCodesDialog({ category, onOpenChange }: Props): JSX.Elem
   const moveCodes = useAppStore((s) => s.moveCodes)
   const [filter, setFilter] = useState('')
   const [erro, setErro] = useState<string | null>(null)
+  const [memoOpen, setMemoOpen] = useState(false)
 
   useEffect(() => {
     if (category) {
@@ -54,11 +56,25 @@ export function CategoryCodesDialog({ category, onOpenChange }: Props): JSX.Elem
   }
 
   return (
-    <Dialog open={category !== null} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog open={category !== null} onOpenChange={(open) => {
+      void (async () => {
+        if (!open && memoOpen && !(await useAppStore.getState().sairDoMemo?.())) return
+        onOpenChange(open)
+      })()
+    }}>
+      <DialogContent className={memoOpen ? 'flex h-[80vh] max-h-[90vh] w-[90vw] max-w-4xl flex-col' : undefined}>
         <DialogHeader>
           <DialogTitle>Códigos na categoria "{category?.name}"</DialogTitle>
         </DialogHeader>
+        <div className="flex gap-2">
+          <Button size="sm" variant={memoOpen ? 'outline' : 'secondary'} onClick={() => {
+            if (memoOpen) void useAppStore.getState().sairDoMemo?.()
+          }}>Códigos</Button>
+          <Button size="sm" variant={memoOpen ? 'secondary' : 'outline'} onClick={() => setMemoOpen(true)}>Memo{(codes.find((c) => c.id === category?.id)?.memo ?? category?.memo) ? ' •' : ''}</Button>
+        </div>
+        {memoOpen && category ? (
+          <MemoEditor target={{ id: category.id, name: category.name, kind: 'categoria', memo: codes.find((c) => c.id === category.id)?.memo ?? category.memo ?? '' }} onClose={() => setMemoOpen(false)} showHint />
+        ) : <>
         <Input
           placeholder="Filtrar códigos..."
           value={filter}
@@ -109,6 +125,7 @@ export function CategoryCodesDialog({ category, onOpenChange }: Props): JSX.Elem
         <DialogFooter>
           <Button onClick={() => onOpenChange(false)}>Concluir</Button>
         </DialogFooter>
+        </>}
       </DialogContent>
     </Dialog>
   )

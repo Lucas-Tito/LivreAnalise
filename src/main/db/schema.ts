@@ -39,7 +39,9 @@ export const codes = sqliteTable('codes', {
   name: text('name').notNull(),
   color: text('color').notNull().default('#2563eb'),
   description: text('description'),
+  memo: text('memo').notNull().default(''),
   parentId: integer('parent_id'),
+  isCategory: integer('is_category', { mode: 'boolean' }).notNull().default(false),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: text('created_at')
     .notNull()
@@ -51,6 +53,7 @@ export const collections = sqliteTable('code_groups', {
   guid: text('guid').notNull().unique(),
   name: text('name').notNull(),
   description: text('description'),
+  memo: text('memo').notNull().default(''),
   sortOrder: integer('sort_order').notNull().default(0)
 })
 

@@ -87,7 +87,7 @@ describe.skipIf(!nativeOk)('project versions (integration)', () => {
     expect(() => versions.readManifest(projectPath)).toThrow('catálogo')
     await expect(versions.createVersionSnapshot(projectPath)).rejects.toThrow('catálogo')
     db.getRaw().pragma('user_version = 1')
-    expect(() => versions.snapshotBeforeMigration(projectPath)).toThrow('catálogo')
+    await expect(versions.snapshotBeforeMigration(projectPath)).rejects.toThrow('catálogo')
     expect(readdirSync(versions.versionsDir(projectPath)).sort()).toEqual([baseline.file, 'manifest.json'])
     expect(readFileSync(manifest, 'utf8')).toBe('{truncated')
   })

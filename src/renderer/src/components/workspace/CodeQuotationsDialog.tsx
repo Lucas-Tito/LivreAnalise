@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { casaBusca } from '@shared/busca'
 import { SearchButton, SearchField } from './SearchField'
 import type { CodeWithCount, CodingWithCode } from '@shared/types'
+import { MemoEditor } from './MemoDialog'
 
 interface Props {
   code: CodeWithCount | null
@@ -25,6 +26,7 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
   const [aviso, setAviso] = useState<string | null>(null)
   const [buscaAberta, setBuscaAberta] = useState(false)
   const [termo, setTermo] = useState('')
+  const [memoOpen, setMemoOpen] = useState(false)
   const fecharBusca = (): void => {
     setBuscaAberta(false)
     setTermo('')
@@ -101,6 +103,7 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
   }
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
+    if (memoOpen) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       andar(1)
@@ -114,13 +117,18 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
   }
 
   return (
-    <Dialog open={code !== null} onOpenChange={onOpenChange}>
+    <Dialog open={code !== null} onOpenChange={(open) => {
+      void (async () => {
+        if (!open && memoOpen && !(await useAppStore.getState().sairDoMemo?.())) return
+        onOpenChange(open)
+      })()
+    }}>
       <DialogContent
-        className="max-w-2xl"
+        className={memoOpen ? 'flex h-[80vh] max-h-[90vh] w-[90vw] max-w-4xl flex-col' : 'max-w-2xl'}
         onKeyDown={onKeyDown}
         onEscapeKeyDown={(e) => {
           // Esc com a busca aberta fecha só a busca, não o diálogo inteiro.
-          if (buscaAberta) {
+          if (!memoOpen && buscaAberta) {
             e.preventDefault()
             fecharBusca()
           }
@@ -137,6 +145,15 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
             Trechos de "{code?.name}" ({visiveis.length})
           </DialogTitle>
         </DialogHeader>
+        <div className="flex gap-2">
+          <Button size="sm" variant={memoOpen ? 'outline' : 'secondary'} onClick={() => {
+            if (memoOpen) void useAppStore.getState().sairDoMemo?.()
+          }}>Trechos</Button>
+          <Button size="sm" variant={memoOpen ? 'secondary' : 'outline'} onClick={() => setMemoOpen(true)}>Memo{(codes.find((c) => c.id === code?.id)?.memo ?? code?.memo) ? ' •' : ''}</Button>
+        </div>
+        {memoOpen && code ? (
+          <MemoEditor target={{ id: code.id, name: code.name, kind: code.isCategory ? 'categoria' : 'código', memo: codes.find((c) => c.id === code.id)?.memo ?? code.memo ?? '' }} onClose={() => setMemoOpen(false)} showHint />
+        ) : <>
 
         <div className="flex min-w-0 items-start gap-3">
           <p className="min-w-0 flex-1 text-sm text-muted-foreground">
@@ -252,6 +269,7 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
             ))
           )}
         </div>
+        </>}
       </DialogContent>
     </Dialog>
   )

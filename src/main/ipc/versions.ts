@@ -3,7 +3,7 @@ import { dialog, ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
 import { getActivePath, openDatabase } from '../db'
 import { clearHistoryFor } from '../history/stack'
-import { ensureMeta } from './project'
+import { ensureMeta, prepareProjectMigration } from './project'
 import { pushRecent } from '../services/recents'
 import {
   createVersionSnapshot,
@@ -66,6 +66,7 @@ export function registerVersionHandlers(): void {
       throw new Error('Escolha outro local: a cópia não pode ficar dentro da pasta de versões.')
     }
     // Preserva a cópia antes do checkpoint, cuja retenção pode podar a origem.
+    if (!(await prepareProjectMigration(source, result.filePath))) return null
     copyVersionTo(source, result.filePath)
     // Checkpoint do estado atual antes de sair dele. O original nunca é
     // modificado pelo restore, então falha aqui só é registrada.

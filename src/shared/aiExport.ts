@@ -55,7 +55,7 @@ function linhaDoCodigo(
   nivel: number
 ): string[] {
   const recuo = '  '.repeat(nivel)
-  const categoria = node.children.length > 0
+  const categoria = node.code.isCategory || node.children.length > 0
   const uso = usos.get(node.code.id) ?? 0
   const sufixo = categoria ? ' (categoria)' : uso > 0 ? ` — ${uso} citações` : ''
   const linhas = [`${recuo}- ${node.code.name}${sufixo}`]
@@ -362,8 +362,8 @@ Em Node:    new Database("CAMINHO", { readonly: true })
 
 Três regras do modelo que o esquema não deixa óbvias:
 
-1. "categoria" não é tabela: é um código que tem filhos (codes.parent_id
-   apontando para ele). O código-folha é o único que recebe citação.
+1. "categoria" não é tabela: é um código marcado por codes.is_category ou que
+   tem filhos (codes.parent_id apontando para ele). Categorias não recebem citação.
 2. "grupo" é a tabela code_groups, e code_group_members liga grupo a código.
 3. As posições das citações são unidades UTF-16, com fim exclusivo (como
    String.slice no JavaScript), NÃO caracteres Unicode do substr do SQLite.

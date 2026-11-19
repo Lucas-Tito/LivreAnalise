@@ -204,6 +204,9 @@ describe.skipIf(!nativeOk)('migrações do schema', () => {
     expect(codigos.find((c) => c.name === 'medo')?.parentId).toBe(
       codigos.find((c) => c.name === 'EMOÇÕES')?.id
     )
+    expect(codigos.find((c) => c.name === 'EMOÇÕES')?.isCategory).toBe(true)
+    repos.moveCodes({ ids: [codigos.find((c) => c.name === 'medo')!.id], parentId: null })
+    expect(repos.listCodes().find((c) => c.name === 'EMOÇÕES')?.isCategory).toBe(true)
     // e o contador de uso vem das citações que sobreviveram
     expect(codigos.find((c) => c.name === 'medo')?.usageCount).toBe(2)
 

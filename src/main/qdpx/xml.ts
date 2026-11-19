@@ -21,7 +21,8 @@ const ARRAY_ELEMENTS = new Set([
   'Coding',
   'User',
   'Note',
-  'NoteRef'
+  'NoteRef',
+  'MemberNote'
 ])
 
 interface XmlCodeNode {
@@ -30,6 +31,7 @@ interface XmlCodeNode {
   '@_isCodable': string
   '@_color'?: string
   Description?: string
+  NoteRef?: { '@_targetGUID': string }[]
   Code?: XmlCodeNode[]
 }
 
@@ -45,10 +47,11 @@ function buildCodeNodes(codes: QdpxCode[]): XmlCodeNode[] {
       const node: XmlCodeNode = {
         '@_guid': c.guid,
         '@_name': c.name,
-        '@_isCodable': 'true'
+        '@_isCodable': c.isCodable === false ? 'false' : 'true'
       }
       if (c.color) node['@_color'] = c.color
       if (c.description) node.Description = c.description
+      if (c.noteGuids?.length) node.NoteRef = c.noteGuids.map((guid) => ({ '@_targetGUID': guid }))
       const children = build(c.guid)
       if (children.length > 0) node.Code = children
       return node
@@ -214,7 +217,9 @@ export function parseQde(xml: string): ParseResult {
       name: node['@_name'] ?? 'Sem nome',
       color: node['@_color'],
       description: typeof node.Description === 'string' ? node.Description : null,
-      parentGuid
+      noteGuids: asArray<any>(node.NoteRef).map((ref) => ref['@_targetGUID']).filter(Boolean),
+      parentGuid,
+      isCodable: node['@_isCodable'] !== 'false' && node['@_isCodable'] !== '0'
     })
     for (const child of asArray<any>(node.Code)) walkCodes(child, guid)
   }
@@ -230,6 +235,9 @@ export function parseQde(xml: string): ParseResult {
       .map((m) => m['@_targetGUID'])
       .filter(Boolean)
   }))
+  for (const set of asArray<any>(project.Sets?.Set)) {
+    if (asArray<any>(set.MemberNote).length) skipped.push(`Vínculos de notas do grupo "${set['@_name'] ?? 'Grupo'}" não foram importados como memo.`)
+  }
 
   const documents: QdpxDocument[] = asArray<any>(project.Sources?.TextSource).map(
     (source) => {
