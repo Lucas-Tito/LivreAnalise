@@ -178,10 +178,9 @@ porque uma cópia literal sai de sincronia sem ninguém perceber (foi o que
 aconteceu com o `APP_ORIGIN` do QDPX, que carimbou `0.1.0` em todo projeto
 exportado muito depois de a versão ter mudado).
 
-**Todo PR para a `master` incrementa a versão.** Não é etiqueta, é consequência:
-a tag da release vem daí, então um PR que não incrementa faz o merge
-*sobrescrever* os instaladores da release anterior em vez de publicar uma nova.
-A CI recusa o PR que esquecer.
+**Todo PR para a `master` incrementa a versão.** Antes do merge, o workflow Build pode ser executado manualmente com `workflow_dispatch`. Ele empacota Linux, Windows e macOS (Intel e Apple Silicon), confere os cinco instaladores e ensaia uma publicação interrompida. A execução manual usa permissão de leitura.
+
+No push para a `master`, a publicação cria um rascunho para o commit. Se o upload falhar, use **Re-run failed jobs** na mesma execução para reaproveitar os instaladores. O job confere os arquivos já enviados por tamanho e SHA-256, envia os pendentes e publica quando os cinco estão completos. Uma divergência de tag, commit ou conteúdo interrompe o job. Uma release publicada e idêntica já está concluída.
 
 Como escolher o incremento:
 

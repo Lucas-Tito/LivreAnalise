@@ -1,0 +1,55 @@
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { expect, it, vi } from 'vitest'
+import { installers, publish, rehearsal } from '../scripts/release.mjs'
+
+it('confere a matriz, calcula os hashes e ensaia a retomada sem repetir uploads', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'liva-release-'))
+  try {
+    const matrix = { linux: ['.AppImage', '.deb'], windows: ['-setup.exe'], 'mac-arm64': ['-arm64.dmg'], 'mac-x64': ['-x64.dmg'] }
+    for (const [os, suffixes] of Object.entries(matrix)) {
+      const dir = join(root, 'livreanalise-' + os)
+      await mkdir(dir)
+      for (const suffix of suffixes) await writeFile(join(dir, 'LivreAnalise-1.2.3' + suffix), 'abc')
+    }
+    const files = await installers(root, '1.2.3')
+    expect(files).toHaveLength(5)
+    expect(files[0].digest).toBe('sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
+    rehearsal(files)
+    await rm(files[0].path)
+    await expect(installers(root, '1.2.3')).rejects.toThrow('Instaladores incorretos')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+const file = { name: 'linux.deb', size: 3, digest: 'sha256:abc' }
+it.each([true, false])('bloqueia alterações se o conteúdo divergir (draft=%s)', (draft) => {
+  const client = {
+    read: () => ({ draft, assets: [{ ...file, digest: 'sha256:def', state: 'uploaded' }] }),
+    upload: vi.fn(), finalize: vi.fn()
+  }
+  expect(() => publish(client, [file])).toThrow('divergente')
+  expect(client.upload).not.toHaveBeenCalled()
+  expect(client.finalize).not.toHaveBeenCalled()
+})
+
+it('recupera um upload interrompido no rascunho', () => {
+  const release = { id: 1, draft: true, assets: [{ ...file, id: 2, state: 'starter' }] }
+  const client = {
+    read: () => release,
+    removePlaceholder: vi.fn(() => { release.assets = [] }),
+    upload: vi.fn(() => { release.assets.push({ ...file, id: 3, state: 'uploaded' }) }),
+    finalize: vi.fn()
+  }
+  publish(client, [file])
+  expect(client.removePlaceholder).toHaveBeenCalledWith(2)
+  expect(client.finalize).toHaveBeenCalledWith(1)
+})
+
+it('recusa release pública incompleta sem alterar os arquivos', () => {
+  const client = { read: () => ({ draft: false, assets: [] }), upload: vi.fn() }
+  expect(() => publish(client, [file])).toThrow('ausentes')
+  expect(client.upload).not.toHaveBeenCalled()
+})
