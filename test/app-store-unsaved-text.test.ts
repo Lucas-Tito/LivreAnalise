@@ -75,4 +75,24 @@ describe('saída com texto não salvo', () => {
     expect(await useAppStore.getState().selectDocument(1)).toBe(true)
     expect(useAppStore.getState().saidaDoTexto).toBeNull()
   })
+
+  it('does not leave the project when flushing a note fails', async () => {
+    const close = vi.fn()
+    window.api.project = { close } as any
+    useAppStore.setState({ notesFlush: async () => { throw new Error('disco cheio') } })
+    await expect(useAppStore.getState().closeProject()).rejects.toThrow('disco cheio')
+    expect(close).not.toHaveBeenCalled()
+    expect(useAppStore.getState().currentDocument?.id).toBe(1)
+  })
+
+  it('preserves the note editor and panel when a flush fails', async () => {
+    useAppStore.setState({
+      editorNoteId: 7, notesPanelOpen: true,
+      notesFlush: async () => { throw new Error('disco cheio') }
+    })
+    await expect(useAppStore.getState().openNoteEditor(8)).rejects.toThrow('disco cheio')
+    await expect(useAppStore.getState().toggleNotesPanel()).rejects.toThrow('disco cheio')
+    expect(useAppStore.getState().editorNoteId).toBe(7)
+    expect(useAppStore.getState().notesPanelOpen).toBe(true)
+  })
 })

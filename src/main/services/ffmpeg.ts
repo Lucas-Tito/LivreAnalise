@@ -1,5 +1,6 @@
 import { spawnSync } from 'child_process'
 import { existsSync } from 'fs'
+import { runProcess } from './process'
 
 // O ffmpeg-static baixa o binario da plataforma na instalacao. Empacotado, ele
 // vai para app.asar.unpacked: binario dentro do asar nao pode ser executado.
@@ -40,16 +41,14 @@ export function parseFfmpegDuration(stderr: string): number | null {
   )
 }
 
-export function probeDuration(ffmpeg: string, mediaPath: string): number {
+export async function probeDuration(ffmpeg: string, mediaPath: string, signal?: AbortSignal): Promise<number> {
   // sem -i valido o ffmpeg sai com codigo != 0 de proposito; interessa o stderr
-  const res = spawnSync(ffmpeg, ['-hide_banner', '-i', mediaPath], {
-    encoding: 'utf-8'
-  })
+  const res = await runProcess(ffmpeg, ['-hide_banner', '-i', mediaPath], { signal })
   return parseFfmpegDuration(`${res.stderr ?? ''}`) ?? 0
 }
 
-export function toWav(ffmpeg: string, mediaPath: string, wavPath: string): void {
-  const res = spawnSync(
+export async function toWav(ffmpeg: string, mediaPath: string, wavPath: string, signal?: AbortSignal): Promise<void> {
+  const res = await runProcess(
     ffmpeg,
     [
       '-y', '-hide_banner',
@@ -60,9 +59,9 @@ export function toWav(ffmpeg: string, mediaPath: string, wavPath: string): void 
       '-c:a', 'pcm_s16le',
       wavPath
     ],
-    { encoding: 'utf-8' }
+    { signal }
   )
-  if (res.status !== 0) {
+  if (res.code !== 0) {
     throw new Error(
       `ffmpeg falhou ao converter o áudio: ${(res.stderr ?? '').slice(-400)}`
     )

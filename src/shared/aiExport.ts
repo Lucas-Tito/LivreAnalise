@@ -365,8 +365,16 @@ Três regras do modelo que o esquema não deixa óbvias:
 1. "categoria" não é tabela: é um código que tem filhos (codes.parent_id
    apontando para ele). O código-folha é o único que recebe citação.
 2. "grupo" é a tabela code_groups, e code_group_members liga grupo a código.
-3. A citação é posição de caractere no texto do documento. O trecho sai com:
-   substr(d.plain_text, c.start_pos + 1, c.end_pos - c.start_pos)
+3. As posições das citações são unidades UTF-16, com fim exclusivo (como
+   String.slice no JavaScript), NÃO caracteres Unicode do substr do SQLite.
+   Para consultar trechos em Python, registre a função antes das consultas:
+
+   db.create_function("utf16_slice", 3, lambda text, start, end:
+       text.encode("utf-16-le", "surrogatepass")[start * 2:end * 2]
+           .decode("utf-16-le", "surrogatepass"))
+
+   A função utf16_slice abaixo só existe nessa conexão Python; não é nativa
+   do sqlite3 CLI. Em Node, use plainText.slice(startPos, endPos).
 
 Tabelas: project_meta, documents(plain_text), codes(parent_id), code_groups,
 code_group_members(group_id, code_id), codings(document_id, code_id, start_pos, end_pos),
@@ -380,7 +388,7 @@ LEFT JOIN codings g ON g.code_id = c.id
 GROUP BY c.id ORDER BY usos DESC;
 
 -- todos os trechos de um código
-SELECT d.name, substr(d.plain_text, g.start_pos + 1, g.end_pos - g.start_pos) AS trecho
+SELECT d.name, utf16_slice(d.plain_text, g.start_pos, g.end_pos) AS trecho
 FROM codings g JOIN documents d ON d.id = g.document_id
 JOIN codes c ON c.id = g.code_id WHERE c.name = 'NOME DO CÓDIGO';
 

@@ -22,10 +22,18 @@ import { acharOcorrencias } from '@shared/busca'
 import { applyCodingAdjustments } from '@shared/editAdjust'
 import { contrastText, formatCount, randomColor } from '@/lib/utils'
 import { mensagemDeErro } from '@/lib/erros'
+import {
+  captureTranscriptViewport,
+  remapTranscriptViewport,
+  restoreTranscriptViewport,
+  type TranscriptViewport
+} from '@/lib/transcriptViewport'
 import { Button } from '@/components/ui/button'
 import { CodingPopover } from './CodingPopover'
 import { CodeDialog, type CodeDialogValue } from './CodeDialog'
 import type { CodeWithCount } from '@shared/types'
+import { useAsyncAction } from '@/lib/useAsyncAction'
+import { applyTextareaChange, textareaOffset, textareaValue } from '@/lib/textareaChange'
 
 interface PendingSelection {
   start: number
@@ -111,6 +119,8 @@ function resolveOffset(node: Node, offset: number): number | null {
   return null
 }
 
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
 export function TranscriptPanel(): JSX.Element {
   const currentDocument = useAppStore((s) => s.currentDocument)
   const codings = useAppStore((s) => s.codings)
@@ -134,11 +144,15 @@ export function TranscriptPanel(): JSX.Element {
   const createNote = useAppStore((s) => s.createNote)
   const openNoteEditor = useAppStore((s) => s.openNoteEditor)
   const zoom = useZoomStore((s) => s.zoom)
+  const { error: actionError, run } = useAsyncAction()
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
+  const handleFocus = useRef<{ id: number; side: 'start' | 'end'; element: HTMLElement } | null>(null)
+  const textSaveInFlight = useRef<Promise<boolean> | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
+  const viewportRef = useRef<TranscriptViewport | null>(null)
   const [pending, setPending] = useState<PendingSelection | null>(null)
   // Código novo criado a partir de um trecho: guarda o trecho enquanto o
   // diálogo de configuração está aberto, porque o popover já fechou. A cor
@@ -148,6 +162,7 @@ export function TranscriptPanel(): JSX.Element {
     end: number
     initial: Partial<CodeDialogValue>
   } | null>(null)
+  const selectionGestureRef = useRef(false)
   const [bars, setBars] = useState<Bar[]>([])
   const [columnCount, setColumnCount] = useState(1)
   const columnFloorRef = useRef(1)
@@ -179,6 +194,7 @@ export function TranscriptPanel(): JSX.Element {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [flashNoteId, setFlashNoteId] = useState<number | null>(null)
   // Ocorrência localizada vinda do painel de trechos: pisca como a nota.
   const [flashCodingId, setFlashCodingId] = useState<number | null>(null)
@@ -313,6 +329,76 @@ export function TranscriptPanel(): JSX.Element {
   }, [codes])
 
   const text = currentDocument?.plainText ?? ''
+
+  const graphemes = useMemo(
+    () => selectedCodingId == null ? null : graphemeSegmenter.segment(text),
+    [selectedCodingId, text]
+  )
+  const stepGrapheme = (position: number, direction: -1 | 1): number => {
+    if (direction < 0) return graphemes?.containing(position - 1)?.index ?? 0
+    const next = graphemes?.containing(position)
+    return next ? next.index + next.segment.length : text.length
+  }
+
+  useLayoutEffect(() => {
+    const focus = handleFocus.current
+    if (!focus) return
+    handleFocus.current = null
+    if (focus.id !== selectedCodingId || focus.element.isConnected ||
+        document.activeElement !== document.body) return
+    textRef.current?.querySelector<HTMLElement>(`[data-coding-handle="${focus.side}"]`)
+      ?.focus({ preventScroll: true })
+  }, [codings, selectedCodingId])
+
+  const resizeCodingWithKey = (
+    event: React.KeyboardEvent<HTMLElement>,
+    coding: (typeof codings)[number],
+    side: 'start' | 'end'
+  ): void => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const isStart = side === 'start'
+    const previous = isStart ? coding.startPos : coding.endPos
+    const next = stepGrapheme(previous, event.key === 'ArrowLeft' ? -1 : 1)
+    if (next === previous || (isStart ? next >= coding.endPos : next <= coding.startPos)) return
+    const element = event.currentTarget
+    void run(async () => {
+      if (document.activeElement === element) handleFocus.current = { id: coding.id, side, element }
+      try {
+        await updateCoding(coding.id, isStart ? next : coding.startPos, isStart ? coding.endPos : next)
+      } catch (error) {
+        handleFocus.current = null
+        throw error
+      }
+    })
+  }
+
+  // Copia do texto original: o DOM também contém números de linha e alças,
+  // além de dividir o trecho em spans para os realces.
+  useEffect(() => {
+    const onCopy = (e: ClipboardEvent): void => {
+      const target = document.activeElement
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) return
+      const selection = window.getSelection()
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return
+      const range = selection.getRangeAt(0)
+      if (
+        !textRef.current?.contains(range.startContainer) ||
+        !textRef.current.contains(range.endContainer)
+      ) return
+      const start = resolveOffset(range.startContainer, range.startOffset)
+      const end = resolveOffset(range.endContainer, range.endOffset)
+      if (start == null || end == null || !e.clipboardData) return
+      e.preventDefault()
+      e.clipboardData.setData('text/plain', text.slice(start, end))
+    }
+    document.addEventListener('copy', onCopy)
+    return () => document.removeEventListener('copy', onCopy)
+  }, [text])
 
   // Âncoras de notas de trecho: sublinhado pontilhado discreto, sem ocupar
   // a margem direita (que pertence às etiquetas dos códigos).
@@ -521,6 +607,7 @@ export function TranscriptPanel(): JSX.Element {
   useLayoutEffect(() => {
     columnFloorRef.current = 1
     setColumnCount(1)
+    viewportRef.current = null
   }, [currentDocument?.id])
 
   const measure = useCallback(() => {
@@ -559,6 +646,24 @@ export function TranscriptPanel(): JSX.Element {
   }, [codings, codeMap, lineRows])
 
   useLayoutEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const container = editing ? backdropRef.current : scrollRef.current
+    const content = editing ? backdropRef.current : textRef.current
+    if (!container || !content) return
+    restoreTranscriptViewport(container, content, viewport)
+    if (editing && textareaRef.current) {
+      const textarea = textareaRef.current
+      const position = textareaOffset(draft, viewport.position)
+      textarea.setSelectionRange(position, position)
+      textarea.focus({ preventScroll: true })
+      textarea.scrollTop = container.scrollTop
+      syncScroll()
+    }
+    viewportRef.current = null
+  }, [editing])
+
+  useLayoutEffect(() => {
     if (editing) syncScroll()
   }, [editing, draft])
 
@@ -574,7 +679,7 @@ export function TranscriptPanel(): JSX.Element {
     // posicoes medidas ficam obsoletas e as etiquetas descem junto com o erro.
     ro.observe(textEl)
     return () => ro.disconnect()
-  }, [measure, text, zoom, currentDocument?.id])
+  }, [measure, text, zoom, currentDocument?.id, editing])
 
   const handleMouseUp = (): void => {
     if (dragging) return
@@ -589,6 +694,7 @@ export function TranscriptPanel(): JSX.Element {
     const start = Math.min(a, b)
     const end = Math.max(a, b)
     if (end <= start) return
+    selectionGestureRef.current = true
     const rect = range.getBoundingClientRect()
     setPending({ start, end, x: rect.left, y: rect.bottom + 6 })
   }
@@ -665,25 +771,40 @@ export function TranscriptPanel(): JSX.Element {
   }
 
   const startEditing = (): void => {
+    if (scrollRef.current && textRef.current) {
+      viewportRef.current = captureTranscriptViewport(scrollRef.current, textRef.current)
+    }
     setPending(null)
     setDraft(text)
+    setSaveError(null)
     setEditing(true)
   }
 
   const cancelEditing = async (): Promise<void> => {
     if (!(await podeSairDoTexto())) return
+    if (backdropRef.current) {
+      const viewport = captureTranscriptViewport(backdropRef.current, backdropRef.current)
+      viewportRef.current = remapTranscriptViewport(viewport, draft, text)
+    }
     setEditing(false)
     setDraft('')
   }
 
-  const saveEditing = async (): Promise<boolean> => {
+  const commitDraft = async (): Promise<boolean> => {
     if (!currentDocument) return false
     setSaving(true)
+    setSaveError(null)
     try {
       await updateDocumentText(currentDocument.id, draft)
+      if (backdropRef.current) {
+        viewportRef.current = captureTranscriptViewport(backdropRef.current, backdropRef.current)
+      }
       setEditing(false)
       setDraft('')
       return true
+    } catch (error) {
+      setSaveError(mensagemDeErro(error, 'Não foi possível salvar o texto. Seu rascunho foi preservado.'))
+      throw error
     } finally {
       setSaving(false)
     }
@@ -697,6 +818,12 @@ export function TranscriptPanel(): JSX.Element {
   }, [textoSujo, setTextoSujo])
   useEffect(() => () => setTextoSujo(false), [setTextoSujo])
 
+  const saveEditing = (): Promise<boolean> => {
+    textSaveInFlight.current ??= commitDraft().finally(() => {
+      textSaveInFlight.current = null
+    })
+    return textSaveInFlight.current
+  }
   const saveRef = useRef(saveEditing)
   saveRef.current = saveEditing
   useEffect(() => {
@@ -715,6 +842,7 @@ export function TranscriptPanel(): JSX.Element {
   useEffect(() => {
     setEditing(false)
     setDraft('')
+    setSaveError(null)
   }, [currentDocument?.id])
 
   if (!currentDocument) {
@@ -729,11 +857,11 @@ export function TranscriptPanel(): JSX.Element {
   }
 
   return (
-    <div className="flex h-full flex-1 flex-col">
-      <div className="flex items-center justify-between border-b px-4 py-2">
-        <div className="flex items-center gap-2">
+    <div className="flex h-full min-w-0 flex-1 flex-col">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+        <div className="flex min-w-0 items-center gap-2">
           <FileText className="h-4 w-4 text-muted-foreground" />
-          <span className="font-medium">{currentDocument.name}</span>
+          <span className="truncate font-medium" title={currentDocument.name}>{currentDocument.name}</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground">
@@ -745,7 +873,7 @@ export function TranscriptPanel(): JSX.Element {
               <Button size="sm" variant="ghost" onClick={() => void cancelEditing()} disabled={saving}>
                 <X className="h-4 w-4" /> Cancelar
               </Button>
-              <Button size="sm" onClick={() => void saveEditing()} disabled={saving}>
+              <Button size="sm" onClick={() => void saveEditing().catch(() => undefined)} disabled={saving}>
                 <Save className="h-4 w-4" /> Salvar texto
               </Button>
             </>
@@ -775,6 +903,8 @@ export function TranscriptPanel(): JSX.Element {
           )}
         </div>
       </div>
+
+      {(saveError || actionError) && <p role="alert" className="border-b p-2 text-sm text-destructive">{saveError || actionError}</p>}
 
       {/* Caixa compacta flutuando no canto, como a busca do Word e do Docs, em
           vez de uma faixa na largura toda empurrando o texto para baixo. A div
@@ -868,7 +998,7 @@ export function TranscriptPanel(): JSX.Element {
               {draftSegments.map((seg) => {
                 const segText = draft.slice(seg.start, seg.end)
                 if (seg.codingIds.length === 0) {
-                  return <span key={seg.start}>{segText}</span>
+                  return <span key={seg.start} data-pos={seg.start}>{segText}</span>
                 }
                 const topCoding = codings.find(
                   (c) => c.id === seg.codingIds[seg.codingIds.length - 1]
@@ -886,6 +1016,7 @@ export function TranscriptPanel(): JSX.Element {
                 return (
                   <span
                     key={seg.start}
+                    data-pos={seg.start}
                     data-names={names}
                     style={{
                       backgroundColor: `${topColor}${alpha.bg}`,
@@ -900,11 +1031,19 @@ export function TranscriptPanel(): JSX.Element {
             </div>
             <textarea
               ref={textareaRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              value={textareaValue(draft)}
+              readOnly={saving}
+              onChange={(e) => setDraft(applyTextareaChange(draft, e.target.value))}
+              aria-label={`Texto de ${currentDocument.name}`}
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                  e.preventDefault()
+                  if (!saving) void saveEditing().catch(() => undefined)
+                }
+              }}
               onScroll={syncScroll}
               spellCheck={false}
-              className="absolute inset-0 resize-none overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] bg-transparent p-3 font-mono text-transparent caret-foreground outline-none"
+              className="absolute inset-0 h-full w-full resize-none overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] bg-transparent p-3 font-mono text-transparent caret-foreground outline-none"
               style={{
                 color: 'transparent',
                 fontSize: `calc(0.875rem * ${zoom})`,
@@ -932,6 +1071,7 @@ export function TranscriptPanel(): JSX.Element {
           <div className="flex">
           <div
             ref={textRef}
+            onMouseDown={() => { selectionGestureRef.current = false }}
             onMouseUp={handleMouseUp}
             className="transcript min-w-0 flex-1 py-5"
             style={{
@@ -1070,6 +1210,7 @@ export function TranscriptPanel(): JSX.Element {
                               }}
                               onClick={(e) => {
                                 e.stopPropagation()
+                                if (selectionGestureRef.current) return
                                 setSelectedCodingId(
                                   seg.codingIds[seg.codingIds.length - 1]
                                 )
@@ -1078,6 +1219,14 @@ export function TranscriptPanel(): JSX.Element {
                             >
                               {showStartHandle && (
                                 <span
+                                  role="slider"
+                                  tabIndex={0}
+                                  aria-label="Início da citação"
+                                  data-coding-handle="start"
+                                  aria-valuemin={0}
+                                  aria-valuemax={stepGrapheme(selCoding!.endPos, -1)}
+                                  aria-valuenow={selCoding!.startPos}
+                                  onKeyDown={(e) => resizeCodingWithKey(e, selCoding!, 'start')}
                                   style={{ ...handleStyle, marginRight: 2 }}
                                   onMouseDown={(e) => {
                                     e.preventDefault()
@@ -1089,6 +1238,14 @@ export function TranscriptPanel(): JSX.Element {
                               {segText}
                               {showEndHandle && (
                                 <span
+                                  role="slider"
+                                  tabIndex={0}
+                                  aria-label="Fim da citação"
+                                  data-coding-handle="end"
+                                  aria-valuemin={stepGrapheme(selCoding!.startPos, 1)}
+                                  aria-valuemax={text.length}
+                                  aria-valuenow={selCoding!.endPos}
+                                  onKeyDown={(e) => resizeCodingWithKey(e, selCoding!, 'end')}
                                   style={{ ...handleStyle, marginLeft: 2 }}
                                   onMouseDown={(e) => {
                                     e.preventDefault()
@@ -1109,6 +1266,25 @@ export function TranscriptPanel(): JSX.Element {
           </div>
 
           <div
+            role="separator"
+            tabIndex={0}
+            aria-label="Largura da faixa de códigos"
+            aria-orientation="vertical"
+            aria-valuemin={minNeededLaneWidth}
+            aria-valuenow={effectiveLaneWidth}
+            onKeyDown={(e) => {
+              if (e.key === 'Home') {
+                e.preventDefault()
+                setLaneWidth(null)
+                localStorage.removeItem(BAR_LANE_KEY)
+                return
+              }
+              if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+              e.preventDefault()
+              const next = clampLaneWidth(effectiveLaneWidth + (e.key === 'ArrowLeft' ? 16 : -16), columnCount, LANE, effectiveLaneWidth)
+              setLaneWidth(next)
+              localStorage.setItem(BAR_LANE_KEY, String(next))
+            }}
             onMouseDown={(e) => {
               if (e.button !== 0) return
               e.preventDefault()
@@ -1127,7 +1303,7 @@ export function TranscriptPanel(): JSX.Element {
               }
             }}
             title="Arraste para redimensionar"
-            className={`w-1.5 shrink-0 cursor-col-resize self-stretch hover:bg-primary/20 ${
+            className={`w-1.5 shrink-0 cursor-col-resize self-stretch hover:bg-primary/20 focus-visible:bg-primary/30 focus-visible:outline-none ${
               laneResizing ? 'bg-primary/30' : ''
             }`}
           />
@@ -1140,7 +1316,6 @@ export function TranscriptPanel(): JSX.Element {
                 key={bar.codingId}
                 onMouseEnter={() => setHoverCoding(bar.codingId)}
                 onMouseLeave={() => setHoverCoding(null)}
-                onClick={(e) => { e.stopPropagation(); setSelectedCodingId(bar.codingId) }}
                 className="group absolute flex h-[22px] cursor-pointer items-center gap-1 rounded px-1.5 text-xs"
                 style={{
                   top: bar.top,
@@ -1152,15 +1327,26 @@ export function TranscriptPanel(): JSX.Element {
                   outlineOffset: 2,
                 }}
               >
-                <BarName name={bar.name} />
                 <button
-                  className="ml-auto shrink-0 opacity-0 group-hover:opacity-100"
+                  type="button"
+                  className="flex h-full min-w-0 flex-1 items-center text-left focus-visible:outline focus-visible:outline-2"
+                  aria-label={`Selecionar citação: ${bar.name}`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setSelectedCodingId(bar.codingId)
+                  }}
+                >
+                  <BarName name={bar.name} />
+                </button>
+                <button
+                  className="ml-auto shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                  aria-label={`Remover citação: ${bar.name}`}
                   title="Remover citação"
                   onClick={(e) => {
                     // sem isto o clique sobe para a etiqueta e marca como
                     // selecionada a citação que acabou de ser removida
                     e.stopPropagation()
-                    removeCoding(bar.codingId)
+                    void run(() => removeCoding(bar.codingId))
                   }}
                 >
                   <Trash2 className="h-3 w-3" />

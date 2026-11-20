@@ -19,6 +19,8 @@ export function SearchButton({
       variant={active ? 'secondary' : 'ghost'}
       className="shrink-0 px-2"
       title={title}
+      aria-label={title}
+      aria-pressed={active}
       onClick={onClick}
     >
       <Search className="h-4 w-4" />
@@ -51,9 +53,10 @@ export function SearchField({
           }
         }}
         placeholder={placeholder}
+        aria-label={placeholder}
         className="h-7 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
-      <Button size="sm" variant="ghost" className="px-2" title="Fechar a busca (Esc)" onClick={onClose}>
+      <Button size="sm" variant="ghost" className="px-2" aria-label="Fechar a busca" title="Fechar a busca (Esc)" onClick={onClose}>
         <X className="h-3.5 w-3.5" />
       </Button>
     </div>

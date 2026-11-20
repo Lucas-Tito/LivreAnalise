@@ -3,8 +3,9 @@ import { IPC, type Api } from '@shared/ipc'
 
 const api: Api = {
   project: {
-    create: () => ipcRenderer.invoke(IPC.project.create),
-    open: () => ipcRenderer.invoke(IPC.project.open),
+    create: (name) => ipcRenderer.invoke(IPC.project.create, name),
+    pick: () => ipcRenderer.invoke(IPC.project.pick),
+    importQdpx: (path, name) => ipcRenderer.invoke(IPC.project.importQdpx, path, name),
     openPath: (path) => ipcRenderer.invoke(IPC.project.openPath, path),
     current: () => ipcRenderer.invoke(IPC.project.current),
     close: () => ipcRenderer.invoke(IPC.project.close),
@@ -59,7 +60,7 @@ const api: Api = {
     delete: (id) => ipcRenderer.invoke(IPC.notes.delete, id)
   },
   transcription: {
-    env: () => ipcRenderer.invoke(IPC.transcription.env),
+    env: (binaryPath) => ipcRenderer.invoke(IPC.transcription.env, binaryPath),
     models: () => ipcRenderer.invoke(IPC.transcription.models),
     modelSize: (modelId) => ipcRenderer.invoke(IPC.transcription.modelSize, modelId),
     pickMedia: () => ipcRenderer.invoke(IPC.transcription.pickMedia),
@@ -124,6 +125,7 @@ const api: Api = {
     }
   },
   app: {
+    setNotesDirty: (dirty) => ipcRenderer.send(IPC.app.notesDirty, dirty),
     setTextDirty: (dirty) => ipcRenderer.send(IPC.app.textDirty, dirty),
     onCloseRequested: (listener) => {
       const handler = (): void => listener()
@@ -132,7 +134,8 @@ const api: Api = {
         ipcRenderer.removeListener(IPC.app.closeRequested, handler)
       }
     },
-    confirmClose: () => ipcRenderer.send(IPC.app.confirmClose)
+    confirmClose: () => ipcRenderer.send(IPC.app.confirmClose),
+    cancelClose: () => ipcRenderer.send(IPC.app.cancelClose)
   }
 }
 

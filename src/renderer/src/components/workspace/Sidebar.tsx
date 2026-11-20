@@ -4,6 +4,7 @@ import { DocumentsPanel } from './DocumentsPanel'
 import { CodesPanel } from './CodesPanel'
 import { cn } from '@/lib/utils'
 import type { CodeWithCount } from '@shared/types'
+import { useAppStore } from '@/stores/appStore'
 
 type Tab = 'documents' | 'codes'
 
@@ -25,7 +26,21 @@ export function Sidebar({ onViewCode }: Props): JSX.Element {
     return stored >= MIN_WIDTH && stored <= MAX_WIDTH ? stored : DEFAULT_WIDTH
   })
   const [resizing, setResizing] = useState(false)
+  const [viewportWidth, setViewportWidth] = useState(window.innerWidth)
+  const notesOpen = useAppStore((s) => s.notesPanelOpen)
+  const maxWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, viewportWidth - (notesOpen ? 320 : 0) - 368))
+  const visibleWidth = Math.min(width, maxWidth)
   const widthRef = useRef(width)
+  const persistWidth = (next: number): void => {
+    setWidth(next)
+    widthRef.current = next
+    localStorage.setItem(WIDTH_KEY, String(next))
+  }
+  useEffect(() => {
+    const resize = (): void => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', resize)
+    return () => window.removeEventListener('resize', resize)
+  }, [])
 
   const tabs: { id: Tab; label: string; icon: JSX.Element }[] = [
     { id: 'documents', label: 'Documentos', icon: <FileText className="h-4 w-4" /> },
@@ -33,10 +48,10 @@ export function Sidebar({ onViewCode }: Props): JSX.Element {
   ]
 
   const onMouseMove = useCallback((e: MouseEvent) => {
-    const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, e.clientX))
+    const next = Math.min(maxWidth, Math.max(MIN_WIDTH, e.clientX))
     widthRef.current = next
     setWidth(next)
-  }, [])
+  }, [maxWidth])
 
   useEffect(() => {
     if (!resizing) return
@@ -46,9 +61,11 @@ export function Sidebar({ onViewCode }: Props): JSX.Element {
     }
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', stop)
+    window.addEventListener('blur', stop)
     return () => {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', stop)
+      window.removeEventListener('blur', stop)
     }
   }, [resizing, onMouseMove])
 
@@ -56,13 +73,14 @@ export function Sidebar({ onViewCode }: Props): JSX.Element {
     <>
       <div
         className="flex h-full shrink-0 flex-col border-r bg-card"
-        style={{ width }}
+        style={{ width: visibleWidth }}
       >
         <div className="flex border-b">
           {tabs.map((t) => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+               onClick={() => setTab(t.id)}
+               aria-pressed={tab === t.id}
               className={cn(
                 'flex flex-1 flex-col items-center gap-1 py-2 text-xs transition-colors',
                 tab === t.id
@@ -81,10 +99,24 @@ export function Sidebar({ onViewCode }: Props): JSX.Element {
         </div>
       </div>
       <div
+        role="separator"
+        tabIndex={0}
+        aria-label="Largura da barra lateral"
+        aria-orientation="vertical"
+        aria-valuemin={MIN_WIDTH}
+        aria-valuemax={maxWidth}
+        aria-valuenow={visibleWidth}
+        onKeyDown={(e) => {
+          const next = e.key === 'ArrowLeft' ? visibleWidth - 16 : e.key === 'ArrowRight' ? visibleWidth + 16
+            : e.key === 'Home' ? MIN_WIDTH : e.key === 'End' ? maxWidth : null
+          if (next == null) return
+          e.preventDefault()
+          persistWidth(Math.max(MIN_WIDTH, Math.min(maxWidth, next)))
+        }}
         onMouseDown={() => setResizing(true)}
         title="Arraste para redimensionar"
         className={cn(
-          '-ml-1 w-2 shrink-0 cursor-col-resize hover:bg-primary/20',
+          '-ml-1 w-2 shrink-0 cursor-col-resize hover:bg-primary/20 focus-visible:bg-primary/30 focus-visible:outline-none',
           resizing && 'bg-primary/30'
         )}
       />

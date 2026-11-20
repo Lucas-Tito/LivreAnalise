@@ -1,3 +1,5 @@
+import { diffChars, diffLines } from 'diff'
+
 export interface AdjustableCoding {
   id: number
   startPos: number
@@ -45,6 +47,84 @@ export function diffText(oldText: string, newText: string): TextDiff | null {
   }
 }
 
+type DiffPart = { value: string; added?: boolean; removed?: boolean }
+type TextEdit = TextDiff & { uncertain?: true; block?: TextDiff }
+
+function changedRanges(parts: DiffPart[], offset: number): TextEdit[] {
+  const edits: TextEdit[] = []
+  let oldPosition = offset
+  let current: TextDiff | undefined
+  for (const part of parts) {
+    if (!part.added && !part.removed) {
+      current = undefined
+      oldPosition += part.value.length
+      continue
+    }
+    if (!current) {
+      current = { changeStart: oldPosition, oldChangeEnd: oldPosition, delta: 0 }
+      edits.push(current)
+    }
+    if (part.removed) {
+      oldPosition += part.value.length
+      current.oldChangeEnd = oldPosition
+      current.delta -= part.value.length
+    } else {
+      current.delta += part.value.length
+    }
+  }
+  return edits
+}
+
+// Offsets no texto original, em UTF-16. Se o diff ultrapassar o limite,
+// mantenha apenas as bordas conhecidas e o deslocamento total do bloco.
+function findTextEdits(oldText: string, newText: string): TextEdit[] {
+  const outer = diffText(oldText, newText)
+  if (!outer) return []
+  const { changeStart, oldChangeEnd, delta } = outer
+  const oldPart = oldText.slice(changeStart, oldChangeEnd)
+  const newPart = newText.slice(changeStart, oldChangeEnd + delta)
+  if (!oldPart || !newPart) return [outer]
+
+  const lines = diffLines(oldPart, newPart, { maxEditLength: 512 })
+  if (!lines) return [{ ...outer, uncertain: true }]
+  const result: TextEdit[] = []
+  let shift = 0
+  for (const edit of changedRanges(lines, changeStart)) {
+    const oldBlock = oldText.slice(edit.changeStart, edit.oldChangeEnd)
+    const newStart = edit.changeStart + shift
+    const newBlock = newText.slice(newStart, edit.oldChangeEnd + shift + edit.delta)
+    shift += edit.delta
+    if (!oldBlock || !newBlock) {
+      result.push(edit)
+      continue
+    }
+    // A delimitação por linhas mantém juntas as ocorrências de linhas
+    // repetidas. Dentro de cada bloco, refine a posição dos trechos.
+    const inner = diffText(oldBlock, newBlock)
+    if (!inner) continue
+    const from = oldBlock.slice(inner.changeStart, inner.oldChangeEnd)
+    const to = newBlock.slice(inner.changeStart, inner.oldChangeEnd + inner.delta)
+    const start = edit.changeStart + inner.changeStart
+    const refined = { changeStart: start, oldChangeEnd: edit.changeStart + inner.oldChangeEnd, delta: inner.delta }
+    if (!from || !to) {
+      result.push(refined)
+      continue
+    }
+    const chars = from.length + to.length <= 128 * 1024
+      ? diffChars(from, to, { maxEditLength: 512 })
+      : undefined
+    if (chars) result.push(...changedRanges(chars, start).map((range) => ({ ...range, block: refined })))
+    else result.push({ ...refined, uncertain: true })
+  }
+  return result
+}
+
+class TextAdjustmentLimitError extends Error {
+  constructor() {
+    super('A edição é extensa demais para reposicionar as marcações. Salve as alterações em etapas.')
+  }
+}
+
 /**
  * Reposiciona codificacoes apos uma edicao de texto livre.
  * - Codificacoes inteiramente antes da regiao editada: inalteradas.
@@ -57,41 +137,34 @@ export function adjustCodings(
   oldText: string,
   newText: string
 ): AdjustResult {
-  const diff = diffText(oldText, newText)
   const updates: CodingUpdate[] = []
   const removeIds: number[] = []
-  if (!diff) return { updates, removeIds }
-
-  const { changeStart: cs, oldChangeEnd: ce, delta } = diff
-  const newLen = newText.length
+  if (!codings.length) return { updates, removeIds }
+  const edits = findTextEdits(oldText, newText)
 
   for (const c of codings) {
     const { id, startPos: a, endPos: b } = c
-
-    if (b <= cs) {
-      continue
-    }
-
-    if (a >= ce) {
-      updates.push({ id, startPos: a + delta, endPos: b + delta })
-      continue
-    }
-
-    if (a <= cs && b >= ce) {
-      const newEnd = b + delta
-      if (newEnd - a <= 0) {
-        removeIds.push(id)
+    let start = a
+    let end = b
+    for (const { changeStart, oldChangeEnd, delta, uncertain, block } of edits) {
+      if (b <= changeStart) break
+      if (a >= oldChangeEnd) {
+        start += delta
+        end += delta
+      } else if (a <= changeStart && b >= oldChangeEnd &&
+                 (!block || (a <= block.changeStart && b >= block.oldChangeEnd))) {
+        // Fragmentos iguais dentro de um bloco podem preservar uma âncora
+        // intacta. Se a âncora foi editada e o bloco passa da sua borda,
+        // não a estenda usando uma mistura de fragmentos e texto novo.
+        end += delta
       } else {
-        updates.push({
-          id,
-          startPos: a,
-          endPos: Math.min(newEnd, newLen)
-        })
+        if (uncertain) throw new TextAdjustmentLimitError()
+        end = start
+        break
       }
-      continue
     }
-
-    removeIds.push(id)
+    if (end <= start) removeIds.push(id)
+    else if (start !== a || end !== b) updates.push({ id, startPos: start, endPos: end })
   }
 
   return { updates, removeIds }
@@ -102,7 +175,14 @@ export function applyCodingAdjustments<T extends AdjustableCoding>(
   oldText: string,
   newText: string
 ): T[] {
-  const { updates, removeIds } = adjustCodings(codings, oldText, newText)
+  let adjusted: AdjustResult
+  try {
+    adjusted = adjustCodings(codings, oldText, newText)
+  } catch (error) {
+    if (error instanceof TextAdjustmentLimitError) return []
+    throw error
+  }
+  const { updates, removeIds } = adjusted
   const removeSet = new Set(removeIds)
   const updateMap = new Map(updates.map((u) => [u.id, u]))
 

@@ -45,6 +45,7 @@ export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
             <div className="flex gap-2">
               <button
                 onClick={() => theme === 'dark' && toggle()}
+                aria-pressed={theme === 'light'}
                 className={cn(
                   'flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
                   theme === 'light' ? 'border-primary bg-accent' : 'hover:bg-accent/50'
@@ -54,6 +55,7 @@ export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
               </button>
               <button
                 onClick={() => theme === 'light' && toggle()}
+                aria-pressed={theme === 'dark'}
                 className={cn(
                   'flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
                   theme === 'dark' ? 'border-primary bg-accent' : 'hover:bg-accent/50'
@@ -74,6 +76,7 @@ export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
                 <button
                   key={f.id}
                   onClick={() => setFont(f.id)}
+                  aria-pressed={font === f.id}
                   title={f.descricao}
                   className={cn(
                     'flex-1 rounded px-2 py-1.5 text-sm transition-colors',
@@ -95,8 +98,8 @@ export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
               style={{ fontFamily: 'var(--transcript-font)' }}
             >
               <p>
-                Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
-                eiusmod tempor incididunt ut labore et dolore magna aliqua.
+                Cada entrevista traz uma perspectiva. Selecione um trecho para
+                registrar ideias, relacionar códigos e desenvolver sua análise.
               </p>
             </div>
           </section>
