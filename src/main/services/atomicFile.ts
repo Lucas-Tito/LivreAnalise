@@ -1,9 +1,9 @@
 import { randomUUID } from 'crypto'
 import { constants, copyFileSync, linkSync, renameSync, rmSync, writeFileSync } from 'fs'
-import { basename, dirname, join } from 'path'
+import { dirname, join } from 'path'
 
 function withTemporaryFile<T>(path: string, text: string, mode: number, publish: (tmp: string) => T): T {
-  const tmp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`)
+  const tmp = join(dirname(path), `.liva-${randomUUID()}.tmp`)
   try {
     writeFileSync(tmp, text, { encoding: 'utf8', flag: 'wx', mode })
     return publish(tmp)

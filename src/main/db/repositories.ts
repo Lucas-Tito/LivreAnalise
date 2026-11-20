@@ -914,14 +914,22 @@ export function listCodingsByCode(codeId: number): CodingWithCode[] {
     .where(eq(codings.codeId, codeId))
     .orderBy(asc(codings.documentId), asc(codings.startPos))
     .all()
-  // SQLite substr conta code points, mas as posições do editor são UTF-16.
-  // Carrega cada documento uma vez e recorta na mesma unidade do renderer.
-  const texts = db.selectDistinct({ id: documents.id, text: documents.plainText })
-    .from(documents)
-    .innerJoin(codings, eq(codings.documentId, documents.id))
-    .where(eq(codings.codeId, codeId)).all()
-  const byId = new Map(texts.map((d) => [d.id, d.text]))
-  return rows.map((row) => ({ ...row, text: byId.get(row.documentId)!.slice(row.startPos, row.endPos) })) as CodingWithCode[]
+  // Os offsets são UTF-16. Como as citações estão ordenadas por documento,
+  // basta carregar um texto por vez para recortar todos os trechos dele.
+  let documentId: number | undefined
+  let text = ''
+  const readText = db.select({ text: documents.plainText })
+    .from(documents).where(eq(documents.id, sql.placeholder('documentId'))).prepare()
+  return rows.map((row) => {
+    if (row.documentId !== documentId) {
+      documentId = row.documentId
+      text = readText.get({ documentId })!.text
+    }
+    // Materializa o trecho em UTF-16 para que ele não retenha o texto de
+    // origem na memória como uma substring compartilhada.
+    const excerpt = text.slice(row.startPos, row.endPos)
+    return { ...row, text: Buffer.from(excerpt, 'utf16le').toString('utf16le') }
+  })
 }
 
 function getCoding(id: number): Coding {

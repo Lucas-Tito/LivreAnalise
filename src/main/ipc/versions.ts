@@ -66,15 +66,15 @@ export function registerVersionHandlers(): void {
       throw new Error('Escolha outro local: a cópia não pode ficar dentro da pasta de versões.')
     }
     // Preserva a cópia antes do checkpoint, cuja retenção pode podar a origem.
-    copyVersionTo(source, result.filePath)
+    const name = basename(result.filePath).replace(/\.liva$/i, '')
+    const meta = await copyVersionTo(source, result.filePath, (db) => ensureMeta(name, db))
     // Checkpoint do estado atual antes de sair dele. O original nunca é
     // modificado pelo restore, então falha aqui só é registrada.
     await createVersionSnapshot(activePath, { kind: 'auto', label: 'antes de restaurar' }).catch((err: unknown) => {
       console.error(`[versoes] snapshot de segurança falhou: ${(err as Error)?.message ?? err}`)
     })
-    clearHistoryFor(activePath)
     openDatabase(result.filePath)
-    const meta = ensureMeta(basename(result.filePath).replace(/\.liva$/i, ''))
+    clearHistoryFor(activePath)
     pushRecent(result.filePath, meta.name)
     return { meta, path: result.filePath }
   }))

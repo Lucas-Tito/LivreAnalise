@@ -1,17 +1,9 @@
 import { dialog } from 'electron'
-import { lstatSync, mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync } from 'fs'
 import { dirname, join } from 'path'
 import { openDetachedDatabase, type ProjectDb } from '../db'
 import { publishExclusiveFile } from '../services/atomicFile'
-import { sanitizeProjectFileName, sidecarPaths } from '../services/projectPath'
-
-function checkDestination(path: string): void {
-  for (const candidate of [path, ...sidecarPaths(path)]) {
-    if (lstatSync(candidate, { throwIfNoEntry: false })) {
-      throw new Error('Já existe um arquivo nesse destino. Escolha um nome ou uma pasta diferente.')
-    }
-  }
-}
+import { assertUnusedProjectPath, sanitizeProjectFileName } from '../services/projectPath'
 
 export async function pickNewProjectPath(name: string, defaultPath?: string): Promise<string | null> {
   const safe = sanitizeProjectFileName(name.trim().replace(/\.liva$/i, ''))
@@ -25,7 +17,7 @@ export async function pickNewProjectPath(name: string, defaultPath?: string): Pr
   })
   if (result.canceled || !result.filePaths[0]) return null
   const path = join(result.filePaths[0], `${safe}.liva`)
-  checkDestination(path)
+  assertUnusedProjectPath(path)
   return path
 }
 
@@ -43,7 +35,7 @@ export async function publishNewProject<T>(
     } finally {
       db.$client.close()
     }
-    checkDestination(path)
+    assertUnusedProjectPath(path)
     try {
       publishExclusiveFile(source, path)
     } catch (error) {

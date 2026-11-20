@@ -1,13 +1,13 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'fs'
-import { basename, join } from 'path'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync } from 'fs'
+import { basename, dirname, join } from 'path'
 import Database from 'better-sqlite3'
 import { v4 as uuid } from 'uuid'
 import { APP_VERSION } from '@shared/version'
 import type { ProjectVersion, ProjectVersionKind } from '@shared/projectVersions'
-import { getActivePath, getRaw } from '../db'
+import { getActivePath, getRaw, openDetachedDatabase, type ProjectDb } from '../db'
 import { CURRENT_SCHEMA_VERSION } from '../db/migrations'
-import { sanitizeProjectFileName } from './projectPath'
-import { writeAtomicFile } from './atomicFile'
+import { assertUnusedProjectPath, sanitizeProjectFileName, sidecarPaths } from './projectPath'
+import { publishExclusiveFile, writeAtomicFile } from './atomicFile'
 
 const MANIFEST = 'manifest.json'
 export const MAX_AUTO_VERSIONS = 10
@@ -220,17 +220,42 @@ export function renameVersionsDir(oldPath: string, newPath: string): void {
   }
 }
 
-export function copyVersionTo(sourceFile: string, destPath: string): void {
-  copyFileSync(sourceFile, destPath)
-  // A copia pre-migracao pode ter `-wal`/`-shm` junto: sem eles o projeto
-  // restaurado abriria sem o que estava pendente no WAL, ou seja mais antigo
-  // que a propria copia.
-  for (const sufixo of ['-wal', '-shm']) {
-    if (existsSync(`${sourceFile}${sufixo}`)) {
-      copyFileSync(`${sourceFile}${sufixo}`, `${destPath}${sufixo}`)
-    } else {
-      // sidecar velho do destino mentiria sobre o conteudo recem-copiado
-      rmSync(`${destPath}${sufixo}`, { force: true })
+export async function copyVersionTo<T>(
+  sourceFile: string,
+  destPath: string,
+  prepare: (db: ProjectDb) => T
+): Promise<T> {
+  assertUnusedProjectPath(destPath)
+  const staging = mkdtempSync(join(dirname(destPath), '.livreanalise-restauracao-'))
+  try {
+    const copy = join(staging, 'projeto.liva')
+    copyFileSync(sourceFile, copy)
+    let ready = copy
+    if (existsSync(sourceFile + '-wal')) {
+      // Checkpoints antigos podem ter um WAL. Consolide-o em uma cópia
+      // privada para publicar apenas um arquivo, sem tocar no checkpoint.
+      const [wal] = sidecarPaths(copy)
+      copyFileSync(sourceFile + '-wal', wal)
+      const raw = new Database(copy)
+      try {
+        ready = join(staging, 'restaurado.liva')
+        await raw.backup(ready)
+      } finally {
+        raw.close()
+      }
     }
+    // Abra e migre a cópia isolada antes de ocupar o nome escolhido.
+    const db = openDetachedDatabase(ready)
+    let result: T
+    try {
+      result = prepare(db)
+    } finally {
+      db.$client.close()
+    }
+    assertUnusedProjectPath(destPath)
+    publishExclusiveFile(ready, destPath)
+    return result
+  } finally {
+    rmSync(staging, { recursive: true, force: true })
   }
 }

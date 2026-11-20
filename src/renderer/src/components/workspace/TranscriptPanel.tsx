@@ -33,7 +33,7 @@ import { CodingPopover } from './CodingPopover'
 import { CodeDialog, type CodeDialogValue } from './CodeDialog'
 import type { CodeWithCount } from '@shared/types'
 import { useAsyncAction } from '@/lib/useAsyncAction'
-import { applyTextareaChange } from '@/lib/textareaChange'
+import { applyTextareaChange, textareaOffset, textareaValue } from '@/lib/textareaChange'
 
 interface PendingSelection {
   start: number
@@ -119,6 +119,8 @@ function resolveOffset(node: Node, offset: number): number | null {
   return null
 }
 
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
 export function TranscriptPanel(): JSX.Element {
   const currentDocument = useAppStore((s) => s.currentDocument)
   const codings = useAppStore((s) => s.codings)
@@ -146,6 +148,8 @@ export function TranscriptPanel(): JSX.Element {
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
+  const handleFocus = useRef<{ id: number; side: 'start' | 'end'; element: HTMLElement } | null>(null)
+  const textSaveInFlight = useRef<Promise<boolean> | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<TranscriptViewport | null>(null)
@@ -325,6 +329,49 @@ export function TranscriptPanel(): JSX.Element {
   }, [codes])
 
   const text = currentDocument?.plainText ?? ''
+
+  const graphemes = useMemo(
+    () => selectedCodingId == null ? null : graphemeSegmenter.segment(text),
+    [selectedCodingId, text]
+  )
+  const stepGrapheme = (position: number, direction: -1 | 1): number => {
+    if (direction < 0) return graphemes?.containing(position - 1)?.index ?? 0
+    const next = graphemes?.containing(position)
+    return next ? next.index + next.segment.length : text.length
+  }
+
+  useLayoutEffect(() => {
+    const focus = handleFocus.current
+    if (!focus) return
+    handleFocus.current = null
+    if (focus.id !== selectedCodingId || focus.element.isConnected ||
+        document.activeElement !== document.body) return
+    textRef.current?.querySelector<HTMLElement>(`[data-coding-handle="${focus.side}"]`)
+      ?.focus({ preventScroll: true })
+  }, [codings, selectedCodingId])
+
+  const resizeCodingWithKey = (
+    event: React.KeyboardEvent<HTMLElement>,
+    coding: (typeof codings)[number],
+    side: 'start' | 'end'
+  ): void => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const isStart = side === 'start'
+    const previous = isStart ? coding.startPos : coding.endPos
+    const next = stepGrapheme(previous, event.key === 'ArrowLeft' ? -1 : 1)
+    if (next === previous || (isStart ? next >= coding.endPos : next <= coding.startPos)) return
+    const element = event.currentTarget
+    void run(async () => {
+      if (document.activeElement === element) handleFocus.current = { id: coding.id, side, element }
+      try {
+        await updateCoding(coding.id, isStart ? next : coding.startPos, isStart ? coding.endPos : next)
+      } catch (error) {
+        handleFocus.current = null
+        throw error
+      }
+    })
+  }
 
   // Copia do texto original: o DOM também contém números de linha e alças,
   // além de dividir o trecho em spans para os realces.
@@ -607,7 +654,8 @@ export function TranscriptPanel(): JSX.Element {
     restoreTranscriptViewport(container, content, viewport)
     if (editing && textareaRef.current) {
       const textarea = textareaRef.current
-      textarea.setSelectionRange(viewport.position, viewport.position)
+      const position = textareaOffset(draft, viewport.position)
+      textarea.setSelectionRange(position, position)
       textarea.focus({ preventScroll: true })
       textarea.scrollTop = container.scrollTop
       syncScroll()
@@ -742,7 +790,7 @@ export function TranscriptPanel(): JSX.Element {
     setDraft('')
   }
 
-  const saveEditing = async (): Promise<boolean> => {
+  const commitDraft = async (): Promise<boolean> => {
     if (!currentDocument) return false
     setSaving(true)
     setSaveError(null)
@@ -770,6 +818,12 @@ export function TranscriptPanel(): JSX.Element {
   }, [textoSujo, setTextoSujo])
   useEffect(() => () => setTextoSujo(false), [setTextoSujo])
 
+  const saveEditing = (): Promise<boolean> => {
+    textSaveInFlight.current ??= commitDraft().finally(() => {
+      textSaveInFlight.current = null
+    })
+    return textSaveInFlight.current
+  }
   const saveRef = useRef(saveEditing)
   saveRef.current = saveEditing
   useEffect(() => {
@@ -977,7 +1031,8 @@ export function TranscriptPanel(): JSX.Element {
             </div>
             <textarea
               ref={textareaRef}
-              value={draft}
+              value={textareaValue(draft)}
+              readOnly={saving}
               onChange={(e) => setDraft(applyTextareaChange(draft, e.target.value))}
               aria-label={`Texto de ${currentDocument.name}`}
               onKeyDown={(e) => {
@@ -1167,15 +1222,11 @@ export function TranscriptPanel(): JSX.Element {
                                   role="slider"
                                   tabIndex={0}
                                   aria-label="Início da citação"
+                                  data-coding-handle="start"
                                   aria-valuemin={0}
-                                  aria-valuemax={selCoding!.endPos - 1}
+                                  aria-valuemax={stepGrapheme(selCoding!.endPos, -1)}
                                   aria-valuenow={selCoding!.startPos}
-                                  onKeyDown={(e) => {
-                                    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-                                    e.preventDefault()
-                                    const pos = Math.max(0, Math.min(selCoding!.endPos - 1, selCoding!.startPos + (e.key === 'ArrowRight' ? 1 : -1)))
-                                    void run(() => updateCoding(selCoding!.id, pos, selCoding!.endPos))
-                                  }}
+                                  onKeyDown={(e) => resizeCodingWithKey(e, selCoding!, 'start')}
                                   style={{ ...handleStyle, marginRight: 2 }}
                                   onMouseDown={(e) => {
                                     e.preventDefault()
@@ -1190,15 +1241,11 @@ export function TranscriptPanel(): JSX.Element {
                                   role="slider"
                                   tabIndex={0}
                                   aria-label="Fim da citação"
-                                  aria-valuemin={selCoding!.startPos + 1}
+                                  data-coding-handle="end"
+                                  aria-valuemin={stepGrapheme(selCoding!.startPos, 1)}
                                   aria-valuemax={text.length}
                                   aria-valuenow={selCoding!.endPos}
-                                  onKeyDown={(e) => {
-                                    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-                                    e.preventDefault()
-                                    const pos = Math.max(selCoding!.startPos + 1, Math.min(text.length, selCoding!.endPos + (e.key === 'ArrowRight' ? 1 : -1)))
-                                    void run(() => updateCoding(selCoding!.id, selCoding!.startPos, pos))
-                                  }}
+                                  onKeyDown={(e) => resizeCodingWithKey(e, selCoding!, 'end')}
                                   style={{ ...handleStyle, marginLeft: 2 }}
                                   onMouseDown={(e) => {
                                     e.preventDefault()

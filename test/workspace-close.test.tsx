@@ -2,6 +2,7 @@
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
+import { AppCloseDialog } from '../src/renderer/src/components/workspace/AppCloseDialog'
 import { Workspace } from '../src/renderer/src/components/workspace/Workspace'
 import { useAppStore } from '../src/renderer/src/stores/appStore'
 
@@ -31,7 +32,7 @@ it('retries failed saves, keeps the window open on cancel, and closes on explici
   } })
   useAppStore.setState({ notesFlush })
   const user = userEvent.setup()
-  render(<Workspace />)
+  render(<><Workspace /><AppCloseDialog /></>)
 
   await act(requestClose)
   await user.click(screen.getByRole('button', { name: 'Tentar novamente' }))

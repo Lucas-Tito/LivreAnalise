@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { applyTextareaChange } from '../src/renderer/src/lib/textareaChange'
+import { applyTextareaChange, textareaOffset, textareaValue } from '../src/renderer/src/lib/textareaChange'
 import { adjustCodings } from '../src/shared/editAdjust'
 
 it('preserves CRLF and intact short quotations when appending text', () => {
@@ -21,4 +21,14 @@ it('maps edits and newly inserted lines back to raw offsets', () => {
   expect(applyTextareaChange('a\r\nb\r\nc', 'a\nc')).toBe('a\r\nc')
   expect(applyTextareaChange('a\nb', 'a\nx\nb')).toBe('a\nx\nb')
   expect(applyTextareaChange('', 'novo\ntexto')).toBe('novo\ntexto')
+})
+
+it('maps a raw viewport position to the textarea caret after mixed line endings', () => {
+  const text = 'a\r\nb\nc\r\nd'
+  expect(textareaValue(text)).toBe('a\nb\nc\nd')
+  expect(textareaOffset(text, text.indexOf('d'))).toBe(6)
+})
+
+it('preserves both line breaks when deleting text between a CR and an LF', () => {
+  expect(textareaValue(applyTextareaChange('A\rX\nB', 'A\n\nB'))).toBe('A\n\nB')
 })

@@ -123,14 +123,8 @@ export function registerProjectHandlers(): void {
 
 async function openProjectPath(path: string): Promise<OpenProjectResult | null> {
   const prev = getActivePath()
-  // Antes de abrir (e portanto antes de migrar): so faz copia quando o arquivo
-  // esta atrasado. Melhor esforco -- se falhar, a abertura segue, porque
-  // recusar abrir o projeto por causa do backup seria pior que nao ter backup.
-  try {
-    snapshotBeforeMigration(path)
-  } catch (err) {
-    console.error(`[versoes] copia pre-migracao falhou: ${(err as Error)?.message ?? err}`)
-  }
+  // A abertura só pode migrar o original depois de preservar a versão anterior.
+  snapshotBeforeMigration(path)
   openDatabase(path)
   if (prev) clearHistoryFor(prev)
   const name = basename(path).replace(/\.liva$/i, '')

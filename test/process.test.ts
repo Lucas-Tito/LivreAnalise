@@ -29,3 +29,30 @@ it('bounds stderr while retaining the end of an error log', async () => {
   expect(result.stderr.length).toBeLessThanOrEqual(16384)
   expect(result.stderr.endsWith('fim')).toBe(true)
 })
+
+it('cancels a wrapper and its subprocess when both hold the output pipes', async () => {
+  const controller = new AbortController()
+  const pending = runProcess(process.execPath, ['-e', `
+    const { spawn } = require('node:child_process')
+    spawn(process.execPath, ['-e', 'console.log("ready"); setTimeout(() => {}, 10000)'], { stdio: 'inherit' })
+  `], { signal: controller.signal, onStdout: () => controller.abort() })
+  await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+})
+
+it.skipIf(process.platform === 'win32')('returns when a child in another session still holds the output pipes', async () => {
+  const controller = new AbortController()
+  const chunks: string[] = []
+  const command = [
+    "const { spawn } = require('node:child_process')",
+    "spawn(process.execPath, ['-e', 'console.log(\"ready\"); setTimeout(() => console.log(\"finished\"), 700)'], { detached: true, stdio: 'inherit' })"
+  ].join('\n')
+  const pending = runProcess(process.execPath, ['-e', command], {
+    signal: controller.signal,
+    onStdout: (chunk) => {
+      chunks.push(chunk)
+      if (chunk.includes('ready')) controller.abort()
+    }
+  })
+  await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+  expect(chunks.join('')).not.toContain('finished')
+})

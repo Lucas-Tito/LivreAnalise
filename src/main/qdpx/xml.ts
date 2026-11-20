@@ -1,4 +1,4 @@
-import { XMLBuilder, XMLParser } from 'fast-xml-parser'
+import { XMLBuilder, XMLParser, XMLValidator } from 'fast-xml-parser'
 import { v4 as uuid } from 'uuid'
 import { APP_ORIGIN, nowIso, QDPX_NAMESPACE } from './constants'
 import type {
@@ -180,9 +180,14 @@ function asArray<T>(value: T | T[] | undefined): T[] {
 
 export interface ParseResult extends ParsedQdpx {
   sourcePaths: Map<string, string>
+  origin: string
 }
 
 export function parseQde(xml: string): ParseResult {
+  const validation = XMLValidator.validate(xml)
+  if (validation !== true) {
+    throw new Error('Arquivo QDPX inválido: project.qde malformado na linha ' + validation.err.line)
+  }
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
@@ -307,6 +312,7 @@ export function parseQde(xml: string): ParseResult {
   return {
     project: { name: project['@_name'] ?? 'Projeto', users, codes, groups, documents, notes, projectNoteGuids },
     skipped,
-    sourcePaths
+    sourcePaths,
+    origin: typeof project['@_origin'] === 'string' ? project['@_origin'] : ''
   }
 }

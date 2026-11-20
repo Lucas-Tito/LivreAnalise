@@ -48,6 +48,7 @@ interface AppState {
   createProject: () => Promise<void>
   openProject: () => Promise<void>
   openRecent: (path: string) => Promise<void>
+  closingProject: boolean
   closeProject: () => Promise<void>
 
   refreshDocuments: () => Promise<void>
@@ -301,20 +302,28 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().loadRecents()
   },
 
+  closingProject: false,
   closeProject: async () => {
     if (!(await get().podeSairDoTexto())) return
-    await get().notesFlush?.()
-    await window.api.project.close()
-    set({
-      project: null,
-      documents: [],
-      currentDocument: null,
-      codes: [],
-      collections: [],
-      collectionMembers: [],
-      codings: [],
-      ...resetNotesState()
-    })
+    if (get().closingProject) return
+    set({ closingProject: true })
+    try {
+      await get().notesFlush?.()
+      await window.api.project.close()
+      get().setNotasSujo(false)
+      set({
+        project: null,
+        documents: [],
+        currentDocument: null,
+        codes: [],
+        collections: [],
+        collectionMembers: [],
+        codings: [],
+        ...resetNotesState()
+      })
+    } finally {
+      set({ closingProject: false })
+    }
     await get().loadRecents()
   },
 

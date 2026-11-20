@@ -97,3 +97,26 @@ it('retains unsaved text after an unguarded unmount and retries on remount', asy
   expect(useAppStore.getState().notasSujo).toBe(false)
   expect(screen.getByRole('status').textContent).toBe('Salvo')
 })
+
+it('blocks note edits between the last save and project close', async () => {
+  let completeClose!: () => void
+  const closing = new Promise<void>((resolve) => { completeClose = resolve })
+  const close = vi.fn(() => closing)
+  Object.assign(window.api, { project: { close, recents: async () => [] } })
+  const updateNote = vi.fn(async (input: UpdateNoteInput) => ({ ...note, body: input.body! }))
+  useAppStore.setState({ updateNote })
+  const user = userEvent.setup()
+  render(<NotesPanel />)
+  const input = screen.getByRole('textbox', { name: 'Conteúdo da nota' }) as HTMLTextAreaElement
+  await user.type(input, 'texto salvo')
+  let transition!: Promise<void>
+  await act(async () => { transition = useAppStore.getState().closeProject() })
+  expect(close).toHaveBeenCalledOnce()
+  expect(input.readOnly).toBe(true)
+  await user.type(input, ' edição tardia')
+  expect(input.value).toBe('texto salvo')
+  await act(async () => { completeClose(); await transition })
+  expect(updateNote).toHaveBeenCalledTimes(1)
+  expect(useAppStore.getState().notasSujo).toBe(false)
+  expect(window.api.app.setNotesDirty).toHaveBeenLastCalledWith(false)
+})

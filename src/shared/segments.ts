@@ -22,20 +22,37 @@ export interface NoteAnchor {
 export function computeSegments(length: number, codings: Coding[]): Segment[] {
   if (length === 0) return []
   const boundaries = new Set<number>([0, length])
-  for (const c of codings) {
-    if (c.startPos >= 0 && c.startPos <= length) boundaries.add(c.startPos)
-    if (c.endPos >= 0 && c.endPos <= length) boundaries.add(c.endPos)
+  const changes = new Map<number, { add: number[]; remove: number[] }>()
+  const at = (position: number) => {
+    let change = changes.get(position)
+    if (!change) {
+      change = { add: [], remove: [] }
+      changes.set(position, change)
+    }
+    return change
   }
+  codings.forEach((coding, index) => {
+    if (coding.startPos >= 0 && coding.startPos <= length) boundaries.add(coding.startPos)
+    if (coding.endPos >= 0 && coding.endPos <= length) boundaries.add(coding.endPos)
+    const start = Math.max(0, coding.startPos)
+    const end = Math.min(length, coding.endPos)
+    if (start < end) {
+      at(start).add.push(index)
+      at(end).remove.push(index)
+    }
+  })
   const sorted = Array.from(boundaries).sort((a, b) => a - b)
+  const active = new Set<number>()
   const segments: Segment[] = []
   for (let i = 0; i < sorted.length - 1; i++) {
     const start = sorted[i]
-    const end = sorted[i + 1]
-    if (end <= start) continue
-    const codingIds = codings
-      .filter((c) => c.startPos <= start && c.endPos >= end)
-      .map((c) => c.id)
-    segments.push({ start, end, codingIds })
+    const change = changes.get(start)
+    if (change) {
+      for (const index of change.remove) active.delete(index)
+      for (const index of change.add) active.add(index)
+    }
+    const codingIds = Array.from(active).sort((a, b) => a - b).map((index) => codings[index].id)
+    segments.push({ start, end: sorted[i + 1], codingIds })
   }
   return segments
 }
@@ -93,28 +110,46 @@ export function markNoteAnchors(
   segments: DisplaySegment[],
   anchors: NoteAnchor[]
 ): DisplaySegment[] {
+  return markAnchors(segments, anchors, 'noteIds')
+}
+
+// Os segmentos chegam em ordem de offset. Avance pelos limites das âncoras
+// uma vez e mantenha só as que cobrem o ponto atual.
+function markAnchors(
+  segments: DisplaySegment[],
+  anchors: NoteAnchor[],
+  field: 'noteIds' | 'hitIds'
+): DisplaySegment[] {
   if (anchors.length === 0) return segments
+  const events: Array<{ position: number; index: number; starts: boolean }> = []
+  anchors.forEach(({ start, end }, index) => {
+    if (start >= end) return
+    events.push({ position: start, index, starts: true }, { position: end, index, starts: false })
+  })
+  events.sort((a, b) => a.position - b.position)
+  const active = new Set<number>()
+  let cursor = 0
+  const advance = (position: number): void => {
+    while (cursor < events.length && events[cursor].position <= position) {
+      const { index, starts } = events[cursor++]
+      if (starts) active.add(index)
+      else active.delete(index)
+    }
+  }
   const result: DisplaySegment[] = []
-  for (const seg of segments) {
-    const covering = anchors.filter((a) => a.start < seg.end && a.end > seg.start)
-    if (covering.length === 0) {
-      result.push(seg)
+  for (const segment of segments) {
+    advance(segment.start)
+    if (active.size === 0 && (events[cursor]?.position ?? Infinity) >= segment.end) {
+      result.push(segment)
       continue
     }
-    const cuts = new Set<number>([seg.start, seg.end])
-    for (const a of covering) {
-      cuts.add(Math.max(a.start, seg.start))
-      cuts.add(Math.min(a.end, seg.end))
-    }
-    const sorted = Array.from(cuts).sort((a, b) => a - b)
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const start = sorted[i]
-      const end = sorted[i + 1]
-      if (end <= start) continue
-      const noteIds = covering
-        .filter((a) => a.start <= start && a.end >= end)
-        .map((a) => a.id)
-      result.push({ ...seg, start, end, noteIds })
+    let start = segment.start
+    while (start < segment.end) {
+      const end = Math.min(segment.end, events[cursor]?.position ?? Infinity)
+      const ids = Array.from(active).sort((a, b) => a - b).map((index) => anchors[index].id)
+      result.push({ ...segment, start, end, [field]: ids })
+      start = end
+      advance(start)
     }
   }
   return result
@@ -144,11 +179,13 @@ export function buildLineRows(
   const lines = text.split('\n')
   const rows: LineRow[] = []
   let start = 0
+  let first = 0
   for (let index = 0; index < lines.length; index++) {
     const end = start + lines[index].length
     const spans: LineSpan[] = []
-    for (const seg of segments) {
-      if (seg.end <= start || seg.start >= end) continue
+    while (first < segments.length && segments[first].end <= start) first++
+    for (let i = first; i < segments.length && segments[i].start < end; i++) {
+      const seg = segments[i]
       const spanStart = Math.max(seg.start, start)
       const spanEnd = Math.min(seg.end, end)
       const spanText = text.slice(spanStart, spanEnd)
@@ -209,29 +246,5 @@ export function markSearchHits(
   segments: DisplaySegment[],
   hits: NoteAnchor[]
 ): DisplaySegment[] {
-  if (hits.length === 0) return segments
-  const result: DisplaySegment[] = []
-  for (const seg of segments) {
-    const covering = hits.filter((h) => h.start < seg.end && h.end > seg.start)
-    if (covering.length === 0) {
-      result.push(seg)
-      continue
-    }
-    const cuts = new Set<number>([seg.start, seg.end])
-    for (const h of covering) {
-      cuts.add(Math.max(h.start, seg.start))
-      cuts.add(Math.min(h.end, seg.end))
-    }
-    const sorted = Array.from(cuts).sort((a, b) => a - b)
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const start = sorted[i]
-      const end = sorted[i + 1]
-      if (end <= start) continue
-      const hitIds = covering
-        .filter((h) => h.start <= start && h.end >= end)
-        .map((h) => h.id)
-      result.push({ ...seg, start, end, hitIds })
-    }
-  }
-  return result
+  return markAnchors(segments, hits, 'hitIds')
 }

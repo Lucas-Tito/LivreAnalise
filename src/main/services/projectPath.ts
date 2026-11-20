@@ -1,5 +1,5 @@
 import { basename, dirname, extname, join, resolve } from 'path'
-import { existsSync, realpathSync, statSync } from 'fs'
+import { lstatSync, existsSync, realpathSync, statSync } from 'fs'
 
 const PROJECT_EXT = '.liva'
 
@@ -28,6 +28,14 @@ export function targetProjectPath(
 // O SQLite em modo WAL deixa os vizinhos -wal e -shm ao lado do arquivo.
 export function sidecarPaths(path: string): string[] {
   return [`${path}-wal`, `${path}-shm`]
+}
+
+export function assertUnusedProjectPath(path: string): void {
+  for (const candidate of [path, ...sidecarPaths(path)]) {
+    if (lstatSync(candidate, { throwIfNoEntry: false })) {
+      throw new Error('Já existe um arquivo nesse destino. Escolha um nome ou uma pasta diferente.')
+    }
+  }
 }
 
 export function canonicalDestination(path: string): string {

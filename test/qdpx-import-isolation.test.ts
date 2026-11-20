@@ -105,3 +105,59 @@ it('imports available sources and reports missing embedded and external text', a
     expect.stringContaining('relative://external.txt')
   ])
 })
+
+it('uses LF offsets for QualCoder sources written with a Windows BOM and CRLF', async () => {
+  const zip = new JSZip()
+  zip.file('project.qde', `<?xml version="1.0" encoding="utf-8"?>
+    <Project xmlns="urn:QDA-XML:project:1.0" name="Pesquisa" origin="QualCoder 3.8">
+      <CodeBook><Codes><Code guid="c" name="Código" isCodable="true"/></Codes></CodeBook>
+      <Sources><TextSource guid="d" name="Entrevista" plainTextPath="internal://d.txt">
+        <PlainTextSelection guid="s" name="recorte" startPosition="3" endPosition="10">
+          <Coding guid="g"><CodeRef targetGUID="c"/></Coding><NoteRef targetGUID="n"/>
+        </PlainTextSelection>
+      </TextSource></Sources>
+      <Notes><Note guid="n"><PlainTextContent>Nota</PlainTextContent></Note></Notes>
+    </Project>`)
+  zip.file('sources/d.txt', '\uFEFFum\r\nrecorte')
+  importProjectIntoDb(await deserializeQdpx(await zip.generateAsync({ type: 'nodebuffer' })))
+  const doc = getDocument(listDocuments()[0].id)!
+  expect(doc.plainText).toBe('um\nrecorte')
+  for (const item of [listCodingsByDocument(doc.id)[0], listNotesByDocument(doc.id)[0]]) {
+    expect(doc.plainText.slice(item.startPos!, item.endPos!)).toBe('recorte')
+  }
+})
+
+it('resolves the exact document and note paths in the lowercase sources folder', async () => {
+  const zip = new JSZip()
+  zip.file('project.qde', '<Project name="Teste"><Sources><TextSource guid="d" plainTextPath="internal://d.txt"/></Sources><Notes><Note guid="n" plainTextPath="internal://note.txt"/></Notes></Project>')
+  zip.file('sources/old-d.txt', 'Documento errado')
+  zip.file('sources/old-note.txt', 'Nota errada')
+  zip.file('sources/d.txt', 'Documento certo')
+  zip.file('sources/note.txt', 'Nota certa')
+  const parsed = await deserializeQdpx(await zip.generateAsync({ type: 'nodebuffer' }))
+  expect(parsed.skipped).toEqual([])
+  expect(parsed.project.documents[0].plainText).toBe('Documento certo')
+  expect(parsed.project.notes[0].plainText).toBe('Nota certa')
+})
+
+it('resolves project.qde in a directory by its full filename', async () => {
+  const zip = new JSZip()
+  zip.file('subpasta/old-project.qde', '<Project name="ERRADO"/>')
+  zip.file('subpasta/project.qde', '<Project name="CERTO"/>')
+  const { project, skipped } = await deserializeQdpx(await zip.generateAsync({ type: 'nodebuffer' }))
+  expect(skipped).toEqual([])
+  expect(project.name).toBe('CERTO')
+})
+
+it('refuses truncated XML instead of accepting a partial project', async () => {
+  const zip = new JSZip()
+  zip.file('project.qde', '<Project name="Truncado"><CodeBook><Codes><Code guid="c" name="Código"/>')
+  await expect(deserializeQdpx(await zip.generateAsync({ type: 'nodebuffer' }))).rejects.toThrow()
+})
+
+it('rejects multiple nested project manifests when there is no root manifest', async () => {
+  const zip = new JSZip()
+  zip.file('one/project.qde', '<Project name="Um"/>')
+  zip.file('two/project.qde', '<Project name="Dois"/>')
+  await expect(deserializeQdpx(await zip.generateAsync({ type: 'nodebuffer' }))).rejects.toThrow('mais de um project.qde')
+})

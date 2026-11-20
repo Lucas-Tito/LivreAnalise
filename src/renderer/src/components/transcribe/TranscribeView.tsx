@@ -53,6 +53,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
   const [advanced, setAdvanced] = useState(false)
   const [stage, setStage] = useState<Stage>({ kind: 'idle' })
   const [segments, setSegments] = useState<TranscriptionSegment[]>([])
+  const [recheckingModels, setRecheckingModels] = useState(false)
   const logRef = useRef<HTMLDivElement>(null)
   const operation = useRef(0)
 
@@ -103,6 +104,11 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
         setStage({ kind: 'done', outputPath: event.outputPath, segments: event.segments })
       } else if (event.kind === 'error') {
         setStage({ kind: 'error', message: event.message })
+        setRecheckingModels(true)
+        void window.api.transcription.models()
+          .then(setModels)
+          .catch(() => undefined)
+          .finally(() => setRecheckingModels(false))
       } else if (event.kind === 'canceled') {
         setStage({ kind: 'idle' })
         setSegments([])
@@ -416,7 +422,7 @@ export function TranscribeView({ onBack }: Props): JSX.Element {
       )}
 
       {!busy && stage.kind !== 'confirm' && (
-        <Button onClick={start} disabled={!mediaPath || !selectedModel || !env?.ffmpeg || !env?.binaryPath || checkedBinaryPath !== binaryPath}>
+        <Button onClick={start} disabled={recheckingModels || !mediaPath || !selectedModel || !env?.ffmpeg || !env?.binaryPath || checkedBinaryPath !== binaryPath}>
           <AudioLines className="h-4 w-4" /> Transcrever
         </Button>
       )}

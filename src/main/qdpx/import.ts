@@ -96,8 +96,8 @@ function importRecords(parsed: ParsedQdpx, db: ProjectDb): ImportReport {
 
   const docGuidToId = new Map<string, number>()
   for (const doc of parsed.project.documents) {
-    // Os offsets do QDPX se referem a estes bytes de texto decodificados.
-    // Remover BOM ou encurtar CRLF deslocaria todas as âncoras posteriores.
+    // O leitor do QDPX já tratou o BOM externo. Não normalize as quebras
+    // aqui: encurtar CRLF pode deslocar as âncoras posteriores.
     const content = doc.plainText
     const res = db
       .insert(documents)
