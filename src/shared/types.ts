@@ -117,6 +117,7 @@ export interface CreateGroupInput {
   name: string
   color: string
   codeId: number
+  collectionId?: number
 }
 
 // União de vários códigos em um grupo novo (arrastar um sobre o outro).
@@ -124,6 +125,7 @@ export interface CreateGroupFromCodesInput {
   name: string
   color: string
   codeIds: number[]
+  collectionId?: number
 }
 
 export interface CreateCollectionInput {

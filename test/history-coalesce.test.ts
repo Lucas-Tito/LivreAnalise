@@ -103,3 +103,16 @@ describe('coalescência do histórico', () => {
     expect(r).toEqual(['redo:v2'])
   })
 })
+
+it('does not coalesce a save across an undone action', () => {
+  clearAllHistory()
+  let draft = 'A'
+  pushHistory({ label: 'Nota', coalesceKey: 'nota:1', undo: () => { draft = '' }, redo: () => { draft = 'A' } }, 1)
+  pushHistory({ label: 'Outra ação', undo: () => {}, redo: () => {} }, 2)
+  historyUndo()
+  draft = 'B'
+  pushHistory({ label: 'Nota', coalesceKey: 'nota:1', undo: () => { draft = 'A' }, redo: () => { draft = 'B' } }, 3)
+  historyUndo()
+  expect(draft).toBe('A')
+  clearAllHistory()
+})

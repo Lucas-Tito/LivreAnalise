@@ -40,6 +40,8 @@ const api: Api = {
     allMembers: () => ipcRenderer.invoke(IPC.collections.allMembers),
     addMember: (collectionId, codeId) =>
       ipcRenderer.invoke(IPC.collections.addMember, collectionId, codeId),
+    addMembers: (collectionId, codeIds) =>
+      ipcRenderer.invoke(IPC.collections.addMembers, collectionId, codeIds),
     removeMember: (collectionId, codeId) =>
       ipcRenderer.invoke(IPC.collections.removeMember, collectionId, codeId)
   },

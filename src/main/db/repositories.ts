@@ -444,7 +444,7 @@ export function updateCode(input: UpdateCodeInput): void {
     parentWasCategory = all.find((c) => c.id === input.parentId)?.isCategory ?? false
   }
   const before = getCode(input.id)
-  if (!before) return
+  if (!before) throw new Error('Código não encontrado.')
   const patch: Record<string, unknown> = {}
   if (input.name !== undefined) patch.name = input.name
   if (input.color !== undefined) patch.color = input.color
@@ -602,14 +602,14 @@ export function moveCodes(input: MoveCodesInput): void {
 
 // Ação composta atômica: criar grupo + reparentar o código de origem.
 // Um único comando no histórico (desfazer remove o grupo e restaura o pai).
-export function createGroupCode(name: string, color: string, codeId: number): Code {
+export function createGroupCode(name: string, color: string, codeId: number, collectionId?: number): Code {
   const all = getDb().select().from(codes).all() as Code[]
   const origin = all.find((c) => c.id === codeId)
   if (!origin) throw new Error('Código de origem não encontrado.')
   if (origin.parentId != null || origin.isCategory || all.some((c) => c.parentId === codeId)) {
     throw new Error('Só um código solto sem filhos pode virar categoria.')
   }
-  return createGroupFromCodes(name, color, [codeId])
+  return createGroupFromCodes(name, color, [codeId], collectionId)
 }
 
 // Mesmo comando, com vários códigos: é o "unir códigos em um grupo" do arrasto.
@@ -617,7 +617,8 @@ export function createGroupCode(name: string, color: string, codeId: number): Co
 export function createGroupFromCodes(
   name: string,
   color: string,
-  codeIds: number[]
+  codeIds: number[],
+  collectionId?: number
 ): Code {
   const db = getDb()
   const unique = [...new Set(codeIds)]
@@ -651,6 +652,9 @@ export function createGroupFromCodes(
       .from(codes)
       .where(eq(codes.id, Number(res.lastInsertRowid)))
       .get() as Code
+    if (collectionId != null) {
+      tx.insert(collectionMembers).values({ collectionId, codeId: group.id }).run()
+    }
     members.forEach((member, position) => {
       tx.update(codes)
         .set({ parentId: group.id, sortOrder: position })
@@ -678,6 +682,9 @@ export function createGroupFromCodes(
       const db2 = getDb()
       db2.transaction((tx) => {
         tx.insert(codes).values(groupSnap).onConflictDoNothing().run()
+        if (collectionId != null) {
+          tx.insert(collectionMembers).values({ collectionId, codeId: groupSnap.id }).run()
+        }
         ids.forEach((id, position) => {
           tx.update(codes)
             .set({ parentId: groupSnap.id, sortOrder: position })
@@ -866,24 +873,42 @@ export function listAllCollectionMembers(): CollectionMember[] {
 }
 
 export function addCollectionMember(collectionId: number, codeId: number): void {
+  addCollectionMembers(collectionId, [codeId])
+}
+
+export function addCollectionMembers(collectionId: number, codeIds: number[]): void {
   const db = getDb()
-  const res = db.insert(collectionMembers)
-    .values({ collectionId, codeId })
-    .onConflictDoNothing()
-    .run()
-  touchProject()
-  if (res.changes === 0) return
+  const members = db.transaction(() => {
+    const added: CollectionMember[] = []
+    for (const codeId of new Set(codeIds)) {
+      const member = { collectionId, codeId }
+      if (db.insert(collectionMembers).values(member).onConflictDoNothing().run().changes) {
+        added.push(member)
+      }
+    }
+    if (added.length > 0) touchProject()
+    return added
+  })
+  if (members.length === 0) return
   pushHistory({
-    label: `adicionar ao grupo`,
+    label: 'adicionar ao grupo',
     undo: () => {
-      getDb().delete(collectionMembers).where(
-        and(eq(collectionMembers.collectionId, collectionId), eq(collectionMembers.codeId, codeId))
-      ).run()
-      touchProject()
+      const current = getDb()
+      current.transaction(() => {
+        for (const { codeId } of members) {
+          current.delete(collectionMembers).where(
+            and(eq(collectionMembers.collectionId, collectionId), eq(collectionMembers.codeId, codeId))
+          ).run()
+        }
+        touchProject()
+      })
     },
     redo: () => {
-      getDb().insert(collectionMembers).values({ collectionId, codeId }).onConflictDoNothing().run()
-      touchProject()
+      const current = getDb()
+      current.transaction(() => {
+        for (const member of members) current.insert(collectionMembers).values(member).onConflictDoNothing().run()
+        touchProject()
+      })
     }
   })
 }
@@ -955,14 +980,22 @@ export function listCodingsByCode(codeId: number): CodingWithCode[] {
     .where(eq(codings.codeId, codeId))
     .orderBy(asc(codings.documentId), asc(codings.startPos))
     .all()
-  // SQLite substr conta code points, mas as posições do editor são UTF-16.
-  // Carrega cada documento uma vez e recorta na mesma unidade do renderer.
-  const texts = db.selectDistinct({ id: documents.id, text: documents.plainText })
-    .from(documents)
-    .innerJoin(codings, eq(codings.documentId, documents.id))
-    .where(eq(codings.codeId, codeId)).all()
-  const byId = new Map(texts.map((d) => [d.id, d.text]))
-  return rows.map((row) => ({ ...row, text: byId.get(row.documentId)!.slice(row.startPos, row.endPos) })) as CodingWithCode[]
+  // Os offsets são UTF-16. Como as citações estão ordenadas por documento,
+  // basta carregar um texto por vez para recortar todos os trechos dele.
+  let documentId: number | undefined
+  let text = ''
+  const readText = db.select({ text: documents.plainText })
+    .from(documents).where(eq(documents.id, sql.placeholder('documentId'))).prepare()
+  return rows.map((row) => {
+    if (row.documentId !== documentId) {
+      documentId = row.documentId
+      text = readText.get({ documentId })!.text
+    }
+    // Materializa o trecho em UTF-16 para que ele não retenha o texto de
+    // origem na memória como uma substring compartilhada.
+    const excerpt = text.slice(row.startPos, row.endPos)
+    return { ...row, text: Buffer.from(excerpt, 'utf16le').toString('utf16le') }
+  })
 }
 
 function getCoding(id: number): Coding {

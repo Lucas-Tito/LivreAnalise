@@ -71,6 +71,7 @@ export const IPC = {
     members: 'collections:members',
     allMembers: 'collections:allMembers',
     addMember: 'collections:addMember',
+    addMembers: 'collections:addMembers',
     removeMember: 'collections:removeMember'
   },
   codings: {
@@ -174,6 +175,7 @@ export interface Api {
     members: (collectionId: number) => Promise<number[]>
     allMembers: () => Promise<CollectionMember[]>
     addMember: (collectionId: number, codeId: number) => Promise<void>
+    addMembers: (collectionId: number, codeIds: number[]) => Promise<void>
     removeMember: (collectionId: number, codeId: number) => Promise<void>
   }
   codings: {

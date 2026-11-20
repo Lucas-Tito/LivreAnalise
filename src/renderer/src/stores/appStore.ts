@@ -49,6 +49,7 @@ interface AppState {
   createProject: () => Promise<void>
   openProject: () => Promise<void>
   openRecent: (path: string) => Promise<void>
+  closingProject: boolean
   closeProject: () => Promise<void>
 
   refreshDocuments: () => Promise<void>
@@ -86,6 +87,7 @@ interface AppState {
   updateCollection: (input: UpdateCollectionInput) => Promise<void>
   deleteCollection: (id: number) => Promise<void>
   addCollectionMember: (collectionId: number, codeId: number) => Promise<void>
+  addCollectionMembers: (collectionId: number, codeIds: number[]) => Promise<void>
   removeCollectionMember: (collectionId: number, codeId: number) => Promise<void>
 
   refreshCodings: () => Promise<void>
@@ -314,21 +316,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().loadRecents()
   },
 
+  closingProject: false,
   closeProject: async () => {
     if (!(await finishMemo(get()))) return
     if (!(await get().podeSairDoTexto())) return
-    await get().notesFlush?.()
-    await window.api.project.close()
-    set({
-      project: null,
-      documents: [],
-      currentDocument: null,
-      codes: [],
-      collections: [],
-      collectionMembers: [],
-      codings: [],
-      ...resetNotesState()
-    })
+    if (get().closingProject) return
+    set({ closingProject: true })
+    try {
+      await get().notesFlush?.()
+      await window.api.project.close()
+      get().setNotasSujo(false)
+      set({
+        project: null,
+        documents: [],
+        currentDocument: null,
+        codes: [],
+        collections: [],
+        collectionMembers: [],
+        codings: [],
+        ...resetNotesState()
+      })
+    } finally {
+      set({ closingProject: false })
+    }
     await get().loadRecents()
   },
 
@@ -431,6 +441,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   createGroup: async (input) => {
     const group = await window.api.codes.createGroup(input)
     await get().refreshCodes()
+    if (input.collectionId != null) await get().refreshCollections()
     await get().refreshHistory()
     return group
   },
@@ -439,6 +450,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   createGroupFrom: async (input) => {
     const group = await window.api.codes.createGroupFrom(input)
     await get().refreshCodes()
+    if (input.collectionId != null) await get().refreshCollections()
     await get().refreshHistory()
     return group
   },
@@ -569,6 +581,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   addCollectionMember: async (collectionId, codeId) => {
     await window.api.collections.addMember(collectionId, codeId)
+    await get().refreshCollections()
+    await get().refreshHistory()
+  },
+
+  addCollectionMembers: async (collectionId, codeIds) => {
+    await window.api.collections.addMembers(collectionId, codeIds)
     await get().refreshCollections()
     await get().refreshHistory()
   },

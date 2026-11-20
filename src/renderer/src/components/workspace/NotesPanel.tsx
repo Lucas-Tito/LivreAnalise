@@ -146,7 +146,9 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
     useAppStore.setState({ notesFlush: saveNow })
   }, [pending, saveNow])
 
+  const closingProject = useAppStore((s) => s.closingProject)
   const handleChange = (t: string, b: string): void => {
+    if (useAppStore.getState().closingProject) return
     setTitle(t)
     setBody(b)
     pending.saver.change({ title: t, body: b })
@@ -252,6 +254,7 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
         )}
         <input
           aria-label="Título da nota"
+          readOnly={closingProject}
           value={title}
           onChange={(e) => handleChange(e.target.value, body)}
           placeholder="Título da nota"
@@ -259,6 +262,7 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
         />
         <textarea
           aria-label="Conteúdo da nota"
+          readOnly={closingProject}
           value={body}
           onChange={(e) => handleChange(title, e.target.value)}
           placeholder="Escreva o memo aqui…"

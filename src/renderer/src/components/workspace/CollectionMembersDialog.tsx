@@ -19,7 +19,7 @@ interface Props {
   onOpenChange: (open: boolean) => void
 }
 
-export function CollectionMembersDialog({ collection, onOpenChange }: Props): JSX.Element {
+export function CollectionMembersDialog({ collection: requested, onOpenChange }: Props): JSX.Element {
   const codes = useAppStore((s) => s.codes)
   const collections = useAppStore((s) => s.collections)
   const addCollectionMember = useAppStore((s) => s.addCollectionMember)
@@ -27,6 +27,11 @@ export function CollectionMembersDialog({ collection, onOpenChange }: Props): JS
   const [members, setMembers] = useState<Set<number>>(new Set())
   const [filter, setFilter] = useState('')
   const [memoOpen, setMemoOpen] = useState(false)
+  const current = collections.find((item) => item.id === requested?.id)
+  const collection = current ?? (memoOpen ? requested : null)
+  useEffect(() => {
+    if (requested && !current && !memoOpen) onOpenChange(false)
+  }, [requested, current, memoOpen, onOpenChange])
 
   useEffect(() => {
     if (collection) {
@@ -72,7 +77,7 @@ export function CollectionMembersDialog({ collection, onOpenChange }: Props): JS
           <Button size="sm" variant={memoOpen ? 'secondary' : 'outline'} onClick={() => setMemoOpen(true)}>Memo{(collections.find((c) => c.id === collection?.id)?.memo ?? collection?.memo) ? ' •' : ''}</Button>
         </div>
         {memoOpen && collection ? (
-          <MemoEditor target={{ id: collection.id, name: collection.name, kind: 'grupo', memo: collections.find((c) => c.id === collection.id)?.memo ?? collection.memo ?? '' }} onClose={() => setMemoOpen(false)} showHint />
+          <MemoEditor target={{ id: collection.id, name: collection.name, kind: 'grupo', memo: collections.find((c) => c.id === collection.id)?.memo ?? collection.memo ?? '' }} onClose={() => setMemoOpen(false)} showHint unavailable={!current} />
         ) : <>
         <Input
           placeholder="Filtrar códigos e categorias..."

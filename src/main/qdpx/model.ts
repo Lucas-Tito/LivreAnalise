@@ -56,4 +56,5 @@ export interface QdpxProject {
 export interface ParsedQdpx {
   project: QdpxProject
   skipped: string[]
+  origin?: string
 }

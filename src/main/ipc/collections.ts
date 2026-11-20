@@ -3,6 +3,7 @@ import { IPC } from '@shared/ipc'
 import type { CreateCollectionInput, UpdateCollectionInput } from '@shared/types'
 import {
   addCollectionMember,
+  addCollectionMembers,
   createCollection,
   deleteCollection,
   listAllCollectionMembers,
@@ -36,6 +37,8 @@ export function registerCollectionHandlers(): void {
     async (_e, collectionId: number, codeId: number) =>
       addCollectionMember(collectionId, codeId)
   )
+  ipcMain.handle(IPC.collections.addMembers, (_e, collectionId: number, codeIds: number[]) =>
+    addCollectionMembers(collectionId, codeIds))
   ipcMain.handle(
     IPC.collections.removeMember,
     async (_e, collectionId: number, codeId: number) =>

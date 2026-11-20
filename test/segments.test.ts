@@ -58,6 +58,11 @@ describe('computeSegments', () => {
     ])
   })
 
+  it('preserves coding order when an earlier item begins inside an active span', () => {
+    const segments = computeSegments(12, [coding(1, 5, 10), coding(2, 0, 7)])
+    expect(segments.find((segment) => segment.start === 5)?.codingIds).toEqual([1, 2])
+  })
+
   it('supports two codings on the exact same span (multi-code)', () => {
     const segs = computeSegments(8, [coding(1, 2, 5), coding(2, 2, 5)])
     expect(segs).toEqual([

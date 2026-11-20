@@ -1,10 +1,18 @@
 import { diffText } from '@shared/editAdjust'
 
+export function textareaValue(text: string): string {
+  return text.replace(/\r\n?/g, '\n')
+}
+
+export function textareaOffset(text: string, position: number): number {
+  return textareaValue(text.slice(0, position)).length
+}
+
 // O textarea expõe LF mesmo quando recebeu CRLF. Preserva os bytes fora da
 // edição para não transformar a normalização do navegador em edição de âncoras.
 export function applyTextareaChange(previous: string, value: string): string {
-  const normalized = previous.replace(/\r\n?/g, '\n')
-  const next = value.replace(/\r\n?/g, '\n')
+  const normalized = textareaValue(previous)
+  const next = textareaValue(value)
   const diff = diffText(normalized, next)
   if (!diff) return previous
   const offset = (position: number): number => {
@@ -16,6 +24,10 @@ export function applyTextareaChange(previous: string, value: string): string {
   }
   const inserted = next.slice(diff.changeStart, diff.oldChangeEnd + diff.delta)
   const lineEnding = previous.includes('\r\n') ? '\r\n' : '\n'
-  return previous.slice(0, offset(diff.changeStart)) +
-    inserted.replace(/\n/g, lineEnding) + previous.slice(offset(diff.oldChangeEnd))
+  const left = previous.slice(0, offset(diff.changeStart))
+  const middle = inserted.replace(/\n/g, lineEnding)
+  const right = previous.slice(offset(diff.oldChangeEnd))
+  const join = (first: string, second: string): string =>
+    first.endsWith('\r') && second.startsWith('\n') ? first + '\n' + second : first + second
+  return join(join(left, middle), right)
 }

@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
+import { execFileSync } from 'child_process'
+import JSZip from 'jszip'
 import { BINARY_ASSETS, downloadWhisperBinary, resolveWhisperBinary } from '../src/main/services/whisperBinary'
 import { WHISPER_MODELS, modelUrl } from '../src/main/services/whisperModels'
 
@@ -9,7 +11,14 @@ import { WHISPER_MODELS, modelUrl } from '../src/main/services/whisperModels'
 // zero arquivos), e `.../latest/download/<asset>` passou a devolver 404 no
 // botao "Baixar o programa". As URLs sao fixadas numa release com binarios,
 // entao este teste impede que alguem volte para o atalho quebrado.
-const state = vi.hoisted(() => ({ dir: '' }))
+const state = vi.hoisted(() => ({ dir: '', archive: null as Buffer | null }))
+vi.mock('../src/main/services/whisperModels', async (original) => {
+  const models = await original<typeof import('../src/main/services/whisperModels')>()
+  return { ...models, downloadModel: async (_url: string, target: string) => {
+    if (!state.archive) throw new Error('download inesperado')
+    writeFileSync(target, state.archive)
+  } }
+})
 vi.mock('electron', () => ({
   app: { getPath: () => state.dir }
 }))
@@ -53,6 +62,36 @@ it.skipIf(!BINARY_ASSETS[`${process.platform}-${process.arch}`])('reuses the 0.7
     expect(resolveWhisperBinary()).toBe(legacy)
     await expect(downloadWhisperBinary(vi.fn(), new AbortController().signal)).resolves.toBe(legacy)
   } finally {
+    rmSync(state.dir, { recursive: true, force: true })
+  }
+})
+
+it.skipIf(!BINARY_ASSETS[`${process.platform}-${process.arch}`])('replaces an incomplete installation only after validating the staged executable', async () => {
+  state.dir = mkdtempSync(join(tmpdir(), 'liva-whisper-repair-'))
+  try {
+    const installed = join(state.dir, 'whisper', 'installed')
+    mkdirSync(installed, { recursive: true })
+    const library = join(installed, 'library-old')
+    writeFileSync(library, 'incomplete')
+    const executable = process.platform === 'win32' ? 'whisper-cli.exe' : 'whisper-cli'
+    const asset = BINARY_ASSETS[`${process.platform}-${process.arch}`]
+    const archive = async (name: string): Promise<Buffer> => {
+      if (asset.archive === 'zip') {
+        return new JSZip().file(name, 'fixture').generateAsync({ type: 'nodebuffer' })
+      }
+      writeFileSync(join(state.dir, name), 'fixture')
+      return execFileSync('tar', ['-czf', '-', '-C', state.dir, name])
+    }
+    const signal = new AbortController().signal
+    state.archive = await archive('library-new')
+    await expect(downloadWhisperBinary(vi.fn(), signal)).rejects.toThrow('não contém o executável')
+    expect(readFileSync(library, 'utf8')).toBe('incomplete')
+    state.archive = await archive(executable)
+    await expect(downloadWhisperBinary(vi.fn(), signal)).resolves.toBe(join(installed, executable))
+    expect(readFileSync(join(installed, executable), 'utf8')).toBe('fixture')
+    expect(() => readFileSync(library)).toThrow()
+  } finally {
+    state.archive = null
     rmSync(state.dir, { recursive: true, force: true })
   }
 })

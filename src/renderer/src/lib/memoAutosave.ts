@@ -16,6 +16,10 @@ export function memoSaver(key: string, initial: string, write: (body: string) =>
       pending.set(key, saver)
       window.api.app.setMemoDirty?.(true)
     },
+    discard() {
+      if (pending.get(key) === saver) pending.delete(key)
+      window.api.app.setMemoDirty?.(pending.size > 0)
+    },
     flush: () => flushMemo(key, saver)
   }
 }

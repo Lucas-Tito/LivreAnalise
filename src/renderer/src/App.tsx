@@ -5,6 +5,7 @@ import { useZoomStore } from './stores/zoomStore'
 import { IPC } from '@shared/ipc'
 import { HomeLibrary } from './components/home/HomeLibrary'
 import { SimplePromptDialog } from './components/workspace/SimplePromptDialog'
+import { AppCloseDialog } from './components/workspace/AppCloseDialog'
 import { Workspace } from './components/workspace/Workspace'
 import { TranscribeView } from './components/transcribe/TranscribeView'
 
@@ -80,6 +81,7 @@ function App(): JSX.Element {
       {project ? <Workspace /> : transcribing
         ? <TranscribeView onBack={() => setTranscribing(false)} />
         : <HomeLibrary onTranscribe={() => setTranscribing(true)} />}
+      <AppCloseDialog />
       <SimplePromptDialog
         open={newProjectPrompt !== null}
         onOpenChange={(open) => { if (!open) setNewProjectPrompt(null) }}

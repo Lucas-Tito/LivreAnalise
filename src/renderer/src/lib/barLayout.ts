@@ -42,7 +42,7 @@ export function distributeExcerptBars<T>(excerpts: ExcerptBar<T>[], spacing = BA
     const free = preferred.find((top) => !rows.has(top))
     const top = free ?? preferred[0]
     const occupants = rows.get(top) ?? []
-    if (occupants.length === 0 || (singleLine && occupants.every((bar) => bar.singleLine))) {
+    if (occupants.length === 0 || (singleLine && occupants[0].singleLine)) {
       occupants.push({ items: [item], top, singleLine })
       rows.set(top, occupants)
     } else {
@@ -53,11 +53,22 @@ export function distributeExcerptBars<T>(excerpts: ExcerptBar<T>[], spacing = BA
   const bars = [...rows.values()].flat().map(({ items, top }) => ({ items, top }))
   // Entre duas linhas, o centro exato pode estar no espaço entre elas. Usa-o
   // quando estiver livre, sem desfazer a distribuição dos grupos mais densos.
-  for (const bar of bars) {
-    const min = Math.max(...bar.items.map((item) => bounds.get(item)!.min))
-    const max = Math.min(...bar.items.map((item) => bounds.get(item)!.max))
+  const ordered = [...bars].sort((a, b) => a.top - b.top)
+  for (let i = 0; i < ordered.length; i++) {
+    const bar = ordered[i]
+    if (bar.items.length === 1 && bounds.get(bar.items[0])!.min === bounds.get(bar.items[0])!.max) continue
+    let min = -Infinity
+    let max = Infinity
+    for (const item of bar.items) {
+      const bound = bounds.get(item)!
+      min = Math.max(min, bound.min)
+      max = Math.min(max, bound.max)
+    }
     const middle = (min + max) / 2
-    if (bars.every((other) => other === bar || Math.abs(other.top - middle) >= spacing)) {
+    if (middle === bar.top) continue
+    const previous = ordered[i - 1]
+    const next = ordered[i + 1]
+    if ((!previous || middle - previous.top >= spacing) && (!next || next.top - middle >= spacing)) {
       bar.top = middle
     }
   }

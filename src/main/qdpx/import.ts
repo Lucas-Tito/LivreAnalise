@@ -100,8 +100,8 @@ function importRecords(parsed: ParsedQdpx, db: ProjectDb): ImportReport {
 
   const docGuidToId = new Map<string, number>()
   for (const doc of parsed.project.documents) {
-    // Os offsets do QDPX se referem a estes bytes de texto decodificados.
-    // Remover BOM ou encurtar CRLF deslocaria todas as âncoras posteriores.
+    // O leitor do QDPX já tratou o BOM externo. Não normalize as quebras
+    // aqui: encurtar CRLF pode deslocar as âncoras posteriores.
     const content = doc.plainText
     const res = db
       .insert(documents)
@@ -160,11 +160,13 @@ function importRecords(parsed: ParsedQdpx, db: ProjectDb): ImportReport {
     const id = codeIdByGuid.get(code.guid)
     if (id == null) continue
     const refs = code.noteGuids ?? []
-    const first = refs.find((guid) => noteBodyByGuid.has(guid))
+    const memo = refs.map((guid) => noteBodyByGuid.get(guid)).find((note) => note?.plainText.trim())
     for (const guid of refs) if (!noteBodyByGuid.has(guid)) report.skipped.push(`NoteRef de código sem Note: ${guid}`)
-    if (first) {
-      db.update(codes).set({ memo: noteBodyByGuid.get(first)!.plainText }).where(eq(codes.id, id)).run()
-      codeMemoGuids.add(first)
+    if (memo) {
+      db.update(codes).set({ memo: memo.plainText }).where(eq(codes.id, id)).run()
+      const generatedTitle = /^LivreAnalise(?:\s|$)/i.test(parsed.origin ?? '') &&
+        memo.name === 'Memo: ' + code.name
+      if (!memo.description && (!memo.name || generatedTitle)) codeMemoGuids.add(memo.guid)
     }
     if (refs.filter((guid) => noteBodyByGuid.has(guid)).length > 1) {
       report.skipped.push(`Notas adicionais do código "${code.name}" foram preservadas como notas de projeto quando necessário.`)
@@ -195,7 +197,7 @@ function importRecords(parsed: ParsedQdpx, db: ProjectDb): ImportReport {
     }
     // O export rebaixa nota detached para NoteRef de documento guardando o
     // trecho original em Description: preserva como anchorText no roundtrip.
-    const anchorText = status === 'detached' || scope === 'document'
+    const anchorText = status === 'detached' || scope !== 'excerpt'
       ? (found.description ?? null)
       : null
     const repeated = importedNoteGuids.has(found.guid)

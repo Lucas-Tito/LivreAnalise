@@ -1,7 +1,7 @@
 import { spawnSync } from 'child_process'
 import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync } from 'fs'
 import { readFile, writeFile } from 'fs/promises'
-import { join } from 'path'
+import { join, relative } from 'path'
 import { app } from 'electron'
 import JSZip from 'jszip'
 import { downloadModel, WHISPER_MODELS, type DownloadProgress } from './whisperModels'
@@ -43,7 +43,7 @@ export function assetForPlatform(): BinaryAsset | null {
 }
 
 function findExecutable(root: string, skip = new Set<string>(), requireAccess = true): string | null {
-  if (!existsSync(root)) return null
+  if (!existsSync(root) || !statSync(root).isDirectory()) return null
   const found = new Map<string, string>()
   const stack = [root]
   while (stack.length > 0) {
@@ -54,6 +54,7 @@ function findExecutable(root: string, skip = new Set<string>(), requireAccess = 
       if (entry.isDirectory()) stack.push(full)
       else if (entry.isFile() && EXECUTABLES.includes(entry.name) && !found.has(entry.name)) {
         try {
+          if (statSync(full).size === 0) continue
           if (requireAccess) accessSync(full, process.platform === 'win32' ? constants.R_OK : constants.X_OK)
           found.set(entry.name, full)
         } catch {
@@ -153,8 +154,13 @@ export async function downloadWhisperBinary(
     const executable = findExecutable(staging, undefined, false)
     if (!executable) throw new Error('O arquivo baixado não contém o executável do whisper')
     if (process.platform !== 'win32') chmodSync(executable, 0o755)
+    accessSync(executable, process.platform === 'win32' ? constants.R_OK : constants.X_OK)
+    // Outro download pode ter concluído durante a extração.
+    const ready = findDownloadedBinary()
+    if (ready) return ready
+    rmSync(installed, { recursive: true, force: true })
     renameSync(staging, installed)
-    return findExecutable(installed)!
+    return join(installed, relative(staging, executable))
   } finally {
     rmSync(staging, { recursive: true, force: true })
   }

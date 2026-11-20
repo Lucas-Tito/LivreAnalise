@@ -3,6 +3,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TranscribeView } from '../src/renderer/src/components/transcribe/TranscribeView'
+import type { TranscriptionEvent } from '../src/shared/types'
 
 const env = vi.fn()
 const start = vi.fn()
@@ -10,6 +11,7 @@ const download = vi.fn()
 const models = vi.fn()
 const cancel = vi.fn()
 let ready = true
+let emit: (event: TranscriptionEvent) => void
 beforeEach(() => {
   vi.clearAllMocks()
   ready = true
@@ -25,7 +27,7 @@ beforeEach(() => {
   Object.defineProperty(window, 'api', { configurable: true, value: {
     transcription: {
       env, models, cancel,
-      onEvent: () => () => {}, pickMedia: async () => '/audio.wav',
+      onEvent: (listener: typeof emit) => { emit = listener; return () => {} }, pickMedia: async () => '/audio.wav',
       start, modelSize: async () => 100, downloadModel: download
     }
   } })
@@ -46,6 +48,21 @@ it('enables transcription using a validated manual path when autodetection fails
   const user = await configure()
   await user.click(screen.getByRole('button', { name: 'Transcrever' }))
   expect(start).toHaveBeenCalledWith(expect.objectContaining({ binaryPath: '/manual/whisper-cli' }))
+})
+
+it('offers a new download after a model fails verification via IPC event', async () => {
+  const user = await configure()
+  start.mockImplementationOnce(async () => {
+    ready = false
+    emit({ kind: 'error', message: 'O modelo não passou na verificação.' })
+  })
+  await user.click(screen.getByRole('button', { name: 'Transcrever' }))
+  expect(await screen.findByText(/não passou na verificação/)).toBeTruthy()
+  const button = screen.getByRole('button', { name: 'Transcrever' }) as HTMLButtonElement
+  await waitFor(() => expect(button.disabled).toBe(false))
+  await user.click(button)
+  expect(await screen.findByRole('button', { name: 'Baixar' })).toBeTruthy()
+  expect(start).toHaveBeenCalledTimes(1)
 })
 
 it('freezes the authorized model and becomes busy before the first download event', async () => {

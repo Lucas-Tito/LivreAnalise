@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TranscriptPanel } from '../src/renderer/src/components/workspace/TranscriptPanel'
@@ -16,7 +16,7 @@ beforeEach(() => {
     updateDocumentText: async () => { throw new Error('disco cheio') }
   })
 })
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 it('keeps the edited text and shows an actionable error if saving fails', async () => {
   const user = userEvent.setup()
@@ -46,4 +46,108 @@ it('does not save browser line-ending normalization as document edits', async ()
   await user.keyboard('{Control>}{End}{/Control}!')
   await user.click(screen.getByRole('button', { name: 'Salvar texto' }))
   expect(save).toHaveBeenCalledWith(1, original + '!')
+})
+
+it('uses the selected quotation for the grouped delete label without remeasuring on hover', async () => {
+  const geometry = vi.spyOn(Range.prototype, 'getClientRects').mockReturnValue([
+    new DOMRect(0, 0, 50, 20), new DOMRect(0, 28, 50, 20)
+  ] as unknown as DOMRectList)
+  const getStyle = window.getComputedStyle.bind(window)
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((el) => {
+    const style = getStyle(el)
+    if (el.classList.contains('transcript')) style.lineHeight = '28px'
+    return style
+  })
+  const removeCoding = vi.fn(async () => {})
+  const codes = ['Alfa', 'Beta', 'Gama'].map((name, i) => ({
+    id: i + 1, guid: name, name, color: '#123456', description: null, memo: '',
+    parentId: null, sortOrder: i, createdAt: '', usageCount: 1
+  }))
+  useAppStore.setState({
+    codes, removeCoding,
+    codings: codes.map(({ id, guid }) => ({
+      id, guid, documentId: 1, codeId: id, startPos: 0, endPos: 8, createdAt: ''
+    }))
+  })
+  render(<TranscriptPanel />)
+  const grouped = screen.getByRole('button', { name: 'Selecionar citação: Alfa' })
+  expect(grouped.textContent).toContain('+1')
+  geometry.mockClear()
+  fireEvent.mouseEnter(grouped.parentElement!)
+  fireEvent.mouseLeave(grouped.parentElement!)
+  expect(geometry).not.toHaveBeenCalled()
+  fireEvent.click(grouped)
+  fireEvent.click(screen.getByRole('button', { name: /Selecionar código\s*Gama/ }))
+  expect(screen.queryByRole('button', { name: 'Remover citação: Alfa' })).toBeNull()
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Remover citação: Gama' })) })
+  expect(removeCoding).toHaveBeenCalledWith(3)
+})
+
+it('makes the draft read-only until the Ctrl+S save finishes', async () => {
+  let saved!: () => void
+  const save = vi.fn(() => new Promise<void>((resolve) => { saved = resolve }))
+  useAppStore.setState({ updateDocumentText: save })
+  const user = userEvent.setup()
+  render(<TranscriptPanel />)
+  await user.click(screen.getByRole('button', { name: 'Editar texto' }))
+  const input = screen.getByRole('textbox', { name: 'Texto de Entrevista' }) as HTMLTextAreaElement
+  await user.clear(input)
+  await user.type(input, 'nova versão')
+  await user.keyboard('{Control>}s{/Control}')
+  expect(input.readOnly).toBe(true)
+  await user.keyboard(' texto durante a gravação{Control>}s{/Control}')
+  expect(input.value).toBe('nova versão')
+  expect(save).toHaveBeenCalledTimes(1)
+  expect(save).toHaveBeenCalledWith(1, 'nova versão')
+  await act(async () => saved())
+  expect(screen.queryByRole('textbox', { name: 'Texto de Entrevista' })).toBeNull()
+})
+
+it.each(['🙂', '👩‍💻'])('moves quotation handles past %s and restores keyboard focus', async (emoji) => {
+  const code = { id: 1, guid: 'c', name: 'Código', color: '#123456', description: null,
+    memo: '', parentId: null, isCategory: false, sortOrder: 0, createdAt: '', usageCount: 1 }
+  const end = emoji.length + 3
+  const coding = { id: 1, guid: 'q', documentId: 1, codeId: 1, startPos: 1, endPos: end, createdAt: '' }
+  const updateCoding = vi.fn(async (_id: number, startPos: number, endPos: number) => {
+    useAppStore.setState({ codings: [{ ...coding, startPos, endPos }] })
+  })
+  useAppStore.setState({
+    currentDocument: { ...useAppStore.getState().currentDocument!, plainText: 'A' + emoji + 'BC', charCount: end },
+    codes: [code], codings: [coding], updateCoding
+  })
+  render(<TranscriptPanel />)
+  fireEvent.click(screen.getByText(emoji + 'BC'))
+  const start = screen.getByRole('slider', { name: 'Início da citação' })
+  start.focus()
+  await act(async () => fireEvent.keyDown(start, { key: 'ArrowRight' }))
+  expect(updateCoding).toHaveBeenLastCalledWith(1, 1 + emoji.length, end)
+  const moved = screen.getByRole('slider', { name: 'Início da citação' })
+  expect(document.activeElement).toBe(moved)
+  await act(async () => fireEvent.keyDown(moved, { key: 'ArrowLeft' }))
+  expect(updateCoding).toHaveBeenLastCalledWith(1, 1, end)
+})
+
+it('shows a removable quotation for a newline without text rectangles', async () => {
+  const getStyle = window.getComputedStyle.bind(window)
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((el) => {
+    const style = getStyle(el)
+    if (el.classList.contains('transcript')) style.lineHeight = '28px'
+    return style
+  })
+  const originalRect = Element.prototype.getBoundingClientRect
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    return this.hasAttribute('data-transcript-line') ? new DOMRect(0, 20, 200, 28) : originalRect.call(this)
+  })
+  const removeCoding = vi.fn(async () => {})
+  useAppStore.setState({
+    currentDocument: { ...useAppStore.getState().currentDocument!, plainText: 'A\nB', charCount: 3 },
+    codes: [{ id: 1, guid: 'c', name: 'Quebra', color: '#123456', description: null, memo: '',
+      parentId: null, isCategory: false, sortOrder: 0, createdAt: '', usageCount: 1 }],
+    codings: [{ id: 9, guid: 'q', documentId: 1, codeId: 1, startPos: 1, endPos: 2, createdAt: '' }],
+    removeCoding
+  })
+  render(<TranscriptPanel />)
+  const remove = screen.getByRole('button', { name: 'Remover citação: Quebra' })
+  await act(async () => fireEvent.click(remove))
+  expect(removeCoding).toHaveBeenCalledWith(9)
 })

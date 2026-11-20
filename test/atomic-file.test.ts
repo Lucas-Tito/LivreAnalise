@@ -53,3 +53,10 @@ it.skipIf(process.platform === 'win32')('uses normal umask for a transcript and 
   expect(statSync(transcript).mode & 0o777).toBe(0o666 & ~process.umask())
   expect(statSync(catalog).mode & 0o777).toBe(0o600 & ~process.umask())
 })
+
+it('publishes a transcript whose destination has a long filename', () => {
+  const path = join(dir, 'a'.repeat(210) + '_transcricao.txt')
+  expect(writeUniqueTextFile(path, 'texto')).toBe(path)
+  expect(readFileSync(path, 'utf8')).toBe('texto')
+  expect(readdirSync(dir)).toHaveLength(1)
+})
