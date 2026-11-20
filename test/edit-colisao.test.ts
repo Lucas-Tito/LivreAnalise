@@ -57,4 +57,35 @@ describe.skipIf(!nativeOk)('colisão de span ao relocalizar o trecho', () => {
     historyRedo()
     expect(repos.listCodingsByDocument(doc.id)).toEqual(after)
   })
+
+  it('preserva citação curta e nota entre edições separadas, mesmo com texto repetido', async () => {
+    const original = 'Título original\r\nsim\r\nsim\r\nRodapé original'
+    const edited = 'Título ampliado para a revisão\r\nsim\r\nsim\r\nNovo rodapé'
+    const doc = repos.createDocument({ name: 'E', plainText: original, originalFormat: 'txt' })
+    const code = repos.createCode({ name: 'K', color: '#112233' })
+    const start = original.lastIndexOf('sim')
+    const quote = repos.createCoding({ documentId: doc.id, codeId: code.id, startPos: start, endPos: start + 3 })
+    const note = repos.createNote({ scope: 'excerpt', documentId: doc.id, startPos: start, endPos: start + 3 })
+
+    repos.updateDocumentText(doc.id, edited)
+    const next = edited.lastIndexOf('sim')
+    expect(repos.listCodingsByDocument(doc.id)).toMatchObject([{ id: quote.id, startPos: next, endPos: next + 3 }])
+    expect(repos.listNotesByDocument(doc.id)).toMatchObject([{ id: note.id, anchorStatus: 'attached', startPos: next, endPos: next + 3 }])
+
+    const { historyUndo, historyRedo } = await import('../src/main/history/stack')
+    historyUndo()
+    expect(repos.listCodingsByDocument(doc.id)).toMatchObject([{ id: quote.id, startPos: start, endPos: start + 3 }])
+    historyRedo()
+    expect(repos.listCodingsByDocument(doc.id)).toMatchObject([{ id: quote.id, startPos: next, endPos: next + 3 }])
+  })
+
+  it('preserva o documento e as marcações se o cálculo excede o limite', () => {
+    const original = 'a'.repeat(700)
+    const doc = repos.createDocument({ name: 'E', plainText: original, originalFormat: 'txt' })
+    const code = repos.createCode({ name: 'K', color: '#112233' })
+    const quote = repos.createCoding({ documentId: doc.id, codeId: code.id, startPos: 24, endPos: 30 })
+    expect(() => repos.updateDocumentText(doc.id, 'b'.repeat(700))).toThrow('Salve as alterações em etapas.')
+    expect(repos.getDocument(doc.id)?.plainText).toBe(original)
+    expect(repos.listCodingsByDocument(doc.id)).toMatchObject([{ id: quote.id, startPos: 24, endPos: 30 }])
+  })
 })
