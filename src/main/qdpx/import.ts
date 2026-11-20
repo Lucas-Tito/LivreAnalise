@@ -1,7 +1,8 @@
-import { readFile } from 'fs/promises'
+import { readFile, stat } from 'fs/promises'
 import { v4 as uuid } from 'uuid'
+import { eq } from 'drizzle-orm'
 import type { ImportReport } from '@shared/types'
-import { getDb } from '../db'
+import { getDb, type ProjectDb } from '../db'
 import {
   collectionMembers,
   collections,
@@ -10,12 +11,15 @@ import {
   documents,
   notes
 } from '../db/schema'
-import { normalizeText } from '../services/textExtract'
 import { deserializeQdpx } from './serialize'
 import type { ParsedQdpx } from './model'
+import { MAX_QDPX_BYTES } from './zipReader'
 
-export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
-  const db = getDb()
+export function importProjectIntoDb(parsed: ParsedQdpx, db: ProjectDb = getDb()): ImportReport {
+  return db.$client.transaction(() => importRecords(parsed, db))()
+}
+
+function importRecords(parsed: ParsedQdpx, db: ProjectDb): ImportReport {
   const report: ImportReport = {
     codes: 0,
     groups: 0,
@@ -59,13 +63,17 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
         name: code.name,
         color: code.color ?? '#2563eb',
         description: code.description ?? null,
-        parentId
+        parentId,
+        isCategory: parentId == null && code.isCodable === false,
+        sortOrder: report.codes
       })
       .run()
     codeIdByGuid.set(code.guid, Number(res.lastInsertRowid))
     depthByGuid.set(code.guid, depth)
     report.codes += 1
   }
+  // Pais importados também precisam continuar categorias se perderem os filhos.
+  db.$client.exec('UPDATE codes SET is_category = 1 WHERE id IN (SELECT parent_id FROM codes WHERE parent_id IS NOT NULL)')
 
   for (const set of parsed.project.groups) {
     const res = db
@@ -73,7 +81,8 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
       .values({
         guid: set.guid || uuid(),
         name: set.name,
-        description: set.description ?? null
+        description: set.description ?? null,
+        sortOrder: report.groups
       })
       .run()
     const collectionId = Number(res.lastInsertRowid)
@@ -91,7 +100,9 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
 
   const docGuidToId = new Map<string, number>()
   for (const doc of parsed.project.documents) {
-    const content = normalizeText(doc.plainText)
+    // O leitor do QDPX já tratou o BOM externo. Não normalize as quebras
+    // aqui: encurtar CRLF pode deslocar as âncoras posteriores.
+    const content = doc.plainText
     const res = db
       .insert(documents)
       .values({
@@ -115,11 +126,15 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
         sel.endPosition <= sel.startPosition ||
         sel.endPosition > content.length
       ) {
+        report.skipped.push(`Seleção fora da faixa em "${doc.name}": ${sel.startPosition}–${sel.endPosition}`)
         continue
       }
       for (const codeGuid of sel.codeGuids) {
         const codeId = codeIdByGuid.get(codeGuid)
-        if (!codeId) continue
+        if (!codeId) {
+          report.skipped.push(`Código não encontrado em "${doc.name}": ${codeGuid}`)
+          continue
+        }
         const res = db.insert(codings)
           .values({
             guid: uuid(),
@@ -139,6 +154,24 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
   // Notas: resolve targetGUID → nota; âncora inválida vira detached com o
   // texto original preservado, nunca falha o import.
   const noteBodyByGuid = new Map(parsed.project.notes.map((n) => [n.guid, n]))
+  const importedNoteGuids = new Set<string>()
+  const codeMemoGuids = new Set<string>()
+  for (const code of parsed.project.codes) {
+    const id = codeIdByGuid.get(code.guid)
+    if (id == null) continue
+    const refs = code.noteGuids ?? []
+    const memo = refs.map((guid) => noteBodyByGuid.get(guid)).find((note) => note?.plainText.trim())
+    for (const guid of refs) if (!noteBodyByGuid.has(guid)) report.skipped.push(`NoteRef de código sem Note: ${guid}`)
+    if (memo) {
+      db.update(codes).set({ memo: memo.plainText }).where(eq(codes.id, id)).run()
+      const generatedTitle = /^LivreAnalise(?:\s|$)/i.test(parsed.origin ?? '') &&
+        memo.name === 'Memo: ' + code.name
+      if (!memo.description && (!memo.name || generatedTitle)) codeMemoGuids.add(memo.guid)
+    }
+    if (refs.filter((guid) => noteBodyByGuid.has(guid)).length > 1) {
+      report.skipped.push(`Notas adicionais do código "${code.name}" foram preservadas como notas de projeto quando necessário.`)
+    }
+  }
   const insertNote = (
     guid: string,
     scope: 'project' | 'document' | 'excerpt',
@@ -164,12 +197,14 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
     }
     // O export rebaixa nota detached para NoteRef de documento guardando o
     // trecho original em Description: preserva como anchorText no roundtrip.
-    const anchorText = status === 'detached' || scope === 'document'
+    const anchorText = status === 'detached' || scope !== 'excerpt'
       ? (found.description ?? null)
       : null
+    const repeated = importedNoteGuids.has(found.guid)
+    if (repeated) report.skipped.push(`Nota com múltiplos vínculos copiada para preservar cada vínculo: ${found.name ?? found.guid}`)
     const res = db.insert(notes)
       .values({
-        guid: found.guid || uuid(),
+        guid: repeated ? uuid() : found.guid || uuid(),
         title: found.name,
         body: found.plainText ?? '',
         scope,
@@ -179,8 +214,8 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
         anchorStatus: status,
         anchorText
       })
-      .onConflictDoNothing()
       .run()
+    importedNoteGuids.add(found.guid)
     if (res.changes > 0) report.notes += 1
   }
 
@@ -191,7 +226,7 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
   for (const doc of parsed.project.documents) {
     const documentId = docIdByGuid.get(doc.guid)
     if (documentId == null) continue
-    const docLen = normalizeText(doc.plainText).length
+    const docLen = doc.plainText.length
     for (const guid of doc.noteGuids) {
       insertNote(guid, 'document', documentId, null, null, docLen)
     }
@@ -203,6 +238,7 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
   }
   // Notas em Notes sem nenhum NoteRef: preserva como nota de projeto + aviso.
   const referenced = new Set<string>([
+    ...codeMemoGuids,
     ...parsed.project.projectNoteGuids,
     ...parsed.project.documents.flatMap((d) => d.noteGuids),
     ...parsed.project.documents.flatMap((d) => d.selections.flatMap((s) => s.noteGuids))
@@ -231,8 +267,9 @@ export function importProjectIntoDb(parsed: ParsedQdpx): ImportReport {
   return report
 }
 
-export async function importQdpx(filePath: string): Promise<ImportReport> {
+export async function importQdpx(filePath: string, db: ProjectDb = getDb()): Promise<ImportReport> {
+  if ((await stat(filePath)).size > MAX_QDPX_BYTES) throw new Error('QDPX excede o limite de 128 MiB.')
   const buffer = await readFile(filePath)
   const parsed = await deserializeQdpx(buffer)
-  return importProjectIntoDb(parsed)
+  return importProjectIntoDb(parsed, db)
 }

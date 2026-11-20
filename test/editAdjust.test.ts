@@ -81,6 +81,16 @@ describe('adjustCodings', () => {
 })
 
 describe('applyCodingAdjustments', () => {
+  it('preserves the selection and its UTF-16 offsets between two changes on one line', () => {
+    const before = 'Título velho | sim 🙂 | rodapé velho'
+    const after = 'Título ampliado | sim 🙂 | outro rodapé'
+    const excerpt = 'sim 🙂'
+    const start = before.indexOf(excerpt)
+    const moved = after.indexOf(excerpt)
+    expect(applyCodingAdjustments([c(1, start, start + excerpt.length)], before, after))
+      .toEqual([c(1, moved, moved + excerpt.length)])
+  })
+
   it('returns codings with updated positions', () => {
     const adjusted = applyCodingAdjustments([c(1, 4, 6)], 'abcdef', 'abXXXcdef')
     expect(adjusted).toEqual([{ id: 1, startPos: 7, endPos: 9 }])

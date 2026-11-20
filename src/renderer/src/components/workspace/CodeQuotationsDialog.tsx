@@ -12,25 +12,33 @@ import { cn } from '@/lib/utils'
 import { casaBusca } from '@shared/busca'
 import { SearchButton, SearchField } from './SearchField'
 import type { CodeWithCount, CodingWithCode } from '@shared/types'
+import { MemoEditor } from './MemoDialog'
 
 interface Props {
   code: CodeWithCount | null
   onOpenChange: (open: boolean) => void
 }
 
-export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element {
+export function CodeQuotationsDialog({ code: requestedCode, onOpenChange }: Props): JSX.Element {
   const [quotes, setQuotes] = useState<CodingWithCode[]>([])
   const [somenteDocumento, setSomenteDocumento] = useState(false)
   const [atual, setAtual] = useState(0)
   const [aviso, setAviso] = useState<string | null>(null)
   const [buscaAberta, setBuscaAberta] = useState(false)
   const [termo, setTermo] = useState('')
+  const [memoOpen, setMemoOpen] = useState(false)
   const fecharBusca = (): void => {
     setBuscaAberta(false)
     setTermo('')
   }
   const documents = useAppStore((s) => s.documents)
   const codes = useAppStore((s) => s.codes)
+  const requestedId = requestedCode?.id
+  const code = codes.find((item) => item.id === requestedId) ?? null
+
+  useEffect(() => {
+    if (requestedId != null && code == null) onOpenChange(false)
+  }, [requestedId, code, onOpenChange])
   const currentDocument = useAppStore((s) => s.currentDocument)
   const locateOccurrence = useAppStore((s) => s.locateOccurrence)
   const listaRef = useRef<HTMLDivElement>(null)
@@ -59,7 +67,10 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
   }, [code, somenteDocumento, termo])
 
   useEffect(() => {
-    if (!code) fecharBusca()
+    if (!code) {
+      fecharBusca()
+      setMemoOpen(false)
+    }
   }, [code])
 
   const docName = (id: number): string =>
@@ -79,9 +90,11 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
   // As setas percorrem a LISTA, não o texto: num diálogo que cobre a
   // transcrição, navegar pelo documento por baixo não mostraria nada. Abrir a
   // ocorrência é o clique (ou Enter), e aí o diálogo sai da frente.
-  const andar = (dir: 1 | -1): void => {
+  const andar = (dir: 1 | -1, moveFocus = false): void => {
     if (visiveis.length === 0) return
-    setAtual((i) => (Math.min(i, visiveis.length - 1) + dir + visiveis.length) % visiveis.length)
+    const next = (indice + dir + visiveis.length) % visiveis.length
+    setAtual(next)
+    if (moveFocus) listaRef.current?.querySelector<HTMLButtonElement>(`[data-indice="${next}"]`)?.focus()
   }
 
   useEffect(() => {
@@ -101,26 +114,33 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
   }
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === 'ArrowDown') {
+    if (memoOpen || e.defaultPrevented || e.nativeEvent.isComposing) return
+    const target = e.target as HTMLElement
+    const searching = buscaAberta && target.tagName === 'INPUT'
+    const inResults = listaRef.current?.contains(target)
+    if (!searching && !inResults) return
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
-      andar(1)
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      andar(-1)
-    } else if (e.key === 'Enter' && indice >= 0) {
+      andar(e.key === 'ArrowDown' ? 1 : -1, !!inResults)
+    } else if (searching && e.key === 'Enter' && indice >= 0) {
       e.preventDefault()
       void abrir(visiveis[indice])
     }
   }
 
   return (
-    <Dialog open={code !== null} onOpenChange={onOpenChange}>
+    <Dialog open={code !== null} onOpenChange={(open) => {
+      void (async () => {
+        if (!open && memoOpen && !(await useAppStore.getState().sairDoMemo?.())) return
+        onOpenChange(open)
+      })()
+    }}>
       <DialogContent
-        className="max-w-2xl"
+        className={memoOpen ? 'flex h-[80vh] max-h-[90vh] w-[90vw] max-w-4xl flex-col' : 'max-w-2xl'}
         onKeyDown={onKeyDown}
         onEscapeKeyDown={(e) => {
           // Esc com a busca aberta fecha só a busca, não o diálogo inteiro.
-          if (buscaAberta) {
+          if (!memoOpen && buscaAberta) {
             e.preventDefault()
             fecharBusca()
           }
@@ -137,6 +157,15 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
             Trechos de "{code?.name}" ({visiveis.length})
           </DialogTitle>
         </DialogHeader>
+        <div className="flex gap-2">
+          <Button size="sm" variant={memoOpen ? 'outline' : 'secondary'} onClick={() => {
+            if (memoOpen) void useAppStore.getState().sairDoMemo?.()
+          }}>Trechos</Button>
+          <Button size="sm" variant={memoOpen ? 'secondary' : 'outline'} onClick={() => setMemoOpen(true)}>Memo{code?.memo ? ' •' : ''}</Button>
+        </div>
+        {memoOpen && code ? (
+          <MemoEditor target={{ id: code.id, name: code.name, kind: code.isCategory ? 'categoria' : 'código', memo: code.memo ?? '' }} onClose={() => setMemoOpen(false)} showHint />
+        ) : <>
 
         <div className="flex min-w-0 items-start gap-3">
           <p className="min-w-0 flex-1 text-sm text-muted-foreground">
@@ -238,6 +267,7 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
                 data-indice={i}
                 title="Localizar no texto"
                 onClick={() => void abrir(q)}
+                onFocus={() => setAtual(i)}
                 onMouseEnter={() => setAtual(i)}
                 className={cn(
                   'block w-full rounded-md border p-3 text-left text-sm transition-colors hover:bg-accent',
@@ -252,6 +282,7 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
             ))
           )}
         </div>
+        </>}
       </DialogContent>
     </Dialog>
   )

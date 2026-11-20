@@ -52,6 +52,7 @@ export function pushHistory(entry: HistoryEntry, agora: number = Date.now()): vo
   const s = stackFor(key())
   const topo = s.undo[s.undo.length - 1]
   if (
+    s.redo.length === 0 &&
     entry.coalesceKey != null &&
     topo?.coalesceKey === entry.coalesceKey &&
     agora - topo.at <= COALESCE_MS
@@ -61,7 +62,6 @@ export function pushHistory(entry: HistoryEntry, agora: number = Date.now()): vo
     topo.redo = entry.redo
     topo.label = entry.label
     topo.at = agora
-    s.redo = []
     return
   }
   s.undo.push({ ...entry, at: agora })

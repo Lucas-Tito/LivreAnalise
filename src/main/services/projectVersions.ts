@@ -1,72 +1,67 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs'
-import { basename, join } from 'path'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync } from 'fs'
+import { basename, dirname, join } from 'path'
 import Database from 'better-sqlite3'
 import { v4 as uuid } from 'uuid'
 import { APP_VERSION } from '@shared/version'
 import type { ProjectVersion, ProjectVersionKind } from '@shared/projectVersions'
-import { getRaw } from '../db'
+import { getActivePath, getRaw, openDetachedDatabase, type ProjectDb } from '../db'
 import { CURRENT_SCHEMA_VERSION } from '../db/migrations'
-import { sanitizeProjectFileName } from './projectPath'
+import { assertUnusedProjectPath, sanitizeProjectFileName, sidecarPaths } from './projectPath'
+import { publishExclusiveFile, writeAtomicFile } from './atomicFile'
 
 const MANIFEST = 'manifest.json'
 export const MAX_AUTO_VERSIONS = 10
 
-/**
- * Copia o `.liva` ANTES de abrir, quando ele ainda vai ser migrado.
- *
- * O checkpoint automatico da abertura roda depois do openDatabase, ou seja
- * depois da migracao: o snapshot mais antigo de qualquer projeto ja era o
- * estado migrado, e nao existia copia pre-migracao em lugar nenhum. A rede de
- * protecao nao cobria justamente a operacao mais arriscada do app.
- *
- * Aqui o banco ainda nao esta aberto -- sem conexao e sem WAL ativo, copiar o
- * arquivo e seguro, e e o unico momento em que e. Devolve a versao registrada,
- * ou null quando nao havia nada a fazer.
- */
-export function snapshotBeforeMigration(projectPath: string): ProjectVersion | null {
-  if (!existsSync(projectPath)) return null
-  let schema = 0
+export function projectSchemaVersion(path: string): number {
+  const raw = new Database(path, { readonly: true })
   try {
-    const raw = new Database(projectPath, { readonly: true })
-    schema = (raw.pragma('user_version') as Array<{ user_version: number }>)[0].user_version
+    return raw.pragma('user_version', { simple: true }) as number
+  } finally {
     raw.close()
-  } catch {
-    // Pode ser arquivo ilegivel, mas tambem um `-wal` pendente: recuperar WAL
-    // exige lock de escrita, que o readonly nao tem. Nos dois casos copiamos
-    // por precaucao, em vez de seguir para a migracao sem rede nenhuma.
-    schema = -1
   }
-  // -1 = nao foi possivel ler a versao; copia do mesmo jeito
+}
+
+// A API de backup inclui os dados confirmados no WAL em um único .liva.
+export async function snapshotBeforeMigration(source: string, projectPath = source): Promise<ProjectVersion | null> {
+  const schema = projectSchemaVersion(source)
   if (schema >= CURRENT_SCHEMA_VERSION) return null
+  readManifest(projectPath)
   const dir = versionsDir(projectPath)
   mkdirSync(dir, { recursive: true })
   const when = new Date()
   const file = fileNameFor('premigracao', 'antes de migrar', when)
   const dest = join(dir, file)
-  // Os sidecars vao junto. Copiar so o arquivo principal perdia o que estivesse
-  // num `-wal` sobrado de uma queda anterior: a copia "antes de migrar" sairia
-  // mais ANTIGA que o projeto, e quem restaurasse perderia o trabalho que
-  // estava no WAL.
-  copyFileSync(projectPath, dest)
-  for (const sufixo of ['-wal', '-shm']) {
-    if (existsSync(`${projectPath}${sufixo}`)) {
-      copyFileSync(`${projectPath}${sufixo}`, `${dest}${sufixo}`)
+  const tmp = join(dir, `.tmp-${uuid()}.liva`)
+  const raw = new Database(source, { readonly: true })
+  try {
+    await raw.backup(tmp)
+    const copy = new Database(tmp, { readonly: true })
+    try {
+      if (copy.pragma('quick_check', { simple: true }) !== 'ok' ||
+          copy.pragma('user_version', { simple: true }) !== schema) {
+        throw new Error('Falha ao verificar a cópia pré-migração.')
+      }
+    } finally {
+      copy.close()
     }
+    const entry: ProjectVersion = {
+      id: uuid(), file, createdAt: when.toISOString(), kind: 'premigracao',
+      label: 'antes de migrar', appVersion: APP_VERSION, schemaVersion: schema,
+      projectName: basename(projectPath).replace(/\.liva$/i, ''), sizeBytes: statSync(tmp).size
+    }
+    const entries = readManifest(projectPath)
+    renameSync(tmp, dest)
+    try {
+      writeManifest(projectPath, [...entries, entry])
+    } catch (error) {
+      rmSync(dest, { force: true })
+      throw error
+    }
+    return entry
+  } finally {
+    raw.close()
+    for (const suffix of ['', '-wal', '-shm']) rmSync(tmp + suffix, { force: true })
   }
-  const entry: ProjectVersion = {
-    id: uuid(),
-    file,
-    createdAt: when.toISOString(),
-    kind: 'premigracao',
-    label: 'antes de migrar',
-    appVersion: APP_VERSION,
-    schemaVersion: schema,
-    projectName: basename(projectPath).replace(/\.liva$/i, ''),
-    sizeBytes: statSync(dest).size
-  }
-  writeManifest(projectPath, [...readManifest(projectPath), entry])
-  pruneVersions(projectPath)
-  return entry
 }
 
 /** Apaga um checkpoint pelo id, arquivo e entrada do manifesto. */
@@ -93,15 +88,20 @@ export function readManifest(projectPath: string): ProjectVersion[] {
   try {
     const raw = readFileSync(manifestPath(projectPath), 'utf-8')
     const parsed = JSON.parse(raw) as ProjectVersion[]
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
+    if (!Array.isArray(parsed) || parsed.some((entry) =>
+      !entry || typeof entry.id !== 'string' || typeof entry.file !== 'string' ||
+      /[/\\]/.test(entry.file) || !entry.file.endsWith('.liva')
+    )) throw new Error('Formato de manifesto inválido')
+    return parsed
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw new Error('O catálogo de versões está ilegível. As cópias foram preservadas; não será sobrescrito automaticamente.', { cause: error })
   }
 }
 
 function writeManifest(projectPath: string, entries: ProjectVersion[]): void {
   mkdirSync(versionsDir(projectPath), { recursive: true })
-  writeFileSync(manifestPath(projectPath), JSON.stringify(entries, null, 2), 'utf-8')
+  writeAtomicFile(manifestPath(projectPath), JSON.stringify(entries, null, 2))
 }
 
 function currentProjectName(): string {
@@ -126,8 +126,12 @@ export async function createVersionSnapshot(
   projectPath: string,
   opts?: { kind?: ProjectVersionKind; label?: string | null }
 ): Promise<ProjectVersion> {
+  if (getActivePath() !== projectPath) throw new Error('O projeto mudou antes de criar a versão.')
+  const raw = getRaw()
+  const projectName = currentProjectName()
   const kind = opts?.kind ?? 'manual'
   const label = opts?.label ?? null
+  readManifest(projectPath)
   const dir = versionsDir(projectPath)
   mkdirSync(dir, { recursive: true })
   const when = new Date()
@@ -136,26 +140,31 @@ export async function createVersionSnapshot(
   // Backup em tmp + rename evita manifesto apontando para arquivo parcial.
   // O tmp fica no MESMO diretório: rename(2) entre filesystems lança EXDEV.
   const tmp = join(dir, `.tmp-${uuid()}.liva`)
+  let entry: ProjectVersion
   try {
-    await getRaw().backup(tmp)
+    await raw.backup(tmp)
+    entry = {
+      id: uuid(),
+      file,
+      createdAt: when.toISOString(),
+      kind,
+      label,
+      appVersion: APP_VERSION,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      projectName,
+      sizeBytes: statSync(tmp).size
+    }
+    const entries = readManifest(projectPath)
     renameSync(tmp, dest)
-  } catch (err) {
+    try {
+      writeManifest(projectPath, [...entries, entry])
+    } catch (error) {
+      rmSync(dest, { force: true })
+      throw error
+    }
+  } finally {
     rmSync(tmp, { force: true })
-    throw err
   }
-  const entry: ProjectVersion = {
-    id: uuid(),
-    file,
-    createdAt: when.toISOString(),
-    kind,
-    label,
-    appVersion: APP_VERSION,
-    schemaVersion: CURRENT_SCHEMA_VERSION,
-    projectName: currentProjectName(),
-    sizeBytes: statSync(dest).size
-  }
-  const entries = [...readManifest(projectPath), entry]
-  writeManifest(projectPath, entries)
   pruneVersions(projectPath)
   return entry
 }
@@ -197,17 +206,42 @@ export function renameVersionsDir(oldPath: string, newPath: string): void {
   }
 }
 
-export function copyVersionTo(sourceFile: string, destPath: string): void {
-  copyFileSync(sourceFile, destPath)
-  // A copia pre-migracao pode ter `-wal`/`-shm` junto: sem eles o projeto
-  // restaurado abriria sem o que estava pendente no WAL, ou seja mais antigo
-  // que a propria copia.
-  for (const sufixo of ['-wal', '-shm']) {
-    if (existsSync(`${sourceFile}${sufixo}`)) {
-      copyFileSync(`${sourceFile}${sufixo}`, `${destPath}${sufixo}`)
-    } else {
-      // sidecar velho do destino mentiria sobre o conteudo recem-copiado
-      rmSync(`${destPath}${sufixo}`, { force: true })
+export async function copyVersionTo<T>(
+  sourceFile: string,
+  destPath: string,
+  prepare: (db: ProjectDb) => T
+): Promise<T> {
+  assertUnusedProjectPath(destPath)
+  const staging = mkdtempSync(join(dirname(destPath), '.livreanalise-restauracao-'))
+  try {
+    const copy = join(staging, 'projeto.liva')
+    copyFileSync(sourceFile, copy)
+    let ready = copy
+    if (existsSync(sourceFile + '-wal')) {
+      // Checkpoints antigos podem ter um WAL. Consolide-o em uma cópia
+      // privada para publicar apenas um arquivo, sem tocar no checkpoint.
+      const [wal] = sidecarPaths(copy)
+      copyFileSync(sourceFile + '-wal', wal)
+      const raw = new Database(copy)
+      try {
+        ready = join(staging, 'restaurado.liva')
+        await raw.backup(ready)
+      } finally {
+        raw.close()
+      }
     }
+    // Abra e migre a cópia isolada antes de ocupar o nome escolhido.
+    const db = openDetachedDatabase(ready)
+    let result: T
+    try {
+      result = prepare(db)
+    } finally {
+      db.$client.close()
+    }
+    assertUnusedProjectPath(destPath)
+    publishExclusiveFile(ready, destPath)
+    return result
+  } finally {
+    rmSync(staging, { recursive: true, force: true })
   }
 }

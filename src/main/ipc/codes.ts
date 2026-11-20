@@ -17,12 +17,12 @@ export function registerCodeHandlers(): void {
     createCode(input)
   )
   ipcMain.handle(IPC.codes.createGroup, async (_e, input: CreateGroupInput) =>
-    createGroupCode(input.name, input.color, input.codeId)
+    createGroupCode(input.name, input.color, input.codeId, input.collectionId)
   )
   ipcMain.handle(
     IPC.codes.createGroupFrom,
     async (_e, input: CreateGroupFromCodesInput) =>
-      createGroupFromCodes(input.name, input.color, input.codeIds)
+      createGroupFromCodes(input.name, input.color, input.codeIds, input.collectionId)
   )
   ipcMain.handle(IPC.codes.update, async (_e, input: UpdateCodeInput) =>
     updateCode(input)

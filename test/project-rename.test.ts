@@ -1,9 +1,18 @@
 import { createRequire } from 'module'
-import { existsSync, mkdtempSync } from 'fs'
+import { existsSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import Database from 'better-sqlite3'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { shell } from 'electron'
+import { renameProject, trashProject } from '../src/main/services/projectFile'
+
+vi.mock('electron', () => ({
+  shell: { trashItem: vi.fn() }
+}))
+vi.mock('../src/main/services/recents', () => ({
+  removeRecent: vi.fn(), renameRecent: vi.fn(), replaceRecent: vi.fn()
+}))
 
 const require = createRequire(import.meta.url)
 let nativeOk = true
@@ -33,6 +42,12 @@ describe.skipIf(!nativeOk)('writeProjectName', () => {
       .prepare("INSERT INTO project_meta (guid, name) VALUES ('g1', 'nome antigo')")
       .run()
     db.closeDatabase()
+  })
+
+  afterEach(() => {
+    db.closeDatabase()
+    vi.clearAllMocks()
+    rmSync(tempDir, { recursive: true, force: true })
   })
 
   function read(path: string, column: 'name' | 'guid'): string {
@@ -92,5 +107,44 @@ describe.skipIf(!nativeOk)('writeProjectName', () => {
     const missing = join(tempDir, 'nao-existe.liva')
     expect(() => writeProjectName(missing, 'qualquer')).toThrow(/não encontrado/)
     expect(existsSync(missing)).toBe(false)
+  })
+
+  it('preserva commits no WAL enquanto outra conexão está aberta', async () => {
+    const other = new Database(projectPath)
+    try {
+      other.pragma('journal_mode = WAL')
+      other.exec("INSERT INTO documents (guid, name, original_format, plain_text) VALUES ('d1', 'D', 'txt', 'confirmado')")
+      const wal = projectPath + '-wal'
+      expect(existsSync(wal)).toBe(true)
+      const attempted = await renameProject(projectPath, 'novo')
+      expect(attempted).toMatchObject({ fileRenamed: false, path: projectPath })
+      expect(attempted.warning).toContain('todas as instâncias')
+      await expect(trashProject(projectPath)).rejects.toThrow('todas as instâncias')
+      expect(shell.trashItem).not.toHaveBeenCalled()
+      expect(existsSync(wal)).toBe(true)
+    } finally {
+      other.close()
+    }
+    const moved = await renameProject(projectPath, 'novo')
+    expect(moved.fileRenamed).toBe(true)
+    expect(existsSync(projectPath)).toBe(false)
+    const reopened = new Database(moved.path, { readonly: true })
+    try {
+      expect(reopened.prepare('SELECT plain_text FROM documents').get()).toEqual({ plain_text: 'confirmado' })
+    } finally {
+      reopened.close()
+    }
+    vi.mocked(shell.trashItem).mockImplementation(async (path) => renameSync(path, join(tempDir, 'lixeira.liva')))
+    await trashProject(moved.path)
+    expect(existsSync(moved.path)).toBe(false)
+    expect(read(join(tempDir, 'lixeira.liva'), 'name')).toBe('novo')
+  })
+
+  it('mantém o arquivo original se houver um WAL órfão no destino', async () => {
+    const target = join(tempDir, 'novo.liva')
+    writeFileSync(target + '-wal', 'arquivo auxiliar')
+    await expect(renameProject(projectPath, 'novo')).resolves.toMatchObject({ fileRenamed: false, path: projectPath })
+    expect(existsSync(target)).toBe(false)
+    expect(read(projectPath, 'name')).toBe('novo')
   })
 })

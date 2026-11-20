@@ -1,5 +1,5 @@
 import { type JSX, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronUp, FileText, Pencil, Save, Search, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, FileText, MessageSquare, Pencil, Save, Search, Trash2, X } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { useZoomStore } from '@/stores/zoomStore'
 import {
@@ -13,6 +13,7 @@ import {
 } from '@shared/segments'
 import {
   clampLaneWidth,
+  distributeExcerptBars,
   laneBounds,
   larguraGuardada,
   packBarColumns,
@@ -21,11 +22,22 @@ import {
 import { acharOcorrencias } from '@shared/busca'
 import { applyCodingAdjustments } from '@shared/editAdjust'
 import { contrastText, formatCount, randomColor } from '@/lib/utils'
-import { mensagemDeErro } from '@/lib/erros'
+import { codedSegmentBackground, distinctSegmentCodes, groupCodeRuns, hoveredSegmentColor, mergeLineBands, multipleCodeUnderline, noteUnderlineStyle, snapToLine } from '@/lib/codingHighlight'
+import {
+  captureTranscriptViewport,
+  remapTranscriptViewport,
+  restoreTranscriptViewport,
+  type TranscriptViewport
+} from '@/lib/transcriptViewport'
 import { Button } from '@/components/ui/button'
 import { CodingPopover } from './CodingPopover'
+import { ExcerptPopover } from './ExcerptPopover'
+import { excerptAction } from '@/lib/excerptAction'
+import { mensagemDeErro } from '@/lib/erros'
 import { CodeDialog, type CodeDialogValue } from './CodeDialog'
 import type { CodeWithCount } from '@shared/types'
+import { useAsyncAction } from '@/lib/useAsyncAction'
+import { applyTextareaChange, textareaOffset, textareaValue } from '@/lib/textareaChange'
 
 interface PendingSelection {
   start: number
@@ -36,12 +48,20 @@ interface PendingSelection {
 
 interface Bar {
   codingId: number
+  codingIds: number[]
   codeId: number
   color: string
   name: string
   top: number
   column: number
   columnSpan: number
+}
+
+interface PositionedSegment {
+  start: number
+  end: number
+  codingIds: number[]
+  rects: Array<{ left: number; top: number; right: number; bottom: number }>
 }
 
 const BAR_LANE_KEY = 'transcriptCodesWidth'
@@ -111,6 +131,8 @@ function resolveOffset(node: Node, offset: number): number | null {
   return null
 }
 
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
 export function TranscriptPanel(): JSX.Element {
   const currentDocument = useAppStore((s) => s.currentDocument)
   const codings = useAppStore((s) => s.codings)
@@ -134,12 +156,22 @@ export function TranscriptPanel(): JSX.Element {
   const createNote = useAppStore((s) => s.createNote)
   const openNoteEditor = useAppStore((s) => s.openNoteEditor)
   const zoom = useZoomStore((s) => s.zoom)
+  const { error: actionError, run } = useAsyncAction()
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
+  const handleFocus = useRef<{ id: number; side: 'start' | 'end'; element: HTMLElement } | null>(null)
+  const textSaveInFlight = useRef<Promise<boolean> | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
+  const backdropContentRef = useRef<HTMLDivElement>(null)
+  const viewportRef = useRef<TranscriptViewport | null>(null)
   const [pending, setPending] = useState<PendingSelection | null>(null)
+  const [excerptMenu, setExcerptMenu] = useState<{
+    x: number; y: number; codingIds: number[]; noteIds: number[]
+  } | null>(null)
+  const closeExcerptMenu = useCallback(() => setExcerptMenu(null), [])
+  const selectionGestureRef = useRef(false)
   // Código novo criado a partir de um trecho: guarda o trecho enquanto o
   // diálogo de configuração está aberto, porque o popover já fechou. A cor
   // sorteada mora aqui para não mudar a cada render do diálogo.
@@ -149,6 +181,9 @@ export function TranscriptPanel(): JSX.Element {
     initial: Partial<CodeDialogValue>
   } | null>(null)
   const [bars, setBars] = useState<Bar[]>([])
+  const [noteMarks, setNoteMarks] = useState<Array<{ ids: number[]; top: number }>>([])
+  const [positionedSegments, setPositionedSegments] = useState<PositionedSegment[]>([])
+  const [barHeight, setBarHeight] = useState(22)
   const [columnCount, setColumnCount] = useState(1)
   const columnFloorRef = useRef(1)
   const [laneWidth, setLaneWidth] = useState<number | null>(() => {
@@ -164,7 +199,8 @@ export function TranscriptPanel(): JSX.Element {
   )
   const laneWidthRef = useRef<number | null>(laneWidth)
   laneWidthRef.current = laneWidth
-  const [hoverCoding, setHoverCoding] = useState<number | null>(null)
+  const [hoverCoding, setHoverCoding] = useState<{ codingIds: number[]; color: string } | null>(null)
+  const [hoverNoteIds, setHoverNoteIds] = useState<number[]>([])
   const [selectedCodingId, setSelectedCodingId] = useState<number | null>(null)
   // Busca no texto: Ctrl+F abre, Enter/F3 anda, Esc fecha. Os destaques entram
   // pelo mesmo pipeline de segmentos das codificacoes e das notas, para os tres
@@ -177,8 +213,10 @@ export function TranscriptPanel(): JSX.Element {
   const [dragging, setDragging] = useState<{ codingId: number; end: 'start' | 'end' } | null>(null)
   const [dragPreviewPos, setDragPreviewPos] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
+  useEffect(() => { setExcerptMenu(null) }, [currentDocument?.id, editing, codings, documentNotes])
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [flashNoteId, setFlashNoteId] = useState<number | null>(null)
   // Ocorrência localizada vinda do painel de trechos: pisca como a nota.
   const [flashCodingId, setFlashCodingId] = useState<number | null>(null)
@@ -269,6 +307,11 @@ export function TranscriptPanel(): JSX.Element {
     ? { bg: '40', bgHover: '60', bar: 'bb' }
     : { bg: '1a', bgHover: '33', bar: '66' }
 
+  // Faixa de códigos múltiplos acompanha o zoom: fixa em px, ela sumia no
+  // zoom alto e dominava no zoom baixo.
+  const codeBandW = 12 * zoom
+  const codeBandH = 3 * zoom
+
   const posFromPoint = useCallback((x: number, y: number): number | null => {
     const range = document.caretRangeFromPoint?.(x, y)
     if (!range) return null
@@ -313,6 +356,78 @@ export function TranscriptPanel(): JSX.Element {
   }, [codes])
 
   const text = currentDocument?.plainText ?? ''
+
+  const graphemes = useMemo(
+    () => selectedCodingId == null ? null : graphemeSegmenter.segment(text),
+    [selectedCodingId, text]
+  )
+  const stepGrapheme = (position: number, direction: -1 | 1): number => {
+    if (direction < 0) return graphemes?.containing(position - 1)?.index ?? 0
+    const next = graphemes?.containing(position)
+    return next ? next.index + next.segment.length : text.length
+  }
+
+  useLayoutEffect(() => {
+    const focus = handleFocus.current
+    if (!focus) return
+    handleFocus.current = null
+    if (focus.id !== selectedCodingId || focus.element.isConnected ||
+        document.activeElement !== document.body) return
+    textRef.current?.querySelector<HTMLElement>(`[data-coding-handle="${focus.side}"]`)
+      ?.focus({ preventScroll: true })
+  }, [codings, selectedCodingId])
+
+  const resizeCodingWithKey = (
+    event: React.KeyboardEvent<HTMLElement>,
+    coding: (typeof codings)[number],
+    side: 'start' | 'end'
+  ): void => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const isStart = side === 'start'
+    const previous = isStart ? coding.startPos : coding.endPos
+    const next = stepGrapheme(previous, event.key === 'ArrowLeft' ? -1 : 1)
+    if (next === previous || (isStart ? next >= coding.endPos : next <= coding.startPos)) return
+    const element = event.currentTarget
+    void run(async () => {
+      if (document.activeElement === element) handleFocus.current = { id: coding.id, side, element }
+      try {
+        await updateCoding(coding.id, isStart ? next : coding.startPos, isStart ? coding.endPos : next)
+      } catch (error) {
+        handleFocus.current = null
+        throw error
+      }
+    })
+  }
+  const codingMap = useMemo(() => new Map(codings.map((c) => [c.id, c])), [codings])
+  const noteById = useMemo(() => new Map(documentNotes.map((n) => [n.id, n])), [documentNotes])
+
+  // Copia do texto original: o DOM também contém números de linha e alças,
+  // além de dividir o trecho em spans para os realces.
+  useEffect(() => {
+    const onCopy = (e: ClipboardEvent): void => {
+      const target = document.activeElement
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) return
+      const selection = window.getSelection()
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return
+      const range = selection.getRangeAt(0)
+      if (
+        !textRef.current?.contains(range.startContainer) ||
+        !textRef.current.contains(range.endContainer)
+      ) return
+      const start = resolveOffset(range.startContainer, range.startOffset)
+      const end = resolveOffset(range.endContainer, range.endOffset)
+      if (start == null || end == null || !e.clipboardData) return
+      e.preventDefault()
+      e.clipboardData.setData('text/plain', text.slice(start, end))
+    }
+    document.addEventListener('copy', onCopy)
+    return () => document.removeEventListener('copy', onCopy)
+  }, [text])
 
   // Âncoras de notas de trecho: sublinhado pontilhado discreto, sem ocupar
   // a margem direita (que pertence às etiquetas dos códigos).
@@ -521,42 +636,211 @@ export function TranscriptPanel(): JSX.Element {
   useLayoutEffect(() => {
     columnFloorRef.current = 1
     setColumnCount(1)
+    viewportRef.current = null
   }, [currentDocument?.id])
 
   const measure = useCallback(() => {
+    // Retângulos dos intervalos sobre spans com data-pos, sem os controles de
+    // arrasto. Reutilizado pelas etiquetas, marcadores e faixas, na leitura e
+    // no preview de edição.
+    const rangeRects = (
+      spanList: HTMLElement[],
+      startPos: number,
+      endPos: number
+    ): DOMRect[] => {
+      const out: DOMRect[] = []
+      // Os spans estão em ordem de documento. Salta para o primeiro que
+      // pode cruzar o intervalo e para ao alcançar a próxima faixa.
+      let low = 0
+      let high = spanList.length
+      while (low < high) {
+        const mid = (low + high) >>> 1
+        if (Number(spanList[mid].dataset.pos) < startPos) low = mid + 1
+        else high = mid
+      }
+      for (let i = Math.max(0, low - 1); i < spanList.length; i++) {
+        const span = spanList[i]
+        const start = Number(span.dataset.pos)
+        if (start >= endPos) break
+        const nodes = Array.from(span.childNodes).filter((node) => node.nodeType === Node.TEXT_NODE)
+        let position = start
+        for (const node of nodes) {
+          const end = position + (node.textContent?.length ?? 0)
+          if (position < endPos && end > startPos) {
+            const range = document.createRange()
+            range.setStart(node, Math.max(0, startPos - position))
+            range.setEnd(node, Math.min(end, endPos) - position)
+            for (const rect of Array.from(range.getClientRects())) {
+              if (rect.width > 0 && rect.height > 0) out.push(rect)
+            }
+          }
+          position = end
+        }
+      }
+      return out
+    }
+    // Faixas contínuas de cada sequência com o mesmo conjunto de códigos,
+    // sobre qualquer raiz com spans de data-pos (leitura ou preview).
+    const positionSegments = (
+      root: HTMLElement,
+      originTop: number,
+      originLeft: number,
+      segments: Array<{ start: number; end: number; codingIds: number[] }>
+    ): PositionedSegment[] => {
+      const spanList = Array.from(root.querySelectorAll<HTMLElement>('[data-pos]'))
+      return segments.flatMap((segment) => {
+        if (distinctSegmentCodes(segment.codingIds, codingMap, codeMap).length < 2) return []
+        const rects = rangeRects(spanList, segment.start, segment.end).map((rect) => ({
+          left: rect.left - originLeft,
+          top: rect.top - originTop,
+          right: rect.right - originLeft,
+          bottom: rect.bottom - originTop
+        }))
+        return [{ ...segment, rects }]
+      })
+    }
+
+    // Preview de edição: só as faixas (sem etiquetas nem marcadores).
+    if (editing) {
+      const content = backdropContentRef.current
+      if (!content) return
+      const box = content.getBoundingClientRect()
+      setPositionedSegments(positionSegments(content, box.top, box.left, draftSegments))
+      return
+    }
+
     const container = scrollRef.current
     const textEl = textRef.current
     if (!container || !textEl) return
     const containerTop = container.getBoundingClientRect().top
     const scrollTop = container.scrollTop
-    const anchors = anchorPositions(lineRows)
+    const containerLeft = container.getBoundingClientRect().left
+    const scrollLeft = container.scrollLeft
+    const spans = Array.from(textEl.querySelectorAll<HTMLElement>('[data-pos]'))
+    const lineHeight = parseFloat(getComputedStyle(textEl).lineHeight)
+    const height = Math.min(22, lineHeight - 2)
+    const lineElements = textEl.querySelectorAll<HTMLElement>('[data-transcript-line]')
+    setBarHeight(height)
+    // Centros verticais das linhas visuais cobertas por [startPos, endPos).
+    // Serve às etiquetas da direita e aos marcadores de comentário da
+    // esquerda: ambos precisam da geometria real do trecho, porque um
+    // parágrafo é uma linha lógica só e a quebra visual é do navegador.
+    const visualRects = (
+      startPos: number,
+      endPos: number
+    ): Array<{ left: number; top: number; right: number; bottom: number }> =>
+      rangeRects(spans, startPos, endPos).map((rect) => ({
+        left: rect.left - containerLeft + scrollLeft,
+        top: rect.top - containerTop + scrollTop,
+        right: rect.right - containerLeft + scrollLeft,
+        bottom: rect.bottom - containerTop + scrollTop
+      }))
+    const visualCenters = (startPos: number, endPos: number): number[] => {
+      const centers = visualRects(startPos, endPos).map((rect) => (rect.top + rect.bottom) / 2)
+      if (centers.length > 0) return centers
+
+      // Uma quebra de linha sozinha não gera retângulo de texto. Use a última
+      // linha visual do parágrafo que termina nessa quebra.
+      let low = 0
+      let high = lineRows.length
+      while (low < high) {
+        const mid = (low + high) >>> 1
+        if (lineRows[mid].start <= startPos) low = mid + 1
+        else high = mid
+      }
+      const row = lineElements[low - 1]?.getBoundingClientRect()
+      return row && row.height > 0
+        ? [row.bottom - Math.min(row.height, lineHeight) / 2 - containerTop + scrollTop]
+        : []
+    }
     const raw = codings
       .map((c) => {
-        const anchor = resolveAnchorPos(c.startPos, anchors)
-        const el =
-          anchor === null
-            ? null
-            : (textEl.querySelector(
-                `[data-pos="${anchor}"]`
-              ) as HTMLElement | null)
         const code = codeMap.get(c.codeId)
-        if (!el || !code) return null
-        const top = el.getBoundingClientRect().top - containerTop + scrollTop
+        if (!code) return null
+        const lineTops = visualCenters(c.startPos, c.endPos).map((center) => center - height / 2)
+        if (lineTops.length === 0) return null
         return {
-          codingId: c.id,
-          codeId: c.codeId,
-          color: code.color,
-          name: code.name,
-          top
+          item: { codingId: c.id, codeId: c.codeId, color: code.color, name: code.name },
+          lineTops
         }
       })
-      .filter((b): b is Omit<Bar, 'column' | 'columnSpan'> => b !== null)
+      .filter((b) => b !== null)
 
-    const layout = packBarColumns(raw, columnFloorRef.current)
+    // Reserva um pixel de folga: a quantização das linhas pode arredondar a
+    // distância entre elas para baixo em níveis fracionários de zoom.
+    const spacing = height + 1
+    const distributed = distributeExcerptBars(raw, spacing).map(({ items, top }) => ({
+      ...items[0],
+      codingIds: items.map((item) => item.codingId),
+      name: items[0].name,
+      top
+    }))
+    const layout = packBarColumns(distributed, columnFloorRef.current, spacing)
     columnFloorRef.current = layout.columnCount
     setBars(layout.bars)
     setColumnCount(layout.columnCount)
-  }, [codings, codeMap, lineRows])
+    // Um marcador por linha de citação — não por nota, nem por parágrafo. O
+    // meio do trecho é arredondado para o centro da linha visual mais próxima
+    // (desempate para cima): o meio exato de uma citação de 2 linhas cai no
+    // vão entre elas e o ícone flutuava sem tocar nenhuma, parecendo torto.
+    // Notas da mesma linha dividem um marcador com contador, em vez de uma
+    // delas ser empurrada para fora da própria citação; o clique abre a
+    // escolha entre elas.
+    const marks = noteAnchors
+      .map((n) => {
+        const top = snapToLine(visualCenters(n.start, n.end))
+        if (top == null) return null
+        return { id: n.id, top }
+      })
+      .filter((m) => m !== null)
+      .sort((a, b) => a.top - b.top)
+    const grouped: Array<{ ids: number[]; top: number }> = []
+    for (const mark of marks) {
+      const last = grouped[grouped.length - 1]
+      if (last && Math.abs(mark.top - last.top) < 2) last.ids.push(mark.id)
+      else grouped.push({ ids: [mark.id], top: mark.top })
+    }
+    setNoteMarks(grouped)
+    // Faixa contínua dos trechos com vários códigos: uma faixa por linha
+    // visual de cada sequência (ver groupCodeRuns), em vez do gradiente
+    // reiniciado por span — o reinício fatiava trechos curtos e escondia as
+    // cores do meio, e as cotas proporcionais pareciam fronteiras de código.
+    setPositionedSegments(positionSegments(textEl, containerTop - scrollTop, containerLeft - scrollLeft, hitSegments))
+  }, [codings, codeMap, codingMap, draftSegments, editing, hitSegments, lineRows, noteAnchors])
+
+  // O hover altera apenas a pintura; não consulta novamente a geometria do DOM.
+  const multiBands = useMemo(() => {
+    let index = 0
+    return groupCodeRuns(positionedSegments, codingMap, codeMap, editing ? [] : hoverCoding?.codingIds)
+      .flatMap((run) => {
+        while (index < positionedSegments.length && positionedSegments[index].start < run.start) index++
+        const rects: PositionedSegment['rects'] = []
+        while (index < positionedSegments.length && positionedSegments[index].start < run.end) {
+          for (const rect of positionedSegments[index++].rects) rects.push(rect)
+        }
+        return mergeLineBands(rects, codeBandH).map((band, i) => ({
+          ...band, key: `${run.start}-${run.end}-${i}`, colors: run.colors
+        }))
+      })
+  }, [positionedSegments, codingMap, codeMap, editing, hoverCoding, codeBandH])
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const container = editing ? backdropRef.current : scrollRef.current
+    const content = editing ? backdropRef.current : textRef.current
+    if (!container || !content) return
+    restoreTranscriptViewport(container, content, viewport)
+    if (editing && textareaRef.current) {
+      const textarea = textareaRef.current
+      const position = textareaOffset(draft, viewport.position)
+      textarea.setSelectionRange(position, position)
+      textarea.focus({ preventScroll: true })
+      textarea.scrollTop = container.scrollTop
+      syncScroll()
+    }
+    viewportRef.current = null
+  }, [editing])
 
   useLayoutEffect(() => {
     if (editing) syncScroll()
@@ -564,8 +848,8 @@ export function TranscriptPanel(): JSX.Element {
 
   useLayoutEffect(() => {
     measure()
-    const container = scrollRef.current
-    const textEl = textRef.current
+    const container = editing ? backdropRef.current : scrollRef.current
+    const textEl = editing ? backdropContentRef.current : textRef.current
     if (!container || !textEl) return
     const ro = new ResizeObserver(() => measure())
     ro.observe(container)
@@ -574,7 +858,7 @@ export function TranscriptPanel(): JSX.Element {
     // posicoes medidas ficam obsoletas e as etiquetas descem junto com o erro.
     ro.observe(textEl)
     return () => ro.disconnect()
-  }, [measure, text, zoom, currentDocument?.id])
+  }, [measure, text, zoom, currentDocument?.id, editing])
 
   const handleMouseUp = (): void => {
     if (dragging) return
@@ -589,8 +873,25 @@ export function TranscriptPanel(): JSX.Element {
     const start = Math.min(a, b)
     const end = Math.max(a, b)
     if (end <= start) return
+    selectionGestureRef.current = true
+    setExcerptMenu(null)
     const rect = range.getBoundingClientRect()
     setPending({ start, end, x: rect.left, y: rect.bottom + 6 })
+  }
+
+  const activateExcerpt = (codingIds: number[], noteIds: number[], x: number, y: number): void => {
+    if (selectionGestureRef.current || dragging) return
+    setPending(null)
+    setExcerptMenu(null)
+    const action = excerptAction(codingIds, noteIds)
+    if (action === 'choose') {
+      setExcerptMenu({ x, y, codingIds, noteIds })
+    } else if (action === 'note') {
+      setSelectedCodingId(null)
+      openNoteEditor(noteIds[0])
+    } else if (action === 'code') {
+      setSelectedCodingId(codingIds[0])
+    }
   }
 
   const applyCode = async (codeId: number): Promise<void> => {
@@ -665,30 +966,64 @@ export function TranscriptPanel(): JSX.Element {
   }
 
   const startEditing = (): void => {
+    if (scrollRef.current && textRef.current) {
+      viewportRef.current = captureTranscriptViewport(scrollRef.current, textRef.current)
+    }
     setPending(null)
     setDraft(text)
+    setSaveError(null)
     setEditing(true)
   }
 
   const cancelEditing = async (): Promise<void> => {
     if (!(await podeSairDoTexto())) return
+    if (backdropRef.current) {
+      const viewport = captureTranscriptViewport(backdropRef.current, backdropRef.current)
+      viewportRef.current = remapTranscriptViewport(viewport, draft, text)
+    }
     setEditing(false)
     setDraft('')
   }
 
-  const saveEditing = async (): Promise<boolean> => {
+  const commitDraft = async (): Promise<boolean> => {
     if (!currentDocument) return false
     setSaving(true)
+    setSaveError(null)
     try {
       await updateDocumentText(currentDocument.id, draft)
+      if (backdropRef.current) {
+        viewportRef.current = captureTranscriptViewport(backdropRef.current, backdropRef.current)
+      }
       setEditing(false)
       setDraft('')
       return true
+    } catch (error) {
+      setSaveError(mensagemDeErro(error, 'Não foi possível salvar o texto. Seu rascunho foi preservado.'))
+      throw error
     } finally {
       setSaving(false)
     }
   }
 
+  // Faixas de códigos múltiplos atrás do texto, na leitura e no preview.
+  const bandLayer = (
+    <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+      {multiBands.map((band) => (
+        <div
+          key={band.key}
+          className="absolute"
+          style={{
+            left: band.left,
+            top: band.top,
+            width: band.width,
+            height: codeBandH,
+            borderRadius: 1,
+            ...multipleCodeUnderline(band.colors, codeBandW, codeBandH)
+          }}
+        />
+      ))}
+    </div>
+  )
   // Texto pendente (#31): o store sabe quando há edição não salva e, pelas
   // ações registradas aqui, o diálogo de saída consegue salvar ou descartar.
   const textoSujo = editing && draft !== text
@@ -697,6 +1032,12 @@ export function TranscriptPanel(): JSX.Element {
   }, [textoSujo, setTextoSujo])
   useEffect(() => () => setTextoSujo(false), [setTextoSujo])
 
+  const saveEditing = (): Promise<boolean> => {
+    textSaveInFlight.current ??= commitDraft().finally(() => {
+      textSaveInFlight.current = null
+    })
+    return textSaveInFlight.current
+  }
   const saveRef = useRef(saveEditing)
   saveRef.current = saveEditing
   useEffect(() => {
@@ -715,6 +1056,7 @@ export function TranscriptPanel(): JSX.Element {
   useEffect(() => {
     setEditing(false)
     setDraft('')
+    setSaveError(null)
   }, [currentDocument?.id])
 
   if (!currentDocument) {
@@ -729,11 +1071,11 @@ export function TranscriptPanel(): JSX.Element {
   }
 
   return (
-    <div className="flex h-full flex-1 flex-col">
-      <div className="flex items-center justify-between border-b px-4 py-2">
-        <div className="flex items-center gap-2">
+    <div className="flex h-full min-w-0 flex-1 flex-col">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+        <div className="flex min-w-0 items-center gap-2">
           <FileText className="h-4 w-4 text-muted-foreground" />
-          <span className="font-medium">{currentDocument.name}</span>
+          <span className="truncate font-medium" title={currentDocument.name}>{currentDocument.name}</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground">
@@ -745,7 +1087,7 @@ export function TranscriptPanel(): JSX.Element {
               <Button size="sm" variant="ghost" onClick={() => void cancelEditing()} disabled={saving}>
                 <X className="h-4 w-4" /> Cancelar
               </Button>
-              <Button size="sm" onClick={() => void saveEditing()} disabled={saving}>
+              <Button size="sm" onClick={() => void saveEditing().catch(() => undefined)} disabled={saving}>
                 <Save className="h-4 w-4" /> Salvar texto
               </Button>
             </>
@@ -775,6 +1117,8 @@ export function TranscriptPanel(): JSX.Element {
           )}
         </div>
       </div>
+
+      {(saveError || actionError) && <p role="alert" className="border-b p-2 text-sm text-destructive">{saveError || actionError}</p>}
 
       {/* Caixa compacta flutuando no canto, como a busca do Word e do Docs, em
           vez de uma faixa na largura toda empurrando o texto para baixo. A div
@@ -865,10 +1209,12 @@ export function TranscriptPanel(): JSX.Element {
                 fontFamily: 'var(--transcript-font)'
               }}
             >
+              <div ref={backdropContentRef} className="relative">
+                {bandLayer}
               {draftSegments.map((seg) => {
                 const segText = draft.slice(seg.start, seg.end)
                 if (seg.codingIds.length === 0) {
-                  return <span key={seg.start}>{segText}</span>
+                  return <span key={seg.start} data-pos={seg.start}>{segText}</span>
                 }
                 const topCoding = codings.find(
                   (c) => c.id === seg.codingIds[seg.codingIds.length - 1]
@@ -876,20 +1222,16 @@ export function TranscriptPanel(): JSX.Element {
                 const topColor = topCoding
                   ? codeMap.get(topCoding.codeId)?.color ?? '#888'
                   : '#888'
-                const names = seg.codingIds
-                  .map((id) => {
-                    const cd = codings.find((c) => c.id === id)
-                    return cd ? codeMap.get(cd.codeId)?.name : ''
-                  })
-                  .filter(Boolean)
-                  .join(', ')
+                const activeCodes = distinctSegmentCodes(seg.codingIds, codingMap, codeMap)
+                const names = `${activeCodes.length} ${activeCodes.length === 1 ? 'código' : 'códigos'}: ${activeCodes.map((code) => code.name).join(', ')}`
                 return (
                   <span
                     key={seg.start}
+                    data-pos={seg.start}
                     data-names={names}
                     style={{
                       backgroundColor: `${topColor}${alpha.bg}`,
-                      boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}`,
+                      boxShadow: activeCodes.length > 1 ? undefined : `inset 0 -2px 0 0 ${topColor}${alpha.bar}`,
                       borderRadius: 2
                     }}
                   >
@@ -897,14 +1239,23 @@ export function TranscriptPanel(): JSX.Element {
                   </span>
                 )
               })}
+              </div>
             </div>
             <textarea
               ref={textareaRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              value={textareaValue(draft)}
+              readOnly={saving}
+              onChange={(e) => setDraft(applyTextareaChange(draft, e.target.value))}
+              aria-label={`Texto de ${currentDocument.name}`}
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                  e.preventDefault()
+                  if (!saving) void saveEditing().catch(() => undefined)
+                }
+              }}
               onScroll={syncScroll}
               spellCheck={false}
-              className="absolute inset-0 resize-none overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] bg-transparent p-3 font-mono text-transparent caret-foreground outline-none"
+              className="absolute inset-0 h-full w-full resize-none overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] bg-transparent p-3 font-mono text-transparent caret-foreground outline-none"
               style={{
                 color: 'transparent',
                 fontSize: `calc(0.875rem * ${zoom})`,
@@ -929,11 +1280,70 @@ export function TranscriptPanel(): JSX.Element {
           style={dragging ? { cursor: 'col-resize', userSelect: 'none' } : undefined}
           onClick={() => setSelectedCodingId(null)}
         >
-          <div className="flex">
+          <div className="relative flex">
+          {/* Faixas dos trechos com vários códigos: atrás do texto, sem
+              interceptar clique, uma por linha visual de cada sequência. */}
+          {bandLayer}
+          {/* Trilha de comentários: um marcador por linha de citação. O
+              pontilhado no texto marca as palavras exatas; o marcador abre a
+              nota sem passar pelo menu, ou escolhe entre as da mesma linha. */}
+          <div className="relative w-7 shrink-0 self-stretch">
+            {noteMarks.map((mark) => {
+              const active =
+                mark.ids.some((id) => hoverNoteIds.includes(id)) ||
+                (flashNoteId != null && mark.ids.includes(flashNoteId))
+              const singleId = mark.ids.length === 1 ? mark.ids[0] : null
+              const singleNote = singleId != null ? noteById.get(singleId) : undefined
+              return (
+                <button
+                  key={mark.ids.join('-')}
+                  type="button"
+                  title={
+                    singleNote?.title?.trim()
+                      ? singleNote.title.trim()
+                      : mark.ids.length > 1
+                        ? `${mark.ids.length} comentários — clique para escolher`
+                        : 'Abrir comentário'
+                  }
+                  aria-label={
+                    mark.ids.length > 1
+                      ? `Escolher entre ${mark.ids.length} comentários`
+                      : 'Abrir comentário'
+                  }
+                  className={`absolute rounded p-1 transition-colors ${
+                    active
+                      ? 'bg-amber-400/40 text-amber-600 dark:text-amber-300'
+                      : 'bg-amber-400/15 text-amber-600/80 ring-1 ring-amber-500/40 hover:bg-amber-400/30 hover:text-amber-600 dark:text-amber-400/90 dark:hover:text-amber-300'
+                  }`}
+                  // Centralização inline de propósito: o ponto medido é o centro
+                  // de uma linha visual, então o botão precisa do translate
+                  // -50% nos dois eixos para o centro dele coincidir com ela.
+                  style={{ top: mark.top, left: '50%', transform: 'translate(-50%, -50%)' }}
+                  onMouseEnter={() => setHoverNoteIds(mark.ids)}
+                  onMouseLeave={() => setHoverNoteIds([])}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSelectedCodingId(null)
+                    setPending(null)
+                    if (singleId != null) openNoteEditor(singleId)
+                    else setExcerptMenu({ x: e.clientX, y: e.clientY + 8, codingIds: [], noteIds: mark.ids })
+                  }}
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  {mark.ids.length > 1 && (
+                    <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[9px] font-bold leading-none text-white">
+                      {mark.ids.length}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
           <div
             ref={textRef}
+            onMouseDown={() => { selectionGestureRef.current = false }}
             onMouseUp={handleMouseUp}
-            className="transcript min-w-0 flex-1 py-5"
+            className="transcript min-w-[15rem] flex-1 py-5"
             style={{
               fontSize: `calc(15px * ${zoom})`,
               lineHeight: `calc(1.75rem * ${zoom})`,
@@ -948,12 +1358,12 @@ export function TranscriptPanel(): JSX.Element {
             ) : (
               lineRows.map((row) => {
                 return (
-                  <div key={row.index} className="flex">
+                  <div key={row.index} className="flex" data-transcript-line>
                     <div
                       className="w-12 shrink-0 select-none pr-3 text-right text-xs text-muted-foreground/40"
                       style={{ lineHeight: `calc(1.75rem * ${zoom})` }}
                     >
-                      {row.index + 1}
+                      <span>{row.index + 1}</span>
                     </div>
                     <div className="min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere] pr-6">
                       {row.spans.length === 0 ? (
@@ -982,24 +1392,34 @@ export function TranscriptPanel(): JSX.Element {
                             const hasNote = seg.noteIds.length > 0
                             const isFlash =
                               flashNoteId != null && seg.noteIds.includes(flashNoteId)
+                            const isNoteHover =
+                              seg.noteIds.some((id) => hoverNoteIds.includes(id))
                             return (
                               <span
                                 key={`${segStart}-${seg.isPending}`}
                                 data-pos={segStart}
                                 className={seg.isPending ? 'pending-selection' : undefined}
-                                title={hasNote ? 'Trecho com nota' : undefined}
+                                title={hasNote ? (seg.noteIds.length > 1 ? 'Clique para escolher uma nota' : 'Clique para abrir a nota') : undefined}
                                 style={{
                                   ...(hasNote
                                     ? {
-                                        textDecoration: 'underline dotted',
-                                        textUnderlineOffset: 3,
+                                        ...noteUnderlineStyle(true, false, isNoteHover),
+                                        cursor: 'pointer',
                                         backgroundColor: isFlash
                                           ? 'rgba(250, 204, 21, 0.35)'
-                                          : undefined
+                                          : isNoteHover
+                                            ? 'rgba(250, 204, 21, 0.18)'
+                                            : undefined
                                       }
                                     : {}),
                                   ...estiloBusca
                                 }}
+                                onMouseEnter={hasNote ? () => setHoverNoteIds(seg.noteIds) : undefined}
+                                onMouseLeave={hasNote ? () => setHoverNoteIds([]) : undefined}
+                                onClick={hasNote ? (e) => {
+                                  e.stopPropagation()
+                                  activateExcerpt(seg.codingIds, seg.noteIds, e.clientX, e.clientY + 8)
+                                } : undefined}
                               >
                                 {segText}
                               </span>
@@ -1008,12 +1428,17 @@ export function TranscriptPanel(): JSX.Element {
                           const topCodingObj = codings.find(
                             (c) => c.id === seg.codingIds[seg.codingIds.length - 1]
                           )
-                          const topColor = topCodingObj
+                          const hoverColor = hoveredSegmentColor(seg.codingIds, hoverCoding)
+                          const topColor = hoverColor ?? (topCodingObj
                             ? codeMap.get(topCodingObj.codeId)?.color ?? '#888'
-                            : '#888'
-                          const isHover = seg.codingIds.includes(hoverCoding ?? -1)
+                            : '#888')
+                          const activeCodes = distinctSegmentCodes(seg.codingIds, codingMap, codeMap)
+                          const isMultiple = activeCodes.length > 1
+                          const isHover = hoverColor != null
                           const isSelected = seg.codingIds.includes(selectedCodingId ?? -1)
                           const hasNote = seg.noteIds.length > 0
+                          const isNoteHover =
+                            seg.noteIds.some((id) => hoverNoteIds.includes(id))
                           const isFlash =
                             (flashNoteId != null && seg.noteIds.includes(flashNoteId)) ||
                             (flashCodingId != null && seg.codingIds.includes(flashCodingId))
@@ -1040,44 +1465,58 @@ export function TranscriptPanel(): JSX.Element {
                               data-pos={segStart}
                               className={seg.isPending ? 'pending-selection-coded' : undefined}
                               title={[
-                                seg.codingIds
-                                  .map((id) => {
-                                    const cd = codings.find((c) => c.id === id)
-                                    return cd ? codeMap.get(cd.codeId)?.name : ''
-                                  })
-                                  .filter(Boolean)
-                                  .join(', '),
-                                hasNote ? 'tem nota' : ''
+                                `${activeCodes.length} ${activeCodes.length === 1 ? 'código' : 'códigos'}: ${activeCodes.map((code) => code.name).join(', ')}`,
+                                hasNote || seg.codingIds.length > 1 ? 'Clique para escolher uma ação' : 'Clique para selecionar o código'
                               ]
                                 .filter(Boolean)
                                 .join(' · ')}
                               style={{
-                                backgroundColor: isFlash
-                                  ? 'rgba(250, 204, 21, 0.35)'
-                                  : `${topColor}${isHover || isSelected ? alpha.bgHover : alpha.bg}`,
+                                // A prioridade entre flash, busca, hover e cor do
+                                // código mora no helper, com teste.
+                                backgroundColor: codedSegmentBackground({
+                                  isFlash,
+                                  isMultiple,
+                                  ehHit,
+                                  ehHitAtual,
+                                  isNoteHover,
+                                  isCodingHover: isHover,
+                                  base: `${topColor}${isHover || isSelected ? alpha.bgHover : alpha.bg}`
+                                }),
                                 // o flood da busca vai DEPOIS da barra do código
                                 // na lista: sombra anterior desenha por cima, e a
                                 // barra precisa continuar visível no trecho achado
-                                boxShadow: `inset 0 -2px 0 0 ${topColor}${alpha.bar}${isSelected ? `, 0 0 0 1px ${topColor}66` : ''}${
-                                  ehHit
+                                boxShadow: isMultiple && !isHover
+                                  ? (isSelected ? `0 0 0 1px ${topColor}66` : undefined)
+                                  : `inset 0 -2px 0 0 ${topColor}${alpha.bar}${isSelected ? `, 0 0 0 1px ${topColor}66` : ''}${
+                                  ehHit && !isMultiple
                                     ? `, inset 0 0 0 999px rgba(250, 204, 21, ${ehHitAtual ? '0.45' : '0.2'})`
                                     : ''
                                 }`,
+                                ...noteUnderlineStyle(hasNote, true, isNoteHover),
                                 borderRadius: 2,
                                 cursor: 'pointer',
-                                textDecoration: hasNote ? 'underline dotted' : undefined,
-                                textUnderlineOffset: hasNote ? 3 : undefined,
+                              }}
+                              onMouseEnter={() => {
+                                if (hasNote) setHoverNoteIds(seg.noteIds)
+                              }}
+                              onMouseLeave={() => {
+                                if (hasNote) setHoverNoteIds([])
                               }}
                               onClick={(e) => {
                                 e.stopPropagation()
-                                setSelectedCodingId(
-                                  seg.codingIds[seg.codingIds.length - 1]
-                                )
-                                setPending(null)
+                                activateExcerpt(seg.codingIds, seg.noteIds, e.clientX, e.clientY + 8)
                               }}
                             >
                               {showStartHandle && (
                                 <span
+                                  role="slider"
+                                  tabIndex={0}
+                                  aria-label="Início da citação"
+                                  data-coding-handle="start"
+                                  aria-valuemin={0}
+                                  aria-valuemax={stepGrapheme(selCoding!.endPos, -1)}
+                                  aria-valuenow={selCoding!.startPos}
+                                  onKeyDown={(e) => resizeCodingWithKey(e, selCoding!, 'start')}
                                   style={{ ...handleStyle, marginRight: 2 }}
                                   onMouseDown={(e) => {
                                     e.preventDefault()
@@ -1089,6 +1528,14 @@ export function TranscriptPanel(): JSX.Element {
                               {segText}
                               {showEndHandle && (
                                 <span
+                                  role="slider"
+                                  tabIndex={0}
+                                  aria-label="Fim da citação"
+                                  data-coding-handle="end"
+                                  aria-valuemin={stepGrapheme(selCoding!.startPos, 1)}
+                                  aria-valuemax={text.length}
+                                  aria-valuenow={selCoding!.endPos}
+                                  onKeyDown={(e) => resizeCodingWithKey(e, selCoding!, 'end')}
                                   style={{ ...handleStyle, marginLeft: 2 }}
                                   onMouseDown={(e) => {
                                     e.preventDefault()
@@ -1109,6 +1556,25 @@ export function TranscriptPanel(): JSX.Element {
           </div>
 
           <div
+            role="separator"
+            tabIndex={0}
+            aria-label="Largura da faixa de códigos"
+            aria-orientation="vertical"
+            aria-valuemin={minNeededLaneWidth}
+            aria-valuenow={effectiveLaneWidth}
+            onKeyDown={(e) => {
+              if (e.key === 'Home') {
+                e.preventDefault()
+                setLaneWidth(null)
+                localStorage.removeItem(BAR_LANE_KEY)
+                return
+              }
+              if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+              e.preventDefault()
+              const next = clampLaneWidth(effectiveLaneWidth + (e.key === 'ArrowLeft' ? 16 : -16), columnCount, LANE, effectiveLaneWidth)
+              setLaneWidth(next)
+              localStorage.setItem(BAR_LANE_KEY, String(next))
+            }}
             onMouseDown={(e) => {
               if (e.button !== 0) return
               e.preventDefault()
@@ -1127,46 +1593,70 @@ export function TranscriptPanel(): JSX.Element {
               }
             }}
             title="Arraste para redimensionar"
-            className={`w-1.5 shrink-0 cursor-col-resize self-stretch hover:bg-primary/20 ${
+            className={`w-1.5 shrink-0 cursor-col-resize self-stretch hover:bg-primary/20 focus-visible:bg-primary/30 focus-visible:outline-none ${
               laneResizing ? 'bg-primary/30' : ''
             }`}
           />
           <div
             className="relative shrink-0 border-l bg-muted/30"
-            style={{ width: effectiveLaneWidth }}
-          >
-            {bars.map((bar) => (
-              <div
-                key={bar.codingId}
-                onMouseEnter={() => setHoverCoding(bar.codingId)}
-                onMouseLeave={() => setHoverCoding(null)}
-                onClick={(e) => { e.stopPropagation(); setSelectedCodingId(bar.codingId) }}
-                className="group absolute flex h-[22px] cursor-pointer items-center gap-1 rounded px-1.5 text-xs"
-                style={{
-                  top: bar.top,
-                  left: BAR_LANE_PAD / 2 + bar.column * barSlot,
-                  width: Math.max(BAR_MIN_WIDTH, barSlot * bar.columnSpan - BAR_GAP),
-                  backgroundColor: bar.color,
-                  color: contrastText(bar.color),
-                  outline: selectedCodingId === bar.codingId ? `2px solid ${bar.color}` : undefined,
-                  outlineOffset: 2,
-                }}
-              >
-                <BarName name={bar.name} />
-                <button
-                  className="ml-auto shrink-0 opacity-0 group-hover:opacity-100"
-                  title="Remover citação"
-                  onClick={(e) => {
-                    // sem isto o clique sobe para a etiqueta e marca como
-                    // selecionada a citação que acabou de ser removida
-                    e.stopPropagation()
-                    removeCoding(bar.codingId)
+             style={{ width: effectiveLaneWidth }}
+           >
+            {bars.map((bar) => {
+              const activeId = bar.codingIds.includes(selectedCodingId ?? -1) ? selectedCodingId : null
+              const activeCoding = activeId == null ? null : codingMap.get(activeId)
+              const activeCode = activeCoding ? codeMap.get(activeCoding.codeId) : null
+              const name = activeCode?.name ?? bar.name
+              const color = activeCode?.color ?? bar.color
+              const deleteId = activeCoding?.id ?? (bar.codingIds.length === 1 ? bar.codingId : null)
+              return (
+                <div
+                  key={bar.codingId}
+                  onMouseEnter={() => setHoverCoding({ codingIds: bar.codingIds, color })}
+                  onMouseLeave={() => setHoverCoding(null)}
+                  title={bar.codingIds.length > 1 ? 'Clique para escolher um código' : undefined}
+                  className="group absolute flex cursor-pointer items-center gap-1 rounded px-1.5 text-xs"
+                  style={{
+                    height: barHeight,
+                    top: bar.top,
+                    left: BAR_LANE_PAD / 2 + bar.column * barSlot,
+                    width: Math.max(BAR_MIN_WIDTH, barSlot * bar.columnSpan - BAR_GAP),
+                    backgroundColor: color,
+                    color: contrastText(color),
+                    outline: activeId != null ? `2px solid ${color}` : undefined,
+                    outlineOffset: 2
                   }}
                 >
-                  <Trash2 className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
+                  <button
+                    type="button"
+                    className="flex h-full min-w-0 flex-1 items-center gap-1 text-left focus-visible:outline focus-visible:outline-2"
+                    aria-label={`Selecionar citação: ${name}`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      selectionGestureRef.current = false
+                      const box = e.currentTarget.getBoundingClientRect()
+                      activateExcerpt(bar.codingIds, [], e.detail === 0 ? box.left : e.clientX, e.detail === 0 ? box.bottom : e.clientY + 8)
+                    }}
+                  >
+                    <BarName name={name} />
+                    {bar.codingIds.length > 1 && <span className="shrink-0">+{bar.codingIds.length - 1}</span>}
+                  </button>
+                  {deleteId != null && (
+                    <button
+                      type="button"
+                      className="ml-auto shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label={`Remover citação: ${name}`}
+                      title={`Remover citação: ${name}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void run(() => removeCoding(deleteId))
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
             </div>
           </div>
         </div>
@@ -1182,6 +1672,21 @@ export function TranscriptPanel(): JSX.Element {
           selectedText={text.slice(pending.start, pending.end)}
           onAddNote={() => void addNoteForPending()}
           onReattachNote={podeReligar ? () => void reattachPendingNote() : undefined}
+        />
+      )}
+      {excerptMenu && (
+        <ExcerptPopover
+          x={excerptMenu.x}
+          y={excerptMenu.y}
+          notes={documentNotes.filter((n) => excerptMenu.noteIds.includes(n.id)).map((n) => ({ id: n.id, title: n.title?.trim() || 'Sem título' }))}
+          codes={excerptMenu.codingIds.flatMap((id) => {
+            const coding = codingMap.get(id)
+            const code = coding ? codeMap.get(coding.codeId) : undefined
+            return code ? [{ id, name: code.name, color: code.color }] : []
+          })}
+          onClose={closeExcerptMenu}
+          onOpenNote={(id) => { setSelectedCodingId(null); openNoteEditor(id); closeExcerptMenu() }}
+          onSelectCode={(id) => { setSelectedCodingId(id); closeExcerptMenu() }}
         />
       )}
 

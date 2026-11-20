@@ -32,6 +32,7 @@ import {
   PopoverTrigger
 } from '@/components/ui/popover'
 import { APP_VERSION } from '@shared/version'
+import { useAsyncAction } from '@/lib/useAsyncAction'
 
 function formatProjectStats(stats: {
   documents: number
@@ -59,14 +60,15 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
   const trashProject = useAppStore((s) => s.trashProject)
   const [renaming, setRenaming] = useState<RecentProjectWithStats | null>(null)
   const [configAberta, setConfigAberta] = useState(false)
+  const { working, error, run } = useAsyncAction()
 
   useEffect(() => {
-    loadRecents()
-  }, [loadRecents])
+    void run(loadRecents)
+  }, [loadRecents, run])
 
   return (
-    <div className="flex h-full w-full items-center justify-center p-8">
-      <div className="w-full max-w-2xl">
+    <div className="flex h-full w-full flex-col overflow-y-auto p-8">
+      <div className="mx-auto my-auto w-full max-w-2xl shrink-0">
         <div className="mb-8 flex items-center gap-3">
           <BookText className="h-9 w-9 text-primary" />
           <div>
@@ -134,9 +136,12 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
           </div>
         </div>
 
+        {error && <p role="alert" className="mb-4 rounded-md border border-destructive/40 p-3 text-sm text-destructive">{error}</p>}
+        {working && <p role="status" className="mb-3 text-sm text-muted-foreground">Processando…</p>}
         <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-3">
           <button
-            onClick={createProject}
+            onClick={() => void run(createProject)}
+            disabled={working}
             className="flex flex-col items-start gap-2 rounded-lg border bg-card p-5 text-left transition-colors hover:border-primary hover:bg-accent"
           >
             <FilePlus2 className="h-6 w-6 text-primary" />
@@ -146,7 +151,8 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
             </span>
           </button>
           <button
-            onClick={openProject}
+            onClick={() => void run(openProject)}
+            disabled={working}
             className="flex flex-col items-start gap-2 rounded-lg border bg-card p-5 text-left transition-colors hover:border-primary hover:bg-accent"
           >
             <FolderOpen className="h-6 w-6 text-primary" />
@@ -157,6 +163,7 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
           </button>
           <button
             onClick={onTranscribe}
+            disabled={working}
             className="flex flex-col items-start gap-2 rounded-lg border bg-card p-5 text-left transition-colors hover:border-primary hover:bg-accent"
           >
             <AudioLines className="h-6 w-6 text-primary" />
@@ -182,7 +189,8 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
                 <ContextMenu>
                   <ContextMenuTrigger asChild>
                   <button
-                    onClick={() => openRecent(r.path)}
+                    onClick={() => void run(() => openRecent(r.path))}
+                    disabled={working}
                     className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-accent"
                   >
                     <div className="min-w-0">
@@ -202,14 +210,15 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
                   </button>
                   </ContextMenuTrigger>
                   <ContextMenuContent>
-                    <ContextMenuItem onClick={() => openRecent(r.path)}>
+                    <ContextMenuItem disabled={working} onClick={() => void run(() => openRecent(r.path))}>
                       <OpenIcon className="h-4 w-4" /> Abrir
                     </ContextMenuItem>
-                    <ContextMenuItem onClick={() => setRenaming(r)}>
+                    <ContextMenuItem disabled={working} onClick={() => setRenaming(r)}>
                       <Pencil className="h-4 w-4" /> Renomear
                     </ContextMenuItem>
                     <ContextMenuSeparator />
                     <ContextMenuItem
+                      disabled={working}
                       className="text-destructive focus:text-destructive"
                       onClick={() => {
                         if (
@@ -217,7 +226,7 @@ export function HomeLibrary({ onTranscribe }: Props): JSX.Element {
                             `Mover "${r.name}" para a lixeira?\n\n${r.path}\n\nO arquivo sai do lugar mas pode ser recuperado na lixeira do sistema.`
                           )
                         ) {
-                          trashProject(r.path)
+                          void run(() => trashProject(r.path))
                         }
                       }}
                     >

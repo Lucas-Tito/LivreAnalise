@@ -35,6 +35,28 @@ export function parseWhisperLine(line: string): TranscriptSegment | null {
   }
 }
 
+export function createTranscriptStream(onSegment: (segment: TranscriptSegment) => void): {
+  push: (chunk: string) => void
+  end: () => void
+} {
+  let buffer = ''
+  const line = (text: string): void => {
+    const segment = parseWhisperLine(text)
+    if (segment) onSegment(segment)
+  }
+  return {
+    push: (chunk) => {
+      const lines = (buffer + chunk).split(/\r?\n/)
+      buffer = lines.pop() ?? ''
+      for (const text of lines) line(text)
+    },
+    end: () => {
+      if (buffer) line(buffer)
+      buffer = ''
+    }
+  }
+}
+
 export function formatTranscriptLine(segment: TranscriptSegment): string {
   return `[${formatTimestamp(segment.start)} -> ${formatTimestamp(segment.end)}] ${segment.text}`
 }

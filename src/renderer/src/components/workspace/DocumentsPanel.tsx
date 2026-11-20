@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import { casaBusca } from '@shared/busca'
 import { SearchButton, SearchField } from './SearchField'
 import type { DocumentRecord } from '@shared/types'
+import { useAsyncAction } from '@/lib/useAsyncAction'
 
 export function DocumentsPanel(): JSX.Element {
   const documents = useAppStore((s) => s.documents)
@@ -22,6 +23,7 @@ export function DocumentsPanel(): JSX.Element {
   const renameDocument = useAppStore((s) => s.renameDocument)
   const deleteDocument = useAppStore((s) => s.deleteDocument)
   const busy = useAppStore((s) => s.busy)
+  const { working, error, run } = useAsyncAction()
 
   const [renaming, setRenaming] = useState<DocumentRecord | null>(null)
   const [buscaAberta, setBuscaAberta] = useState(false)
@@ -40,8 +42,8 @@ export function DocumentsPanel(): JSX.Element {
             size="sm"
             variant="secondary"
             className="min-w-0 flex-1"
-            disabled={busy}
-            onClick={importDocuments}
+            disabled={busy || working}
+            onClick={() => void run(importDocuments)}
           >
             <FilePlus className="h-4 w-4" /> Importar documentos
           </Button>
@@ -60,6 +62,7 @@ export function DocumentsPanel(): JSX.Element {
           />
         )}
       </div>
+      {error && <p role="alert" className="p-2 text-xs text-destructive">{error}</p>}
       <div className="flex-1 overflow-auto p-1">
         {documents.length === 0 ? (
           <p className="p-4 text-center text-xs text-muted-foreground">
@@ -83,14 +86,14 @@ export function DocumentsPanel(): JSX.Element {
                 >
                   <button
                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                    onClick={() => selectDocument(doc.id)}
+                    onClick={() => void run(() => selectDocument(doc.id))}
                   >
                     <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="truncate">{doc.name}</span>
                   </button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button className="opacity-0 group-hover:opacity-100">
+                      <button aria-label={`Ações de ${doc.name}`} className="rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring">
                         <MoreVertical className="h-4 w-4" />
                       </button>
                     </DropdownMenuTrigger>
@@ -106,7 +109,7 @@ export function DocumentsPanel(): JSX.Element {
                               `Excluir "${doc.name}" e todas as suas citações?`
                             )
                           ) {
-                            deleteDocument(doc.id)
+                            void run(() => deleteDocument(doc.id))
                           }
                         }}
                       >
@@ -127,7 +130,7 @@ export function DocumentsPanel(): JSX.Element {
         title="Renomear documento"
         label="Nome"
         initialValue={renaming?.name}
-        onSubmit={(name) => renaming && renameDocument(renaming.id, name)}
+        onSubmit={async (name) => { if (renaming) await renameDocument(renaming.id, name) }}
       />
     </div>
   )
