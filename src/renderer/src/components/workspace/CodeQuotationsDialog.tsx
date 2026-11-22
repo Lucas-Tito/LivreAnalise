@@ -12,25 +12,39 @@ import { cn } from '@/lib/utils'
 import { casaBusca } from '@shared/busca'
 import { SearchButton, SearchField } from './SearchField'
 import type { CodeWithCount, CodingWithCode } from '@shared/types'
+import { MemoEditor } from './MemoDialog'
+import { restoreFocus, type FocusAnchor } from '@/lib/keyboard'
+import { mensagemDeErro } from '@/lib/erros'
+import { useAsyncAction } from '@/lib/useAsyncAction'
 
 interface Props {
   code: CodeWithCount | null
   onOpenChange: (open: boolean) => void
+  returnFocus?: FocusAnchor | null
 }
 
-export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element {
+export function CodeQuotationsDialog({ code: requestedCode, onOpenChange, returnFocus }: Props): JSX.Element {
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const { working, run } = useAsyncAction()
   const [quotes, setQuotes] = useState<CodingWithCode[]>([])
   const [somenteDocumento, setSomenteDocumento] = useState(false)
   const [atual, setAtual] = useState(0)
   const [aviso, setAviso] = useState<string | null>(null)
   const [buscaAberta, setBuscaAberta] = useState(false)
   const [termo, setTermo] = useState('')
+  const [memoOpen, setMemoOpen] = useState(false)
   const fecharBusca = (): void => {
     setBuscaAberta(false)
     setTermo('')
   }
   const documents = useAppStore((s) => s.documents)
   const codes = useAppStore((s) => s.codes)
+  const requestedId = requestedCode?.id
+  const code = codes.find((item) => item.id === requestedId) ?? null
+
+  useEffect(() => {
+    if (requestedId != null && code == null) onOpenChange(false)
+  }, [requestedId, code, onOpenChange])
   const currentDocument = useAppStore((s) => s.currentDocument)
   const locateOccurrence = useAppStore((s) => s.locateOccurrence)
   const listaRef = useRef<HTMLDivElement>(null)
@@ -45,8 +59,11 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
       return
     }
     let vivo = true
+    setLoadError(null)
     window.api.codings.listByCode(code.id).then((lista) => {
       if (vivo) setQuotes(lista)
+    }).catch((error) => {
+      if (vivo) setLoadError(mensagemDeErro(error, 'Não foi possível carregar os trechos.'))
     })
     return () => {
       vivo = false
@@ -56,10 +73,13 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
   useEffect(() => {
     setAtual(0)
     setAviso(null)
-  }, [code, somenteDocumento, termo])
+  }, [requestedId, somenteDocumento, termo])
 
   useEffect(() => {
-    if (!code) fecharBusca()
+    if (!code) {
+      fecharBusca()
+      setMemoOpen(false)
+    }
   }, [code])
 
   const docName = (id: number): string =>
@@ -79,48 +99,69 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
   // As setas percorrem a LISTA, não o texto: num diálogo que cobre a
   // transcrição, navegar pelo documento por baixo não mostraria nada. Abrir a
   // ocorrência é o clique (ou Enter), e aí o diálogo sai da frente.
-  const andar = (dir: 1 | -1): void => {
+  const andar = (dir: 1 | -1, moverFoco = false): void => {
     if (visiveis.length === 0) return
-    setAtual((i) => (Math.min(i, visiveis.length - 1) + dir + visiveis.length) % visiveis.length)
+    const next = (indice + dir + visiveis.length) % visiveis.length
+    setAtual(next)
+    if (moverFoco) {
+      listaRef.current?.querySelector<HTMLButtonElement>(`[data-indice="${next}"]`)?.focus({ preventScroll: true })
+    }
   }
 
   useEffect(() => {
     if (indice < 0) return
     listaRef.current
       ?.querySelector(`[data-indice="${indice}"]`)
-      ?.scrollIntoView({ block: 'nearest' })
+      ?.scrollIntoView?.({ block: 'nearest' })
   }, [indice])
 
-  const abrir = async (q: CodingWithCode): Promise<void> => {
-    const ok = await locateOccurrence(q)
-    if (!ok) {
-      setAviso('Esse trecho não existe mais: o documento foi apagado.')
-      return
-    }
-    onOpenChange(false)
+  const abrir = (quote: CodingWithCode): void => {
+    void run(async () => {
+      setAviso(null)
+      try {
+        if (await locateOccurrence(quote)) onOpenChange(false)
+        else if (!useAppStore.getState().documents.some((doc) => doc.id === quote.documentId)) {
+          setAviso('Esse trecho não existe mais: o documento foi apagado.')
+        }
+      } catch (error) {
+        setAviso(mensagemDeErro(error, 'Não foi possível abrir o trecho.'))
+      }
+    })
   }
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === 'ArrowDown') {
+    if (memoOpen || e.defaultPrevented || e.nativeEvent.isComposing || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+    const target = e.target as HTMLElement
+    const searching = buscaAberta && target.tagName === 'INPUT'
+    if (indice < 0) return
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
-      andar(1)
-    } else if (e.key === 'ArrowUp') {
+      andar(e.key === 'ArrowDown' ? 1 : -1, !searching)
+    } else if (searching && e.key === 'Enter') {
       e.preventDefault()
-      andar(-1)
-    } else if (e.key === 'Enter' && indice >= 0) {
-      e.preventDefault()
-      void abrir(visiveis[indice])
+      abrir(visiveis[indice])
     }
   }
 
   return (
-    <Dialog open={code !== null} onOpenChange={onOpenChange}>
+    <Dialog open={code !== null} onOpenChange={(open) => {
+      void (async () => {
+        if (!open && memoOpen && !(await useAppStore.getState().sairDoMemo?.())) return
+        onOpenChange(open)
+      })()
+    }}>
       <DialogContent
-        className="max-w-2xl"
+        className={memoOpen ? 'flex h-[80vh] max-h-[90vh] w-[90vw] max-w-4xl flex-col' : 'max-w-2xl'}
         onKeyDown={onKeyDown}
+        onCloseAutoFocus={(event) => {
+          if (returnFocus) { event.preventDefault(); restoreFocus(returnFocus) }
+        }}
         onEscapeKeyDown={(e) => {
           // Esc com a busca aberta fecha só a busca, não o diálogo inteiro.
-          if (buscaAberta) {
+          if (memoOpen) {
+            e.preventDefault()
+            void useAppStore.getState().sairDoMemo?.()
+          } else if (buscaAberta) {
             e.preventDefault()
             fecharBusca()
           }
@@ -137,6 +178,15 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
             Trechos de "{code?.name}" ({visiveis.length})
           </DialogTitle>
         </DialogHeader>
+        <div className="flex gap-2">
+          <Button size="sm" variant={memoOpen ? 'outline' : 'secondary'} onClick={() => {
+            if (memoOpen) void useAppStore.getState().sairDoMemo?.()
+          }}>Trechos</Button>
+          <Button size="sm" variant={memoOpen ? 'secondary' : 'outline'} onClick={() => setMemoOpen(true)}>Memo{code?.memo ? ' •' : ''}</Button>
+        </div>
+        {memoOpen && code ? (
+          <MemoEditor target={{ id: code.id, name: code.name, kind: code.isCategory ? 'categoria' : 'código', memo: code.memo ?? '' }} onClose={() => setMemoOpen(false)} showHint />
+        ) : <>
 
         <div className="flex min-w-0 items-start gap-3">
           <p className="min-w-0 flex-1 text-sm text-muted-foreground">
@@ -208,9 +258,9 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
           />
         )}
 
-        {aviso && (
-          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-600 dark:text-amber-400">
-            {aviso}
+        {(aviso || loadError) && (
+          <p role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+            {aviso || loadError}
           </p>
         )}
 
@@ -237,7 +287,9 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
                 key={q.id}
                 data-indice={i}
                 title="Localizar no texto"
-                onClick={() => void abrir(q)}
+                aria-disabled={working}
+                onClick={() => abrir(q)}
+                onFocus={() => setAtual(i)}
                 onMouseEnter={() => setAtual(i)}
                 className={cn(
                   'block w-full rounded-md border p-3 text-left text-sm transition-colors hover:bg-accent',
@@ -252,6 +304,7 @@ export function CodeQuotationsDialog({ code, onOpenChange }: Props): JSX.Element
             ))
           )}
         </div>
+        </>}
       </DialogContent>
     </Dialog>
   )

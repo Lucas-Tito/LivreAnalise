@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync } from 'fs'
+import { writeAtomicFile } from './atomicFile'
 import { dirname } from 'path'
 import type { RecentProject } from '@shared/types'
 
@@ -21,7 +22,7 @@ export function readStoredRecents(file: string): RecentProject[] {
 export function writeStoredRecents(file: string, list: RecentProject[]): void {
   const dir = dirname(file)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(file, JSON.stringify(list, null, 2), 'utf-8')
+  writeAtomicFile(file, JSON.stringify(list, null, 2))
 }
 
 // O filtro de existencia e so para exibicao.

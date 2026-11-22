@@ -14,6 +14,10 @@ material analisado é entrevista com participante identificável.
      codigos a esquerda e as etiquetas alinhadas na margem direita.
      Arraste o print aqui ao editar o README pelo GitHub. -->
 
+## Abrir um projeto da série 0.7.x na 0.8.0
+
+Ao abrir ou restaurar um projeto antigo, o aplicativo pede confirmação antes de converter o arquivo. Cancelar mantém o formato anterior. Ao confirmar, o LivreAnalise cria e verifica uma cópia no formato original na pasta `<nome>.liva-versoes`, ao lado do destino. Se a cópia falhar, a conversão é interrompida. Para voltar à versão anterior, copie o arquivo identificado como `premigracao` para outra pasta e abra essa cópia com o aplicativo antigo. Alterações feitas depois da conversão ficam no projeto atualizado.
+
 ## Download
 
 Os instaladores de cada versão ficam na
@@ -55,6 +59,11 @@ copiado para o `.liva`, então mover ou apagar o arquivo original depois não qu
 projeto. O texto pode ser editado dentro do app, e as codificações existentes acompanham
 a edição em vez de se deslocarem.
 
+A extração de DOCX roda em worker isolado, com limite de memória e prazo de
+30 segundos. Por segurança, são aceitos até 50 MiB de arquivo DOCX, 16 MiB por
+entrada XML e 32 MiB de XML expandido no total; arquivos TXT têm limite de 32 MiB.
+Mídia embutida no DOCX não é expandida para extrair texto puro.
+
 ### Codificação
 
 Selecione um trecho do texto e aplique um código. As áreas codificadas aparecem
@@ -62,17 +71,40 @@ destacadas na cor do código, com etiquetas na margem direita alinhadas ao iníc
 trecho. Codificações do mesmo código que se sobrepõem são mescladas automaticamente, e a
 extensão de uma citação pode ser ajustada arrastando as extremidades.
 
+Também é possível codificar sem mouse:
+
+1. Use `Ctrl+P` (`Cmd+P` no macOS) para procurar e abrir um documento.
+2. No documento, acione **Navegar pelo texto**. O modo de análise é somente leitura;
+   use as setas para navegar e `Shift` com as setas para selecionar.
+3. Pressione `Ctrl+Enter` (`Cmd+Enter` no macOS) para abrir o menu do trecho. Digite
+   para filtrar, percorra as opções com `↑` e `↓` e confirme com `Enter`.
+4. `Esc` fecha o menu ou sai da navegação. `F6` e `Shift+F6` percorrem as áreas
+   da janela; na barra lateral, as setas alternam entre Documentos e Códigos.
+5. Use `F2` para renomear o documento em foco ou o documento aberto. `Enter`
+   confirma o nome, `Esc` cancela.
+
+Na árvore de códigos, use as setas para percorrer, expandir e recolher itens.
+`Espaço` alterna a seleção, `Shift+↑/↓` seleciona um intervalo, `Enter` abre os
+detalhes e `Shift+F10` abre as ações do item.
+
+`Ctrl+Shift+N` cria uma nota para o trecho selecionado ou para o documento,
+`Ctrl+Shift+O` abre ou fecha o painel de notas e `Ctrl+Shift+M` abre o memo do
+item em foco na árvore. No macOS, use `Cmd` no lugar de `Ctrl`.
+
+Abra a **Paleta de comandos** com `Ctrl+K` (`Cmd+K` no macOS) para buscar ações,
+ou consulte a **Ajuda de atalhos** com `F1` ou pelo botão na barra superior.
+
 ### Código, categoria e grupo
 
 A hierarquia tem exatamente três níveis:
 
 - **código** — o átomo. É o único nível que recebe citação.
-- **categoria** — um código que contém outros códigos. Não é um campo no banco: é a
-  propriedade derivada de ter filhos. Uma categoria não pode ser aplicada a um trecho.
+- **categoria** — reúne códigos e também pode ser criada vazia. Uma categoria não
+  pode ser aplicada a um trecho.
 - **grupo** — reúne categorias e códigos, de forma transversal.
 
-Categoria e grupo nascem a partir de quem eles reúnem ("criar categoria com este
-código", "criar grupo com esta categoria"), então uma categoria nunca existe vazia.
+Categoria e grupo podem nascer vazios ou a partir de quem eles reúnem ("criar
+categoria com este código", "criar grupo com esta categoria").
 
 No código-fonte os nomes são os antigos: categoria é `group` (`groupIds`,
 `createGroupFromCodes`) e grupo é `Collection` (tabela `code_groups`).
@@ -87,6 +119,10 @@ citações).
 
 Interopera com o ATLAS.ti pelo formato aberto REFI-QDA. Abrir um `.qdpx` (pelo "Abrir projeto") cria um
 projeto novo — a importação não mistura dados em um projeto existente.
+Escolha um destino que ainda não exista. A importação é preparada separadamente;
+se falhar, o projeto anterior permanece aberto e nenhum lote parcial é publicado.
+O limite é 128 MiB para o arquivo QDPX, 32 MiB por fonte expandida e 256 MiB
+expandidos no total.
 
 O mapeamento é direto nos dois sentidos:
 
@@ -109,6 +145,8 @@ progresso mostra a fração de áudio já processada — não uma roda girando.
 
 O resultado é salvo como `<arquivo>_transcricao.txt`, no formato
 `[HH:MM:SS.mmm -> HH:MM:SS.mmm] texto`, para você importar como documento no projeto.
+Se esse nome já existir, é gerado um nome numerado — uma transcrição revisada
+nunca é substituída silenciosamente.
 
 Em **Avançado** dá para escolher o modelo, o idioma e o caminho do executável.
 
@@ -119,8 +157,8 @@ Em **Avançado** dá para escolher o modelo, o idioma e o caminho do executável
 - **O modelo é baixado no primeiro uso.** O padrão é o `medium` quantizado, com
   **514 MB**. O app pergunta antes de baixar, mostrando o tamanho exato informado pelo
   servidor, com barra de progresso própria e retomada se a conexão cair. O download só é
-  aceito se o tamanho final conferir — download truncado é recusado em vez de virar um
-  modelo corrompido que falha muito depois.
+  aceito se o tamanho final e o SHA-256 conferirem. Os modelos usam uma revisão
+  fixada do upstream, e arquivos já armazenados também são verificados antes do uso.
 - **O modelo quantizado não é um downgrade.** O `faster-whisper` com `compute_type="int8"`
   também roda quantizado; o `medium-q5_0` é o equivalente em ggml, com um terço do
   download do modelo completo (514 MB contra 1462 MB).
@@ -149,11 +187,17 @@ npm run dist:linux   # gera os instaladores localmente
 Electron + React + TypeScript, com SQLite via better-sqlite3 e Drizzle, e Tailwind na
 interface.
 
+No Linux, `npm run dev` e o preview local (`npm start`) passam `--no-sandbox` ao Electron antes da inicialização,
+evitando falhas do sandbox local (incluindo erros `No such process` em `/dev/shm`).
+Isso desabilita o sandbox **nos launchers locais de desenvolvimento e preview**; os aplicativos
+empacotados não recebem essa opção. Use o modo de desenvolvimento apenas com
+conteúdo confiável. Windows e macOS mantêm o comportamento padrão.
+
 ### O detalhe do módulo nativo
 
 O `better-sqlite3` é compilado, e o ABI do Electron é diferente do ABI do Node. Por isso
-`npm test` recompila o módulo para o Node antes de rodar (`pretest`) e devolve para o
-Electron depois (`posttest`).
+`npm test` recompila o módulo para o Node antes de rodar (`pretest`) e o runner
+de testes devolve para o Electron depois, inclusive quando algum teste falha.
 
 Consequência prática: **não rode `npx vitest` direto** — os testes de banco falham com
 erro de ABI. Use `npm test`. Para o modo watch, rode `npm run rebuild:node` antes e
@@ -178,10 +222,24 @@ porque uma cópia literal sai de sincronia sem ninguém perceber (foi o que
 aconteceu com o `APP_ORIGIN` do QDPX, que carimbou `0.1.0` em todo projeto
 exportado muito depois de a versão ter mudado).
 
-**Todo PR para a `master` incrementa a versão.** Não é etiqueta, é consequência:
-a tag da release vem daí, então um PR que não incrementa faz o merge
-*sobrescrever* os instaladores da release anterior em vez de publicar uma nova.
-A CI recusa o PR que esquecer.
+**Todo PR para a `master` incrementa a versão.** A CI recusa um PR que mantenha a versão publicada. Antes do merge, o workflow Build pode ser executado manualmente com `workflow_dispatch`. Ele empacota Linux, Windows e macOS (Intel e Apple Silicon), confere os cinco instaladores e ensaia uma publicação interrompida. A execução manual usa permissão de leitura.
+
+No push para a `master`, a publicação cria um rascunho para o commit. Se o upload falhar, use **Re-run failed jobs** na mesma execução para reaproveitar os instaladores. O job confere os arquivos já enviados por tamanho e SHA-256, envia os pendentes e publica quando os cinco estão completos. Uma divergência de tag, commit ou conteúdo interrompe o job. Uma release publicada e idêntica já está concluída.
+
+Se a finalização do rascunho falhar por falta de permissão para criar a tag em
+um commit antigo que altera workflows, um mantenedor com permissão para
+atualizar workflows deve publicar a tag para o **SHA do run original**. Confira
+a versão em `git show "$SHA:package.json"` e o SHA de destino do rascunho antes
+de publicar a tag:
+
+```sh
+git push origin "$SHA:refs/tags/$TAG"
+```
+
+Use a tag do rascunho (por exemplo, `v0.7.1`) em `TAG`. O comando não usa
+`--force`. Se a tag já existir, confira seu commit e pare se houver divergência.
+Em seguida, use **Re-run failed jobs** no run original. O publicador confere
+se a tag aponta para o mesmo SHA antes de retomar os uploads e a finalização.
 
 Como escolher o incremento:
 

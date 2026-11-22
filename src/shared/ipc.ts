@@ -37,7 +37,8 @@ import type {
 export const IPC = {
   project: {
     create: 'project:create',
-    open: 'project:open',
+    pick: 'project:pick',
+    importQdpx: 'project:import-qdpx',
     openPath: 'project:openPath',
     current: 'project:current',
     close: 'project:close',
@@ -70,6 +71,7 @@ export const IPC = {
     members: 'collections:members',
     allMembers: 'collections:allMembers',
     addMember: 'collections:addMember',
+    addMembers: 'collections:addMembers',
     removeMember: 'collections:removeMember'
   },
   codings: {
@@ -127,16 +129,22 @@ export const IPC = {
     fontChanged: 'view:font-changed'
   },
   app: {
+    notesDirty: 'app:notes-dirty',
     textDirty: 'app:text-dirty',
+    memoDirty: 'app:memo-dirty',
+    codeDirty: 'app:code-dirty',
+    nameDirty: 'app:name-dirty',
     closeRequested: 'app:close-requested',
-    confirmClose: 'app:confirm-close'
+    confirmClose: 'app:confirm-close',
+    cancelClose: 'app:cancel-close'
   }
 } as const
 
 export interface Api {
   project: {
-    create: () => Promise<OpenProjectResult | null>
-    open: () => Promise<(OpenProjectResult & { report?: ImportReport }) | null>
+    create: (name: string) => Promise<OpenProjectResult | null>
+    pick: () => Promise<string | null>
+    importQdpx: (path: string, name: string) => Promise<(OpenProjectResult & { report: ImportReport }) | null>
     openPath: (path: string) => Promise<OpenProjectResult | null>
     current: () => Promise<ProjectMeta | null>
     close: () => Promise<void>
@@ -148,7 +156,7 @@ export interface Api {
     list: () => Promise<DocumentRecord[]>
     get: (id: number) => Promise<DocumentWithText | null>
     import: () => Promise<DocumentRecord[]>
-    rename: (id: number, name: string) => Promise<void>
+    rename: (id: number, name: string, historyGroup?: string) => Promise<void>
     updateText: (id: number, text: string) => Promise<void>
     delete: (id: number) => Promise<void>
   }
@@ -169,6 +177,7 @@ export interface Api {
     members: (collectionId: number) => Promise<number[]>
     allMembers: () => Promise<CollectionMember[]>
     addMember: (collectionId: number, codeId: number) => Promise<void>
+    addMembers: (collectionId: number, codeIds: number[]) => Promise<void>
     removeMember: (collectionId: number, codeId: number) => Promise<void>
   }
   codings: {
@@ -186,12 +195,12 @@ export interface Api {
     delete: (id: number) => Promise<void>
   }
   transcription: {
-    env: () => Promise<TranscriptionEnv>
+    env: (binaryPath?: string | null) => Promise<TranscriptionEnv>
     models: () => Promise<TranscriptionModel[]>
     modelSize: (modelId: string) => Promise<number>
     pickMedia: () => Promise<string | null>
     downloadModel: (modelId: string) => Promise<boolean>
-    downloadBinary: () => Promise<string>
+    downloadBinary: () => Promise<string | null>
     start: (input: TranscriptionStartInput) => Promise<void>
     cancel: () => Promise<void>
     onEvent: (listener: (event: TranscriptionEvent) => void) => () => void
@@ -210,12 +219,18 @@ export interface Api {
   }
   view: {
     notifyFont: (font: string) => void
+    setInterfaceScale: (scale: number) => void
     onAction: (listener: (action: string) => void) => () => void
   }
   app: {
+    setNotesDirty: (dirty: boolean) => void
     setTextDirty: (dirty: boolean) => void
+    setMemoDirty: (dirty: boolean) => void
+    setCodeDirty: (dirty: boolean) => void
+    setNameDirty: (dirty: boolean) => void
     onCloseRequested: (listener: () => void) => () => void
     confirmClose: () => void
+    cancelClose: () => void
   }
   history: {
     state: () => Promise<HistoryState>

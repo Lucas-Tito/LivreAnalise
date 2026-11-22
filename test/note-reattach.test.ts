@@ -131,6 +131,8 @@ describe.skipIf(!nativeOk)('religar nota que voltou como nota de documento', () 
     const depois = repos.updateNote({ id: note.id, startPos: 1, endPos: 4 })
 
     expect(depois.scope).toBe('project')
+    expect(depois.startPos).toBeNull()
+    expect(depois.endPos).toBeNull()
   })
 })
 

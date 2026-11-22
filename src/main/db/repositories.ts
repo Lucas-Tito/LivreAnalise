@@ -92,12 +92,18 @@ export function getDocument(id: number): DocumentWithText | null {
   return (row as DocumentWithText) ?? null
 }
 
-export function createDocument(input: {
+interface DocumentInput {
   name: string
   plainText: string
   originalFormat: string
   sourceFilename?: string | null
-}): DocumentRecord {
+}
+
+export function createDocument(input: DocumentInput): DocumentRecord {
+  return createDocuments([input])[0]
+}
+
+function insertDocument(input: DocumentInput): DocumentWithText {
   const db = getDb()
   const guid = uuid()
   const res = db
@@ -112,23 +118,36 @@ export function createDocument(input: {
     })
     .run()
   const created = getDocument(Number(res.lastInsertRowid)) as DocumentWithText
-  touchProject()
-  const snapshot = { ...created }
-  pushHistory({
-    label: `importar "${created.name}"`,
-    undo: () => {
-      getDb().delete(documents).where(eq(documents.id, snapshot.id)).run()
-      touchProject()
-    },
-    redo: () => {
-      getDb().insert(documents).values(snapshot).onConflictDoNothing().run()
-      touchProject()
-    }
-  })
-  return created as DocumentRecord
+  return created
 }
 
-export function renameDocument(id: number, name: string): void {
+export function createDocuments(inputs: DocumentInput[]): DocumentRecord[] {
+  if (inputs.length === 0) return []
+  const db = getDb()
+  const snapshots = db.transaction(() => {
+    const created = inputs.map(insertDocument)
+    touchProject()
+    return created
+  })
+  pushHistory({
+    label: snapshots.length === 1 ? `importar "${snapshots[0].name}"` : `importar ${snapshots.length} documentos`,
+    undo: () => {
+      getDb().transaction((tx) => {
+        for (const doc of snapshots) tx.delete(documents).where(eq(documents.id, doc.id)).run()
+        touchProject()
+      })
+    },
+    redo: () => {
+      getDb().transaction((tx) => {
+        for (const doc of snapshots) tx.insert(documents).values(doc).run()
+        touchProject()
+      })
+    }
+  })
+  return snapshots
+}
+
+export function renameDocument(id: number, name: string, historyGroup?: string): void {
   const db = getDb()
   const before = getDocument(id)
   if (!before || before.name === name) return
@@ -137,6 +156,7 @@ export function renameDocument(id: number, name: string): void {
   const oldName = before?.name ?? ''
   pushHistory({
     label: `renomear documento`,
+    coalesceKey: historyGroup != null ? `rename:document:${id}:${historyGroup}` : undefined,
     undo: () => {
       getDb().update(documents).set({ name: oldName }).where(eq(documents.id, id)).run()
       touchProject()
@@ -229,11 +249,15 @@ export function updateDocumentText(id: number, newText: string): void {
     for (const rid of citacoesPerdidas) {
       tx.delete(codings).where(eq(codings.id, rid)).run()
     }
-    for (const u of [...updates, ...citacoesRelocalizadas]) {
-      tx.update(codings)
-        .set({ startPos: u.startPos, endPos: u.endPos })
-        .where(eq(codings.id, u.id))
-        .run()
+    // Remove as posições antigas antes de publicar as novas: um destino pode
+    // coincidir com a origem de outra citação que também será deslocada.
+    const ajustes = new Map([...updates, ...citacoesRelocalizadas].map((u) => [u.id, u]))
+    for (const id of ajustes.keys()) tx.delete(codings).where(eq(codings.id, id)).run()
+    for (const original of beforeCodings) {
+      const ajuste = ajustes.get(original.id)
+      if (ajuste) {
+        tx.insert(codings).values({ ...original, startPos: ajuste.startPos, endPos: ajuste.endPos }).run()
+      }
     }
     for (const u of [...noteAdjust.updates, ...notasRelocalizadas]) {
       tx.update(notes)
@@ -326,7 +350,9 @@ export function listCodes(): CodeWithCount[] {
       name: codes.name,
       color: codes.color,
       description: codes.description,
+      memo: codes.memo,
       parentId: codes.parentId,
+      isCategory: codes.isCategory,
       sortOrder: codes.sortOrder,
       createdAt: codes.createdAt,
       usageCount: sql<number>`cast(count(${codings.id}) as integer)`
@@ -349,11 +375,14 @@ function getCode(id: number): Code {
 
 export function createCode(input: CreateCodeInput): Code {
   const db = getDb()
+  let parentWasCategory = false
+  if (input.isCategory && input.parentId != null) throw new Error('Uma categoria deve ficar no 1º nível.')
   if (input.parentId != null) {
     const all = db.select().from(codes).all() as Code[]
     const byId = new Map(all.map((c) => [c.id, c]))
     const target = byId.get(input.parentId)
     if (!target) throw new Error('Categoria de destino não encontrada.')
+    parentWasCategory = target.isCategory ?? false
     if (target.parentId != null) {
       throw new Error('O destino precisa ser uma categoria de 1º nível (sem criar 3º nível).')
     }
@@ -366,27 +395,41 @@ export function createCode(input: CreateCodeInput): Code {
     siblings
       .filter((c) => c.parentId === (input.parentId ?? null))
       .reduce((max, c) => Math.max(max, c.sortOrder), -1) + 1
-  const res = db
-    .insert(codes)
-    .values({
+  const res = db.transaction((tx) => {
+    if (input.parentId != null) {
+      tx.update(codes).set({ isCategory: true }).where(eq(codes.id, input.parentId)).run()
+    }
+    return tx.insert(codes).values({
       guid,
       name: input.name,
       color: input.color,
       description: input.description ?? null,
       parentId: input.parentId ?? null,
+      isCategory: input.isCategory ?? false,
       sortOrder: nextOrder
     })
     .run()
+  })
   touchProject()
   const created = getCode(Number(res.lastInsertRowid))
   pushHistory({
-    label: `criar código "${created.name}"`,
+    label: `criar ${created.isCategory ? 'categoria' : 'código'} "${created.name}"`,
     undo: () => {
-      getDb().delete(codes).where(eq(codes.id, created.id)).run()
+      getDb().transaction((tx) => {
+        tx.delete(codes).where(eq(codes.id, created.id)).run()
+        if (created.parentId != null && !parentWasCategory) {
+          tx.update(codes).set({ isCategory: false }).where(eq(codes.id, created.parentId)).run()
+        }
+      })
       touchProject()
     },
     redo: () => {
-      getDb().insert(codes).values(created).onConflictDoNothing().run()
+      getDb().transaction((tx) => {
+        if (created.parentId != null) {
+          tx.update(codes).set({ isCategory: true }).where(eq(codes.id, created.parentId)).run()
+        }
+        tx.insert(codes).values(created).onConflictDoNothing().run()
+      })
       touchProject()
     }
   })
@@ -395,16 +438,19 @@ export function createCode(input: CreateCodeInput): Code {
 
 export function updateCode(input: UpdateCodeInput): void {
   const db = getDb()
+  let parentWasCategory = false
   if (input.parentId !== undefined) {
     const all = db.select().from(codes).all() as Code[]
     validateParentChange(all, input.id, input.parentId)
+    parentWasCategory = all.find((c) => c.id === input.parentId)?.isCategory ?? false
   }
   const before = getCode(input.id)
-  if (!before) return
+  if (!before) throw new Error('Código não encontrado.')
   const patch: Record<string, unknown> = {}
   if (input.name !== undefined) patch.name = input.name
   if (input.color !== undefined) patch.color = input.color
   if (input.description !== undefined) patch.description = input.description
+  if (input.memo !== undefined) patch.memo = input.memo
   if (input.parentId !== undefined) patch.parentId = input.parentId
   if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder
   if (Object.keys(patch).length === 0) return
@@ -412,33 +458,47 @@ export function updateCode(input: UpdateCodeInput): void {
     ([k, v]) => (before as unknown as Record<string, unknown>)[k] === v
   )
   if (unchanged) return
-  db.update(codes).set(patch).where(eq(codes.id, input.id)).run()
+  db.transaction((tx) => {
+    if (input.parentId != null) tx.update(codes).set({ isCategory: true }).where(eq(codes.id, input.parentId)).run()
+    tx.update(codes).set(patch).where(eq(codes.id, input.id)).run()
+  })
   touchProject()
   const after = getCode(input.id)
   const beforeSnap = { ...before }
   const afterSnap = { ...after }
   const isMove = input.parentId !== undefined && Object.keys(patch).length === 1
+  const metadataAutosave = input.historyGroup != null &&
+    Object.keys(patch).every((key) => key === 'name' || key === 'color' || key === 'description')
   pushHistory({
     label: isMove
       ? input.parentId == null
         ? `remover "${after.name}" da categoria`
         : `mover "${after.name}"`
       : `editar código "${after.name}"`,
+    coalesceKey: metadataAutosave
+      ? `edit:code:${input.id}:${input.historyGroup}`
+      : Object.keys(patch).length === 1 && input.memo !== undefined ? `memo:code:${input.id}` : undefined,
     undo: () => {
       getDb().update(codes).set({
         name: beforeSnap.name,
         color: beforeSnap.color,
         description: beforeSnap.description,
+        memo: beforeSnap.memo,
         parentId: beforeSnap.parentId,
         sortOrder: beforeSnap.sortOrder
       }).where(eq(codes.id, beforeSnap.id)).run()
+      if (input.parentId != null && !parentWasCategory) {
+        getDb().update(codes).set({ isCategory: false }).where(eq(codes.id, input.parentId)).run()
+      }
       touchProject()
     },
     redo: () => {
+      if (input.parentId != null) getDb().update(codes).set({ isCategory: true }).where(eq(codes.id, input.parentId)).run()
       getDb().update(codes).set({
         name: afterSnap.name,
         color: afterSnap.color,
         description: afterSnap.description,
+        memo: afterSnap.memo,
         parentId: afterSnap.parentId,
         sortOrder: afterSnap.sortOrder
       }).where(eq(codes.id, afterSnap.id)).run()
@@ -475,6 +535,7 @@ export function moveCodes(input: MoveCodesInput): void {
     input.anchorId,
     input.position
   )
+  const parentWasCategory = all.find((c) => c.id === input.parentId)?.isCategory ?? false
 
   // Um sort_order novo para todos os irmãos do destino: é o que faz a lista
   // obedecer à ordem escolhida no arrasto em vez de ao alfabeto.
@@ -485,6 +546,7 @@ export function moveCodes(input: MoveCodesInput): void {
     }
   }
   db.transaction((tx) => {
+    if (input.parentId != null) tx.update(codes).set({ isCategory: true }).where(eq(codes.id, input.parentId)).run()
     ordered.forEach((code, position) => {
       if (unique.includes(code.id)) {
         tx.update(codes)
@@ -514,12 +576,16 @@ export function moveCodes(input: MoveCodesInput): void {
             .where(eq(codes.id, id))
             .run()
         }
+        if (afterParent != null && !parentWasCategory) {
+          tx.update(codes).set({ isCategory: false }).where(eq(codes.id, afterParent)).run()
+        }
       })
       touchProject()
     },
     redo: () => {
       const db2 = getDb()
       db2.transaction((tx) => {
+        if (afterParent != null) tx.update(codes).set({ isCategory: true }).where(eq(codes.id, afterParent)).run()
         ordered.forEach((code, position) => {
           if (unique.includes(code.id)) {
             tx.update(codes)
@@ -541,14 +607,14 @@ export function moveCodes(input: MoveCodesInput): void {
 
 // Ação composta atômica: criar grupo + reparentar o código de origem.
 // Um único comando no histórico (desfazer remove o grupo e restaura o pai).
-export function createGroupCode(name: string, color: string, codeId: number): Code {
+export function createGroupCode(name: string, color: string, codeId: number, collectionId?: number): Code {
   const all = getDb().select().from(codes).all() as Code[]
   const origin = all.find((c) => c.id === codeId)
   if (!origin) throw new Error('Código de origem não encontrado.')
-  if (origin.parentId != null || all.some((c) => c.parentId === codeId)) {
+  if (origin.parentId != null || origin.isCategory || all.some((c) => c.parentId === codeId)) {
     throw new Error('Só um código solto sem filhos pode virar categoria.')
   }
-  return createGroupFromCodes(name, color, [codeId])
+  return createGroupFromCodes(name, color, [codeId], collectionId)
 }
 
 // Mesmo comando, com vários códigos: é o "unir códigos em um grupo" do arrasto.
@@ -556,7 +622,8 @@ export function createGroupCode(name: string, color: string, codeId: number): Co
 export function createGroupFromCodes(
   name: string,
   color: string,
-  codeIds: number[]
+  codeIds: number[],
+  collectionId?: number
 ): Code {
   const db = getDb()
   const unique = [...new Set(codeIds)]
@@ -565,7 +632,7 @@ export function createGroupFromCodes(
   const members = unique.map((id) => {
     const code = all.find((c) => c.id === id)
     if (!code) throw new Error('Código não encontrado.')
-    if (all.some((c) => c.parentId === id)) {
+    if (code.isCategory || all.some((c) => c.parentId === id)) {
       throw new Error(`"${code.name}" já é uma categoria e não pode entrar em outra.`)
     }
     return code
@@ -583,13 +650,16 @@ export function createGroupFromCodes(
   db.transaction((tx) => {
     const res = tx
       .insert(codes)
-      .values({ guid, name, color, description: null, parentId: null, sortOrder })
+      .values({ guid, name, color, description: null, parentId: null, isCategory: true, sortOrder })
       .run()
     group = tx
       .select()
       .from(codes)
       .where(eq(codes.id, Number(res.lastInsertRowid)))
       .get() as Code
+    if (collectionId != null) {
+      tx.insert(collectionMembers).values({ collectionId, codeId: group.id }).run()
+    }
     members.forEach((member, position) => {
       tx.update(codes)
         .set({ parentId: group.id, sortOrder: position })
@@ -617,6 +687,9 @@ export function createGroupFromCodes(
       const db2 = getDb()
       db2.transaction((tx) => {
         tx.insert(codes).values(groupSnap).onConflictDoNothing().run()
+        if (collectionId != null) {
+          tx.insert(collectionMembers).values({ collectionId, codeId: groupSnap.id }).run()
+        }
         ids.forEach((id, position) => {
           tx.update(codes)
             .set({ parentId: groupSnap.id, sortOrder: position })
@@ -735,21 +808,28 @@ export function updateCollection(input: UpdateCollectionInput): void {
   const patch: Record<string, unknown> = {}
   if (input.name !== undefined) patch.name = input.name
   if (input.description !== undefined) patch.description = input.description
+  if (input.memo !== undefined) patch.memo = input.memo
   if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder
   if (Object.keys(patch).length === 0) return
+  if (Object.entries(patch).every(([key, value]) => (before as unknown as Record<string, unknown>)[key] === value)) return
   db.update(collections).set(patch).where(eq(collections.id, input.id)).run()
   touchProject()
   const after = getCollection(input.id)
   const b = { ...before }
   const a = { ...after }
+  const metadataAutosave = input.historyGroup != null &&
+    Object.keys(patch).every((key) => key === 'name' || key === 'description')
   pushHistory({
     label: `editar grupo "${a.name}"`,
+    coalesceKey: metadataAutosave
+      ? `edit:group:${input.id}:${input.historyGroup}`
+      : Object.keys(patch).length === 1 && input.memo !== undefined ? `memo:group:${input.id}` : undefined,
     undo: () => {
-      getDb().update(collections).set({ name: b.name, description: b.description, sortOrder: b.sortOrder }).where(eq(collections.id, b.id)).run()
+      getDb().update(collections).set({ name: b.name, description: b.description, memo: b.memo, sortOrder: b.sortOrder }).where(eq(collections.id, b.id)).run()
       touchProject()
     },
     redo: () => {
-      getDb().update(collections).set({ name: a.name, description: a.description, sortOrder: a.sortOrder }).where(eq(collections.id, a.id)).run()
+      getDb().update(collections).set({ name: a.name, description: a.description, memo: a.memo, sortOrder: a.sortOrder }).where(eq(collections.id, a.id)).run()
       touchProject()
     }
   })
@@ -802,24 +882,42 @@ export function listAllCollectionMembers(): CollectionMember[] {
 }
 
 export function addCollectionMember(collectionId: number, codeId: number): void {
+  addCollectionMembers(collectionId, [codeId])
+}
+
+export function addCollectionMembers(collectionId: number, codeIds: number[]): void {
   const db = getDb()
-  const res = db.insert(collectionMembers)
-    .values({ collectionId, codeId })
-    .onConflictDoNothing()
-    .run()
-  touchProject()
-  if (res.changes === 0) return
+  const members = db.transaction(() => {
+    const added: CollectionMember[] = []
+    for (const codeId of new Set(codeIds)) {
+      const member = { collectionId, codeId }
+      if (db.insert(collectionMembers).values(member).onConflictDoNothing().run().changes) {
+        added.push(member)
+      }
+    }
+    if (added.length > 0) touchProject()
+    return added
+  })
+  if (members.length === 0) return
   pushHistory({
-    label: `adicionar ao grupo`,
+    label: 'adicionar ao grupo',
     undo: () => {
-      getDb().delete(collectionMembers).where(
-        and(eq(collectionMembers.collectionId, collectionId), eq(collectionMembers.codeId, codeId))
-      ).run()
-      touchProject()
+      const current = getDb()
+      current.transaction(() => {
+        for (const { codeId } of members) {
+          current.delete(collectionMembers).where(
+            and(eq(collectionMembers.collectionId, collectionId), eq(collectionMembers.codeId, codeId))
+          ).run()
+        }
+        touchProject()
+      })
     },
     redo: () => {
-      getDb().insert(collectionMembers).values({ collectionId, codeId }).onConflictDoNothing().run()
-      touchProject()
+      const current = getDb()
+      current.transaction(() => {
+        for (const member of members) current.insert(collectionMembers).values(member).onConflictDoNothing().run()
+        touchProject()
+      })
     }
   })
 }
@@ -883,8 +981,7 @@ export function listCodingsByCode(codeId: number): CodingWithCode[] {
       endPos: codings.endPos,
       createdAt: codings.createdAt,
       codeName: codes.name,
-      codeColor: codes.color,
-      text: sql<string>`substr(${documents.plainText}, ${codings.startPos} + 1, ${codings.endPos} - ${codings.startPos})`
+      codeColor: codes.color
     })
     .from(codings)
     .innerJoin(codes, eq(codings.codeId, codes.id))
@@ -892,7 +989,22 @@ export function listCodingsByCode(codeId: number): CodingWithCode[] {
     .where(eq(codings.codeId, codeId))
     .orderBy(asc(codings.documentId), asc(codings.startPos))
     .all()
-  return rows as CodingWithCode[]
+  // Os offsets são UTF-16. Como as citações estão ordenadas por documento,
+  // basta carregar um texto por vez para recortar todos os trechos dele.
+  let documentId: number | undefined
+  let text = ''
+  const readText = db.select({ text: documents.plainText })
+    .from(documents).where(eq(documents.id, sql.placeholder('documentId'))).prepare()
+  return rows.map((row) => {
+    if (row.documentId !== documentId) {
+      documentId = row.documentId
+      text = readText.get({ documentId })!.text
+    }
+    // Materializa o trecho em UTF-16 para que ele não retenha o texto de
+    // origem na memória como uma substring compartilhada.
+    const excerpt = text.slice(row.startPos, row.endPos)
+    return { ...row, text: Buffer.from(excerpt, 'utf16le').toString('utf16le') }
+  })
 }
 
 function getCoding(id: number): Coding {
@@ -900,8 +1012,22 @@ function getCoding(id: number): Coding {
   return db.select().from(codings).where(eq(codings.id, id)).get() as Coding
 }
 
+function validateDocumentRange(documentId: number, start: number, end: number): void {
+  const doc = getDocument(documentId)
+  if (!doc) throw new Error('Documento não encontrado para o trecho.')
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end <= start || end > doc.plainText.length) {
+    throw new Error('O intervalo do trecho é inválido para este documento.')
+  }
+}
+
 export function createCoding(input: CreateCodingInput): Coding {
   const db = getDb()
+  validateDocumentRange(input.documentId, input.startPos, input.endPos)
+  const code = getCode(input.codeId)
+  if (!code) throw new Error('Código não encontrado.')
+  if (code.isCategory || db.select({ id: codes.id }).from(codes).where(eq(codes.parentId, input.codeId)).get()) {
+    throw new Error('Categorias não recebem citações. Escolha um código dentro da categoria.')
+  }
   const beforeRows = (db.select().from(codings).where(
     and(eq(codings.documentId, input.documentId), eq(codings.codeId, input.codeId))
   ).all() as Array<typeof codings.$inferSelect>)
@@ -1008,6 +1134,8 @@ export function createCoding(input: CreateCodingInput): Coding {
 export function updateCoding(input: UpdateCodingInput): Coding {
   const db = getDb()
   const before = getCoding(input.id)
+  if (!before) throw new Error('Essa citação não existe mais.')
+  validateDocumentRange(before.documentId, input.startPos, input.endPos)
   if (before && before.startPos === input.startPos && before.endPos === input.endPos) {
     return before
   }
@@ -1105,6 +1233,7 @@ function getNote(id: number): Note {
 export function createNote(input: CreateNoteInput): Note {
   const db = getDb()
   const scope = input.scope
+  if (!['project', 'document', 'excerpt'].includes(scope)) throw new Error('Escopo de nota inválido.')
 
   let documentId: number | null = null
   let startPos: number | null = null
@@ -1199,7 +1328,12 @@ export function updateNote(input: UpdateNoteInput): Note {
   // entao uma nota desvinculada por uma edicao de texto nao tinha volta -- so
   // apagar e reescrever. O trecho original guardado na desvinculacao perde o
   // sentido assim que a ancora existe de novo.
-  if (input.startPos !== undefined && input.endPos !== undefined) {
+  // Notas de projeto continuam sem âncora, mesmo se receberem esses campos.
+  if (beforeRow.documentId != null && (input.startPos !== undefined || input.endPos !== undefined)) {
+    if (input.startPos === undefined || input.endPos === undefined) {
+      throw new Error('Religar uma nota exige um documento e um intervalo completo.')
+    }
+    validateDocumentRange(beforeRow.documentId, input.startPos, input.endPos)
     patch.startPos = input.startPos
     patch.endPos = input.endPos
     patch.anchorStatus = 'attached'

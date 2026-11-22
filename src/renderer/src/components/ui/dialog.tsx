@@ -2,6 +2,7 @@ import * as React from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { restoreFocus, type FocusAnchor } from '@/lib/keyboard'
 
 const Dialog = DialogPrimitive.Root
 const DialogTrigger = DialogPrimitive.Trigger
@@ -29,8 +30,9 @@ const DialogContent = React.forwardRef<
     // Diálogos que não devem bloquear a interface (ex.: ver os trechos de um
     // código) passam showOverlay={false} e modal={false} no Root.
     showOverlay?: boolean
+    returnFocus?: FocusAnchor | null
   }
->(({ className, children, showOverlay = true, ...props }, ref) => (
+>(({ className, children, showOverlay = true, returnFocus, onCloseAutoFocus, ...props }, ref) => (
   <DialogPortal>
     {showOverlay && <DialogOverlay />}
     <DialogPrimitive.Content
@@ -39,10 +41,17 @@ const DialogContent = React.forwardRef<
         'fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 rounded-lg',
         className
       )}
+      onCloseAutoFocus={(event) => {
+        onCloseAutoFocus?.(event)
+        if (!event.defaultPrevented && returnFocus) {
+          event.preventDefault()
+          restoreFocus(returnFocus)
+        }
+      }}
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none">
+      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100">
         <X className="h-4 w-4" />
         <span className="sr-only">Fechar</span>
       </DialogPrimitive.Close>

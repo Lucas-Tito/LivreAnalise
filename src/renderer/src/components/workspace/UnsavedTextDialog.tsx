@@ -1,4 +1,4 @@
-import { type JSX, useState } from 'react'
+import { type JSX, useRef, useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/stores/appStore'
 import { mensagemDeErro } from '@/lib/erros'
+import { captureFocus, restoreFocus, type FocusAnchor } from '@/lib/keyboard'
 
 // A pergunta antes de sair de um texto editado e não salvo (#31): voltar para a
 // biblioteca, trocar de documento, restaurar versão, cancelar a edição ou
@@ -18,6 +19,7 @@ export function UnsavedTextDialog(): JSX.Element {
   const aberto = useAppStore((s) => s.saidaDoTexto !== null)
   const textoAcoes = useAppStore((s) => s.textoAcoes)
   const responder = useAppStore((s) => s.responderSaidaDoTexto)
+  const origin = useRef<FocusAnchor | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -36,7 +38,14 @@ export function UnsavedTextDialog(): JSX.Element {
 
   return (
     <Dialog open={aberto} onOpenChange={(o) => !o && !salvando && responder(false)}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md"
+        onOpenAutoFocus={() => { origin.current = captureFocus() }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          if (document.activeElement !== document.body && document.activeElement !== origin.current?.element) return
+          restoreFocus(origin.current, document.querySelector<HTMLElement>('[data-focus-key="document-edit"]'))
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Alterações não salvas no texto</DialogTitle>
           <DialogDescription>

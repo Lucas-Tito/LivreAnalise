@@ -12,18 +12,28 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/stores/appStore'
 import type { Collection } from '@shared/types'
+import { MemoEditor } from './MemoDialog'
+import { restoreFocus, type FocusAnchor } from '@/lib/keyboard'
 
 interface Props {
   collection: Collection | null
   onOpenChange: (open: boolean) => void
+  returnFocus?: FocusAnchor | null
 }
 
-export function CollectionMembersDialog({ collection, onOpenChange }: Props): JSX.Element {
+export function CollectionMembersDialog({ collection: requested, onOpenChange, returnFocus }: Props): JSX.Element {
   const codes = useAppStore((s) => s.codes)
+  const collections = useAppStore((s) => s.collections)
   const addCollectionMember = useAppStore((s) => s.addCollectionMember)
   const removeCollectionMember = useAppStore((s) => s.removeCollectionMember)
   const [members, setMembers] = useState<Set<number>>(new Set())
   const [filter, setFilter] = useState('')
+  const [memoOpen, setMemoOpen] = useState(false)
+  const current = collections.find((item) => item.id === requested?.id)
+  const collection = current ?? (memoOpen ? requested : null)
+  useEffect(() => {
+    if (requested && !current && !memoOpen) onOpenChange(false)
+  }, [requested, current, memoOpen, onOpenChange])
 
   useEffect(() => {
     if (collection) {
@@ -47,30 +57,45 @@ export function CollectionMembersDialog({ collection, onOpenChange }: Props): JS
     }
   }
 
-  // Grupo reúne categorias. Um código solto que já é membro (de projeto antigo
-  // ou importado do ATLAS.ti) continua na lista para poder ser tirado.
+  // Um grupo pode reunir códigos antes de eles serem organizados em categorias.
   const categorias = groupIds(codes)
-  const filtered = codes.filter(
-    (c) => (categorias.has(c.id) || members.has(c.id)) && casaBusca(c.name, filter)
-  )
+  const filtered = codes.filter((c) => casaBusca(c.name, filter))
 
   return (
-    <Dialog open={collection !== null} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog open={collection !== null} onOpenChange={(open) => {
+      void (async () => {
+        if (!open && memoOpen && !(await useAppStore.getState().sairDoMemo?.())) return
+        onOpenChange(open)
+      })()
+    }}>
+      <DialogContent className={memoOpen ? 'flex h-[80vh] max-h-[90vh] w-[90vw] max-w-4xl flex-col' : undefined}
+        onCloseAutoFocus={(event) => {
+          if (returnFocus) { event.preventDefault(); restoreFocus(returnFocus) }
+        }}
+        onEscapeKeyDown={(event) => {
+          if (memoOpen) { event.preventDefault(); void useAppStore.getState().sairDoMemo?.() }
+        }}>
         <DialogHeader>
-          <DialogTitle>Categorias no grupo "{collection?.name}"</DialogTitle>
+          <DialogTitle>Códigos e categorias no grupo "{collection?.name}"</DialogTitle>
         </DialogHeader>
+        <div className="flex gap-2">
+          <Button size="sm" variant={memoOpen ? 'outline' : 'secondary'} onClick={() => {
+            if (memoOpen) void useAppStore.getState().sairDoMemo?.()
+          }}>Códigos e categorias</Button>
+          <Button size="sm" variant={memoOpen ? 'secondary' : 'outline'} onClick={() => setMemoOpen(true)}>Memo{(collections.find((c) => c.id === collection?.id)?.memo ?? collection?.memo) ? ' •' : ''}</Button>
+        </div>
+        {memoOpen && collection ? (
+          <MemoEditor target={{ id: collection.id, name: collection.name, kind: 'grupo', memo: collections.find((c) => c.id === collection.id)?.memo ?? collection.memo ?? '' }} onClose={() => setMemoOpen(false)} showHint unavailable={!current} />
+        ) : <>
         <Input
-          placeholder="Filtrar categorias..."
+          placeholder="Filtrar códigos e categorias..."
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
         <div className="max-h-72 overflow-auto rounded-md border">
           {filtered.length === 0 ? (
             <p className="p-4 text-center text-xs text-muted-foreground">
-              {categorias.size === 0
-                ? 'Nenhuma categoria ainda. Categorias são códigos de 1º nível que já têm filhos.'
-                : 'Nenhuma categoria encontrada.'}
+              Nenhum código ou categoria encontrado.
             </p>
           ) : (
             <ul className="divide-y">
@@ -86,7 +111,7 @@ export function CollectionMembersDialog({ collection, onOpenChange }: Props): JS
                       className="h-3 w-3 rounded-full"
                       style={{ backgroundColor: c.color }}
                     />
-                    <span className="truncate">{c.name}</span>
+                    <span className="truncate">{c.name}{categorias.has(c.id) ? ' (categoria)' : ''}</span>
                   </label>
                 </li>
               ))}
@@ -94,8 +119,9 @@ export function CollectionMembersDialog({ collection, onOpenChange }: Props): JS
           )}
         </div>
         <DialogFooter>
-          <Button onClick={() => onOpenChange(false)}>Concluir</Button>
+          <Button onClick={() => onOpenChange(false)}>Fechar</Button>
         </DialogFooter>
+        </>}
       </DialogContent>
     </Dialog>
   )

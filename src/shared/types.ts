@@ -45,7 +45,9 @@ export interface Code {
   name: string
   color: string
   description: string | null
+  memo: string
   parentId: number | null
+  isCategory?: boolean
   sortOrder: number
   createdAt: string
 }
@@ -59,6 +61,7 @@ export interface Collection {
   guid: string
   name: string
   description: string | null
+  memo: string
   sortOrder: number
 }
 
@@ -88,6 +91,7 @@ export interface CreateCodeInput {
   color: string
   description?: string | null
   parentId?: number | null
+  isCategory?: boolean
 }
 
 export interface UpdateCodeInput {
@@ -95,8 +99,11 @@ export interface UpdateCodeInput {
   name?: string
   color?: string
   description?: string | null
+  memo?: string
   parentId?: number | null
   sortOrder?: number
+  // Identifica uma sessão de autosave, sem persistir no banco.
+  historyGroup?: string
 }
 
 export interface MoveCodesInput {
@@ -112,6 +119,7 @@ export interface CreateGroupInput {
   name: string
   color: string
   codeId: number
+  collectionId?: number
 }
 
 // União de vários códigos em um grupo novo (arrastar um sobre o outro).
@@ -119,6 +127,7 @@ export interface CreateGroupFromCodesInput {
   name: string
   color: string
   codeIds: number[]
+  collectionId?: number
 }
 
 export interface CreateCollectionInput {
@@ -130,7 +139,9 @@ export interface UpdateCollectionInput {
   id: number
   name?: string
   description?: string | null
+  memo?: string
   sortOrder?: number
+  historyGroup?: string
 }
 
 export interface CreateCodingInput {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aposSalvar, mesmoConteudo } from '../src/renderer/src/lib/noteAutosave'
+import { aposSalvar, createNoteSaver, mesmoConteudo } from '../src/renderer/src/lib/noteAutosave'
 
 describe('aposSalvar', () => {
   // O defeito: o editor sobrescrevia o texto da tela com o que acabara de ser
@@ -39,5 +39,39 @@ describe('aposSalvar', () => {
 describe('mesmoConteudo', () => {
   it('distingue corpo vazio de corpo com espaço', () => {
     expect(mesmoConteudo({ title: 'a', body: '' }, { title: 'a', body: ' ' })).toBe(false)
+  })
+})
+
+describe('flush de notas', () => {
+  it('aguarda a escrita em andamento e salva a revisão mais recente', async () => {
+    const initial = { title: '', body: '' }
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const writes: string[] = []
+    const saver = createNoteSaver(initial, async (draft) => {
+      writes.push(draft.body)
+      if (writes.length === 1) await gate
+      return draft
+    })
+    saver.change({ ...initial, body: 'primeira' })
+    const saving = saver.flush()
+    saver.change({ ...initial, body: 'última' })
+    const flush = saver.flush()
+    expect(flush).toBe(saving)
+    release()
+    await flush
+    expect(writes).toEqual(['primeira', 'última'])
+  })
+
+  it('propaga falhas e permite tentar novamente sem perder o rascunho', async () => {
+    let fail = true
+    const saver = createNoteSaver({ title: '', body: '' }, async (draft) => {
+      if (fail) throw new Error('disco cheio')
+      return draft
+    })
+    saver.change({ title: ' ', body: 'preservar' })
+    await expect(saver.flush()).rejects.toThrow('disco cheio')
+    fail = false
+    await expect(saver.flush()).resolves.toBeUndefined()
   })
 })

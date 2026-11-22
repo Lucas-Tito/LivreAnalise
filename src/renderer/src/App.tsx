@@ -4,11 +4,17 @@ import { useThemeStore } from './stores/themeStore'
 import { useZoomStore } from './stores/zoomStore'
 import { IPC } from '@shared/ipc'
 import { HomeLibrary } from './components/home/HomeLibrary'
+import { SimplePromptDialog } from './components/workspace/SimplePromptDialog'
+import { AppCloseDialog } from './components/workspace/AppCloseDialog'
 import { Workspace } from './components/workspace/Workspace'
 import { TranscribeView } from './components/transcribe/TranscribeView'
+import { isTypingTarget, matchesCommand } from './lib/keyboard'
 
 function App(): JSX.Element {
   const project = useAppStore((s) => s.project)
+  const newProjectPrompt = useAppStore((s) => s.newProjectPrompt)
+  const setNewProjectPrompt = useAppStore((s) => s.setNewProjectPrompt)
+  const saveNewProject = useAppStore((s) => s.saveNewProject)
   const bootstrap = useAppStore((s) => s.bootstrap)
   const initTheme = useThemeStore((s) => s.init)
   const initZoom = useZoomStore((s) => s.init)
@@ -31,10 +37,7 @@ function App(): JSX.Element {
       else if (action === IPC.view.fontDyslexic) s.setFont('dyslexic')
     })
     const onKey = (e: KeyboardEvent): void => {
-      const el = e.target as HTMLElement | null
-      const tag = el?.tagName
-      const editable = el?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA'
-      if (!(e.ctrlKey || e.metaKey)) return
+      if (e.defaultPrevented || e.isComposing || !(e.ctrlKey || e.metaKey)) return
       const s = useZoomStore.getState()
       // O zoom vale em qualquer lugar: ele não compete com a digitação, e
       // bloqueá-lo dentro de campo de texto tirava o atalho justamente de quem
@@ -55,11 +58,11 @@ function App(): JSX.Element {
         return
       }
       // Já o desfazer não: dentro de campo de texto vale o nativo da digitação.
-      if (editable) return
-      if ((e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+      if (isTypingTarget(e.target) || document.querySelector('[data-command-surface]:not([data-state="closed"])')) return
+      if (matchesCommand(e, 'undo')) {
         e.preventDefault()
         void useAppStore.getState().undo()
-      } else if ((e.key === 'y' || e.key === 'Y') || ((e.key === 'z' || e.key === 'Z') && e.shiftKey)) {
+      } else if (matchesCommand(e, 'redo')) {
         e.preventDefault()
         void useAppStore.getState().redo()
       }
@@ -71,9 +74,23 @@ function App(): JSX.Element {
     }
   }, [])
 
-  if (project) return <Workspace />
-  if (transcribing) return <TranscribeView onBack={() => setTranscribing(false)} />
-  return <HomeLibrary onTranscribe={() => setTranscribing(true)} />
+  return (
+    <>
+      {project ? <Workspace /> : transcribing
+        ? <TranscribeView onBack={() => setTranscribing(false)} />
+        : <HomeLibrary onTranscribe={() => setTranscribing(true)} />}
+      <AppCloseDialog />
+      <SimplePromptDialog
+        open={newProjectPrompt !== null}
+        onOpenChange={(open) => { if (!open) setNewProjectPrompt(null) }}
+        title={newProjectPrompt?.source ? 'Importar QDPX como novo projeto' : 'Criar novo projeto'}
+        label="Nome do projeto"
+        submitLabel="Escolher pasta"
+        initialValue={newProjectPrompt?.initialName}
+        onSubmit={saveNewProject}
+      />
+    </>
+  )
 }
 
 export default App

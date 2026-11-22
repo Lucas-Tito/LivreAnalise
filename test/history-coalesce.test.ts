@@ -102,4 +102,29 @@ describe('coalescência do histórico', () => {
 
     expect(r).toEqual(['redo:v2'])
   })
+
+  it('não absorve uma nova edição no estado anterior depois de desfazer', () => {
+    const r: string[] = []
+    pushHistory(entrada('primeiro', r, 'código:1'), 1000)
+    pushHistory(entrada('outra ação', r), 1100)
+    historyUndo()
+    pushHistory(entrada('nova edição', r, 'código:1'), 1200)
+    historyUndo()
+    expect(r).toEqual(['undo:outra ação', 'undo:nova edição'])
+    expect(historyState().canUndo).toBe(true)
+    expect(historyState().redoLabel).toBe('nova edição')
+  })
+})
+
+it('does not coalesce a save across an undone action', () => {
+  clearAllHistory()
+  let draft = 'A'
+  pushHistory({ label: 'Nota', coalesceKey: 'nota:1', undo: () => { draft = '' }, redo: () => { draft = 'A' } }, 1)
+  pushHistory({ label: 'Outra ação', undo: () => {}, redo: () => {} }, 2)
+  historyUndo()
+  draft = 'B'
+  pushHistory({ label: 'Nota', coalesceKey: 'nota:1', undo: () => { draft = 'A' }, redo: () => { draft = 'B' } }, 3)
+  historyUndo()
+  expect(draft).toBe('A')
+  clearAllHistory()
 })

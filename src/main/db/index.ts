@@ -26,7 +26,7 @@ function applySchema(raw: Database.Database): void {
 // guarda de "projeto de uma versao mais nova" -- enquanto a tela seguia
 // mostrando o projeto anterior, e toda acao dali em diante dava "Nenhum projeto
 // aberto".
-export function openDatabase(path: string): ProjectDb {
+export function openDetachedDatabase(path: string): ProjectDb {
   const raw = new Database(path)
   try {
     applySchema(raw)
@@ -39,9 +39,13 @@ export function openDatabase(path: string): ProjectDb {
     }
     throw err
   }
+  return drizzle(raw, { schema }) as ProjectDb
+}
+
+export function openDatabase(path: string): ProjectDb {
+  const db = openDetachedDatabase(path)
   closeDatabase()
-  const db = drizzle(raw, { schema }) as ProjectDb
-  active = { db, raw, path }
+  active = { db, raw: db.$client, path }
   return db
 }
 

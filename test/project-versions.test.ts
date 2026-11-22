@@ -1,5 +1,5 @@
 import { createRequire } from 'module'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -63,6 +63,7 @@ describe.skipIf(!nativeOk)('project versions (integration)', () => {
       versions.createVersionSnapshot(projectPath, { kind: 'manual', label: 'mesmo rótulo bem longo para truncar igual' })
     ])
     expect(a.file).not.toBe(b.file)
+    expect(versions.readManifest(projectPath)).toEqual(expect.arrayContaining([a, b]))
     db.closeDatabase()
   })
 
@@ -77,5 +78,17 @@ describe.skipIf(!nativeOk)('project versions (integration)', () => {
     const kept2 = versions.pruneVersions(projectPath)
     expect(kept2.some((e) => e.label === 'marco')).toBe(true)
     db.closeDatabase()
+  })
+
+  it('does not treat a damaged catalog as an empty history or overwrite it', async () => {
+    const baseline = await versions.createVersionSnapshot(projectPath)
+    const manifest = join(versions.versionsDir(projectPath), 'manifest.json')
+    writeFileSync(manifest, '{truncated')
+    expect(() => versions.readManifest(projectPath)).toThrow('catálogo')
+    await expect(versions.createVersionSnapshot(projectPath)).rejects.toThrow('catálogo')
+    db.getRaw().pragma('user_version = 1')
+    await expect(versions.snapshotBeforeMigration(projectPath)).rejects.toThrow('catálogo')
+    expect(readdirSync(versions.versionsDir(projectPath)).sort()).toEqual([baseline.file, 'manifest.json'])
+    expect(readFileSync(manifest, 'utf8')).toBe('{truncated')
   })
 })

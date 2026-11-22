@@ -4,6 +4,8 @@ export interface QdpxCode {
   color?: string
   description?: string | null
   parentGuid: string | null
+  isCodable?: boolean
+  noteGuids?: string[]
 }
 
 export interface QdpxSelection {
@@ -54,4 +56,5 @@ export interface QdpxProject {
 export interface ParsedQdpx {
   project: QdpxProject
   skipped: string[]
+  origin?: string
 }

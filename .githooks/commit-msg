@@ -2,4 +2,4 @@
 # Remove co-autoria do Cursor injetada automaticamente pelo IDE.
 # Case-insensitive de proposito: o IDE ja variou entre "Co-authored-by" e
 # "Co-Authored-By", e um padrao fixo falharia em silencio.
-sed -i '/^co-authored-by:.*cursor/Id' "$1"
+node "$(git rev-parse --show-toplevel)/scripts/clean-commit-message.mjs" "$1"

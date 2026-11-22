@@ -13,13 +13,15 @@ import {
 import { Input } from '@/components/ui/input'
 import { formatBytes } from '@/lib/utils'
 import type { ProjectVersion } from '@shared/projectVersions'
+import type { FocusAnchor } from '@/lib/keyboard'
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
+  returnFocus?: FocusAnchor | null
 }
 
-export function VersionsDialog({ open, onOpenChange }: Props): JSX.Element {
+export function VersionsDialog({ open, onOpenChange, returnFocus }: Props): JSX.Element {
   const versions = useAppStore((s) => s.versions)
   const createVersion = useAppStore((s) => s.createVersion)
   const restoreVersion = useAppStore((s) => s.restoreVersion)
@@ -81,7 +83,7 @@ export function VersionsDialog({ open, onOpenChange }: Props): JSX.Element {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent returnFocus={returnFocus}>
         <DialogHeader>
           <DialogTitle>Versões do projeto</DialogTitle>
         </DialogHeader>
@@ -92,7 +94,7 @@ export function VersionsDialog({ open, onOpenChange }: Props): JSX.Element {
             onChange={(e) => setLabel(e.target.value)}
           />
           <Button onClick={() => void handleCreate()} disabled={working}>
-            <History className="h-4 w-4" /> Salvar
+            <History className="h-4 w-4" /> Criar checkpoint
           </Button>
         </div>
         {error && (

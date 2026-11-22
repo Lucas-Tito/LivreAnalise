@@ -13,7 +13,8 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          index: resolve('src/main/index.ts')
+          index: resolve('src/main/index.ts'),
+          documentWorker: resolve('src/main/services/documentWorker.cjs')
         }
       }
     }
@@ -41,7 +42,19 @@ export default defineConfig({
         '@shared': resolve('src/shared')
       }
     },
-    plugins: [react()],
+    plugins: [react(), {
+      name: 'renderer-content-security-policy',
+      transformIndexHtml(html, context) {
+        const dev = Boolean(context.server)
+        const policy = [
+          "default-src 'self'", "base-uri 'none'", "object-src 'none'", "frame-src 'none'",
+          `script-src 'self'${dev ? " 'unsafe-inline'" : ''}`,
+          "style-src 'self' 'unsafe-inline'", "font-src 'self' data:", "img-src 'self' data:",
+          `connect-src 'self'${dev ? ' ws:' : ''}`
+        ].join('; ')
+        return html.replace('<!-- CONTENT_SECURITY_POLICY -->', `<meta http-equiv="Content-Security-Policy" content="${policy}" />`)
+      }
+    }],
     build: {
       rollupOptions: {
         input: {

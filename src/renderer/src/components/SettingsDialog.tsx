@@ -8,11 +8,14 @@ import {
 } from '@/components/ui/dialog'
 import { useThemeStore } from '@/stores/themeStore'
 import { useZoomStore, type TranscriptFont } from '@/stores/zoomStore'
+import { INTERFACE_SCALES, useInterfaceScaleStore } from '@/stores/interfaceScaleStore'
 import { cn } from '@/lib/utils'
+import type { FocusAnchor } from '@/lib/keyboard'
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
+  returnFocus?: FocusAnchor | null
 }
 
 const FONTES: { id: TranscriptFont; nome: string; descricao: string }[] = [
@@ -26,15 +29,17 @@ const FONTES: { id: TranscriptFont; nome: string; descricao: string }[] = [
   }
 ]
 
-export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
+export function SettingsDialog({ open, onOpenChange, returnFocus }: Props): JSX.Element {
   const theme = useThemeStore((s) => s.theme)
   const toggle = useThemeStore((s) => s.toggle)
   const font = useZoomStore((s) => s.font)
   const setFont = useZoomStore((s) => s.setFont)
+  const interfaceScale = useInterfaceScaleStore((s) => s.scale)
+  const setInterfaceScale = useInterfaceScaleStore((s) => s.setScale)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent returnFocus={returnFocus} className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Configurações</DialogTitle>
         </DialogHeader>
@@ -45,6 +50,7 @@ export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
             <div className="flex gap-2">
               <button
                 onClick={() => theme === 'dark' && toggle()}
+                aria-pressed={theme === 'light'}
                 className={cn(
                   'flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
                   theme === 'light' ? 'border-primary bg-accent' : 'hover:bg-accent/50'
@@ -54,6 +60,7 @@ export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
               </button>
               <button
                 onClick={() => theme === 'light' && toggle()}
+                aria-pressed={theme === 'dark'}
                 className={cn(
                   'flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
                   theme === 'dark' ? 'border-primary bg-accent' : 'hover:bg-accent/50'
@@ -62,6 +69,21 @@ export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
                 <Moon className="h-4 w-4" /> Escuro
               </button>
             </div>
+          </section>
+
+          <section className="space-y-2">
+            <label htmlFor="interface-scale" className="text-sm font-medium">Tamanho da interface</label>
+            <select
+              id="interface-scale"
+              value={interfaceScale}
+              onChange={(event) => setInterfaceScale(Number(event.target.value))}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            >
+              {INTERFACE_SCALES.map((scale) => (
+                <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">Ajusta o tamanho de toda a interface, independentemente do texto do documento.</p>
           </section>
 
           <section className="space-y-2">
@@ -74,6 +96,7 @@ export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
                 <button
                   key={f.id}
                   onClick={() => setFont(f.id)}
+                  aria-pressed={font === f.id}
                   title={f.descricao}
                   className={cn(
                     'flex-1 rounded px-2 py-1.5 text-sm transition-colors',
@@ -95,8 +118,8 @@ export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
               style={{ fontFamily: 'var(--transcript-font)' }}
             >
               <p>
-                Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
-                eiusmod tempor incididunt ut labore et dolore magna aliqua.
+                Cada entrevista traz uma perspectiva. Selecione um trecho para
+                registrar ideias, relacionar códigos e desenvolver sua análise.
               </p>
             </div>
           </section>

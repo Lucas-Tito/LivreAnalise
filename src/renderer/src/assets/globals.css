@@ -54,6 +54,40 @@
   border-color: hsl(var(--border));
 }
 
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
+
+/* Barras discretas que acompanham os temas claro e escuro. */
+*::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.45);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--muted-foreground) / 0.75);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
+  }
+}
+
 html,
 body,
 #root {
@@ -69,12 +103,31 @@ body {
   overflow: hidden;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 ::selection {
   background: hsl(var(--primary) / 0.3);
 }
 
 .transcript ::selection {
   background: hsl(var(--primary) / 0.45);
+}
+
+/* A barra pertence ao texto sob a camada; uma segunda barra alteraria a largura
+   das linhas do campo e desalinharia o cursor dos destaques. */
+.transcript-reader {
+  scrollbar-width: none;
+}
+
+.transcript-reader::-webkit-scrollbar {
+  display: none;
 }
 
 .transcript .pending-selection {

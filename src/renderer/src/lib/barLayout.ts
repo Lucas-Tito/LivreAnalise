@@ -11,6 +11,70 @@ export interface BarLayout<T> {
 
 const BAR_HEIGHT = 24
 
+export interface ExcerptBar<T> {
+  item: T
+  /** Posições das linhas visuais cobertas pelo trecho, já centralizadas. */
+  lineTops: number[]
+}
+
+/** Prefere o meio do trecho e usa outras linhas antes de dividir a largura.
+ * Se todas as linhas estiverem ocupadas, reúne os códigos na mesma etiqueta:
+ * cada membro continua associado a uma linha dentro do próprio trecho.
+ */
+export function distributeExcerptBars<T>(excerpts: ExcerptBar<T>[], spacing = BAR_HEIGHT): Array<{ items: T[]; top: number }> {
+  const rows = new Map<number, Array<{ items: T[]; top: number; singleLine: boolean }>>()
+  const bounds = new Map<T, { min: number; max: number }>()
+  // Normaliza antes de ordenar: uma linha dividida em vários fragmentos
+  // (pelas notas ou pela busca) ocupa uma linha só e precisa reservá-la
+  // antes dos trechos multilinha, como qualquer trecho curto.
+  const sorted = excerpts
+    .map((excerpt) => ({
+      item: excerpt.item,
+      tops: [...new Set(excerpt.lineTops.map((top) => Math.round(top)))].sort((a, b) => a - b)
+    }))
+    .filter((excerpt) => excerpt.tops.length > 0)
+    .sort((a, b) => a.tops.length - b.tops.length)
+  for (const { item, tops } of sorted) {
+    bounds.set(item, { min: tops[0], max: tops[tops.length - 1] })
+    const middle = (tops[0] + tops[tops.length - 1]) / 2
+    const preferred = [...tops].sort((a, b) => Math.abs(a - middle) - Math.abs(b - middle) || a - b)
+    const singleLine = tops.length === 1
+    const free = preferred.find((top) => !rows.has(top))
+    const top = free ?? preferred[0]
+    const occupants = rows.get(top) ?? []
+    if (occupants.length === 0 || (singleLine && occupants[0].singleLine)) {
+      occupants.push({ items: [item], top, singleLine })
+      rows.set(top, occupants)
+    } else {
+      // Não cria colunas para trechos multilinha, mesmo em regiões muito densas.
+      rows.set(top, [{ items: [...occupants.flatMap((bar) => bar.items), item], top, singleLine: false }])
+    }
+  }
+  const bars = [...rows.values()].flat().map(({ items, top }) => ({ items, top }))
+  // Entre duas linhas, o centro exato pode estar no espaço entre elas. Usa-o
+  // quando estiver livre, sem desfazer a distribuição dos grupos mais densos.
+  const ordered = [...bars].sort((a, b) => a.top - b.top)
+  for (let i = 0; i < ordered.length; i++) {
+    const bar = ordered[i]
+    if (bar.items.length === 1 && bounds.get(bar.items[0])!.min === bounds.get(bar.items[0])!.max) continue
+    let min = -Infinity
+    let max = Infinity
+    for (const item of bar.items) {
+      const bound = bounds.get(item)!
+      min = Math.max(min, bound.min)
+      max = Math.min(max, bound.max)
+    }
+    const middle = (min + max) / 2
+    if (middle === bar.top) continue
+    const previous = ordered[i - 1]
+    const next = ordered[i + 1]
+    if ((!previous || middle - previous.top >= spacing) && (!next || next.top - middle >= spacing)) {
+      bar.top = middle
+    }
+  }
+  return bars
+}
+
 // Distribui as etiquetas em colunas para que duas nunca se sobreponham na
 // vertical. `minColumns` mantem o resultado monotonico: a largura da coluna de
 // etiquetas altera a largura do texto, que re-quebra as linhas e muda as
@@ -18,7 +82,8 @@ const BAR_HEIGHT = 24
 // ciclo indefinidamente.
 export function packBarColumns<T extends { top: number }>(
   bars: T[],
-  minColumns = 1
+  minColumns = 1,
+  barHeight = BAR_HEIGHT
 ): BarLayout<T> {
   const sorted = [...bars].sort((a, b) => a.top - b.top)
   const columnBottoms: number[] = []
@@ -30,7 +95,7 @@ export function packBarColumns<T extends { top: number }>(
       columnBottoms.push(0)
       columnBars.push([])
     }
-    columnBottoms[column] = bar.top + BAR_HEIGHT
+    columnBottoms[column] = bar.top + barHeight
     columnBars[column].push(bar)
     return { ...bar, column }
   })
@@ -47,10 +112,10 @@ export function packBarColumns<T extends { top: number }>(
         let high = neighbors.length
         while (low < high) {
           const mid = Math.floor((low + high) / 2)
-          if (neighbors[mid].top + BAR_HEIGHT <= bar.top) low = mid + 1
+          if (neighbors[mid].top + barHeight <= bar.top) low = mid + 1
           else high = mid
         }
-        if (low < neighbors.length && neighbors[low].top < bar.top + BAR_HEIGHT) {
+        if (low < neighbors.length && neighbors[low].top < bar.top + barHeight) {
           endColumn = column
           break
         }

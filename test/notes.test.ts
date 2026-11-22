@@ -224,7 +224,7 @@ describe.skipIf(!nativeOk)('notas (memos)', () => {
 
     db.openDatabase(path)
 
-    expect(migrate.getSchemaVersion(db.getRaw())).toBe(2)
+    expect(migrate.getSchemaVersion(db.getRaw())).toBe(migrate.CURRENT_SCHEMA_VERSION)
     expect(repos.listDocuments()).toHaveLength(1)
     const note = repos.createNote({
       scope: 'excerpt',

@@ -1,5 +1,5 @@
-import { type JSX, useState } from 'react'
-import { BookText, ChevronDown, Download, History, Loader2, Redo2, Sparkles, StickyNote, Undo2 } from 'lucide-react'
+import { type JSX, useRef, useState } from 'react'
+import { BookText, ChevronDown, CircleHelp, Download, History, Loader2, Redo2, Settings, Sparkles, StickyNote, Undo2 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { mensagemDeErro } from '@/lib/erros'
 import { Button } from '@/components/ui/button'
@@ -11,8 +11,17 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { AiExportDialog } from './AiExportDialog'
 import { VersionsDialog } from './VersionsDialog'
+import { SettingsDialog } from '@/components/SettingsDialog'
+import { useAsyncAction } from '@/lib/useAsyncAction'
+import { captureFocus, shortcutLabel, type FocusAnchor } from '@/lib/keyboard'
+import { useWorkspaceActions } from '@/lib/workspaceActions'
 
-export function TopBar(): JSX.Element {
+type ToolbarDialog = 'settings' | 'versions' | 'exportAi'
+
+export function TopBar({ onKeyboardHelp, onToggleNotes }: {
+  onKeyboardHelp?: () => void
+  onToggleNotes?: (origin: HTMLElement) => Promise<void>
+} = {}): JSX.Element {
   const project = useAppStore((s) => s.project)
   const closeProject = useAppStore((s) => s.closeProject)
   const notesPanelOpen = useAppStore((s) => s.notesPanelOpen)
@@ -20,16 +29,25 @@ export function TopBar(): JSX.Element {
   const documentNotes = useAppStore((s) => s.documentNotes)
   const projectNotes = useAppStore((s) => s.projectNotes)
   const [working, setWorking] = useState(false)
-  const [exportarIa, setExportarIa] = useState(false)
-  const [versoes, setVersoes] = useState(false)
+  const [dialog, setDialog] = useState<ToolbarDialog | null>(null)
+  const dialogOrigin = useRef<FocusAnchor | null>(null)
+  const exportTrigger = useRef<HTMLButtonElement>(null)
+  const { error, run } = useAsyncAction()
   const noteCount = documentNotes.length + projectNotes.length
   const history = useAppStore((s) => s.history)
   const undo = useAppStore((s) => s.undo)
   const redo = useAppStore((s) => s.redo)
+  const openDialog = (name: ToolbarDialog, origin: HTMLElement | null): void => {
+    dialogOrigin.current = captureFocus(origin ?? document.activeElement)
+    setDialog(name)
+  }
+  const closeDialog = (open: boolean): void => { if (!open) setDialog(null) }
 
   const handleExport = async (): Promise<void> => {
     setWorking(true)
     try {
+      if (!(await useAppStore.getState().podeSairDoTexto())) return
+      await useAppStore.getState().notesFlush?.()
       const result = await window.api.qdpx.export()
       if (result) {
         const warn =
@@ -43,12 +61,22 @@ export function TopBar(): JSX.Element {
     }
   }
 
+  useWorkspaceActions({
+    settings: { run: (origin) => openDialog('settings', origin) },
+    versions: { run: (origin) => openDialog('versions', origin) },
+    exportAi: { run: (origin) => openDialog('exportAi', origin), unavailable: () => working ? 'Uma exportação já está em andamento.' : undefined },
+    exportQdpx: { run: handleExport, unavailable: () => working ? 'Uma exportação já está em andamento.' : undefined }
+  })
+
   return (
-    <div className="flex h-12 shrink-0 items-center justify-between border-b bg-card px-3">
-      <div className="flex items-center gap-2">
+    <div className="relative flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card px-3 py-1">
+      {error && <p role="alert" className="absolute left-3 top-full z-30 rounded border bg-popover p-2 text-xs text-destructive">{error}</p>}
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <button
           type="button"
-          onClick={closeProject}
+          data-focus-key="toolbar-library"
+          data-area-default
+          onClick={() => void run(closeProject)}
           title="Voltar para a biblioteca de projetos"
           className="-mx-2 flex items-center gap-2 rounded px-2 py-1 transition-colors hover:bg-accent"
         >
@@ -56,14 +84,15 @@ export function TopBar(): JSX.Element {
           <span className="font-semibold">LivreAnalise</span>
         </button>
         <span className="text-muted-foreground">/</span>
-        <span className="text-sm">{project?.name}</span>
+        <span className="truncate text-sm" title={project?.name}>{project?.name}</span>
       </div>
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1">
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => void undo()}
+            onClick={() => void run(undo)}
+            aria-label="Desfazer"
             disabled={!history.canUndo}
             title={history.undoLabel ? `Desfazer: ${history.undoLabel} (Ctrl+Z)` : 'Desfazer (Ctrl+Z)'}
           >
@@ -72,7 +101,8 @@ export function TopBar(): JSX.Element {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => void redo()}
+            onClick={() => void run(redo)}
+            aria-label="Refazer"
             disabled={!history.canRedo}
             title={history.redoLabel ? `Refazer: ${history.redoLabel} (Ctrl+Shift+Z)` : 'Refazer (Ctrl+Shift+Z)'}
           >
@@ -82,19 +112,30 @@ export function TopBar(): JSX.Element {
         <Button
           size="sm"
           variant="ghost"
-          onClick={toggleNotesPanel}
+          data-focus-key="toolbar-notes"
+          onClick={(event) => {
+            const origin = event.currentTarget
+            void run(() => onToggleNotes ? onToggleNotes(origin) : toggleNotesPanel())
+          }}
+          aria-pressed={notesPanelOpen}
           aria-label="Notas do projeto"
-          title={`Notas do projeto${noteCount > 0 ? ` (${noteCount})` : ''}`}
+          title={`Notas do projeto${noteCount > 0 ? ` (${noteCount})` : ''} (${shortcutLabel('toggleNotes')})`}
           className={notesPanelOpen ? 'bg-accent' : undefined}
         >
           <StickyNote className="h-4 w-4" />
           {/* o número fica, porque é informação que não dá para inferir do ícone */}
           {noteCount > 0 && <span className="text-xs">{noteCount}</span>}
         </Button>
+        {onKeyboardHelp && <Button size="sm" variant="ghost" data-focus-key="toolbar-help" onClick={onKeyboardHelp} aria-label="Ajuda de atalhos" title={`Ajuda de atalhos (${shortcutLabel('help')})`}>
+          <CircleHelp className="h-4 w-4" />
+        </Button>}
+        <Button size="sm" variant="ghost" data-focus-key="toolbar-settings" onClick={(event) => openDialog('settings', event.currentTarget)} aria-label="Configurações" title="Configurações">
+          <Settings className="h-4 w-4" />
+        </Button>
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => setVersoes(true)}
+          onClick={(event) => openDialog('versions', event.currentTarget)}
           aria-label="Versões do projeto"
           title="Versões do projeto"
         >
@@ -104,7 +145,7 @@ export function TopBar(): JSX.Element {
             a ler o complemento para saber qual era qual, e apertavam a barra. */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="outline" disabled={working}>
+            <Button ref={exportTrigger} size="sm" variant="outline" disabled={working}>
               {working ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -115,7 +156,7 @@ export function TopBar(): JSX.Element {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-72">
-            <DropdownMenuItem onClick={() => setExportarIa(true)}>
+            <DropdownMenuItem onSelect={() => openDialog('exportAi', exportTrigger.current)}>
               <Sparkles className="h-4 w-4" />
               <span className="flex flex-col items-start">
                 <span>Para IA</span>
@@ -136,8 +177,9 @@ export function TopBar(): JSX.Element {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <AiExportDialog open={exportarIa} onOpenChange={setExportarIa} />
-      <VersionsDialog open={versoes} onOpenChange={setVersoes} />
+      <AiExportDialog open={dialog === 'exportAi'} onOpenChange={closeDialog} returnFocus={dialogOrigin.current} />
+      <VersionsDialog open={dialog === 'versions'} onOpenChange={closeDialog} returnFocus={dialogOrigin.current} />
+      <SettingsDialog open={dialog === 'settings'} onOpenChange={closeDialog} returnFocus={dialogOrigin.current} />
     </div>
   )
 }

@@ -1,10 +1,11 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { IPC, type Api } from '@shared/ipc'
 
 const api: Api = {
   project: {
-    create: () => ipcRenderer.invoke(IPC.project.create),
-    open: () => ipcRenderer.invoke(IPC.project.open),
+    create: (name) => ipcRenderer.invoke(IPC.project.create, name),
+    pick: () => ipcRenderer.invoke(IPC.project.pick),
+    importQdpx: (path, name) => ipcRenderer.invoke(IPC.project.importQdpx, path, name),
     openPath: (path) => ipcRenderer.invoke(IPC.project.openPath, path),
     current: () => ipcRenderer.invoke(IPC.project.current),
     close: () => ipcRenderer.invoke(IPC.project.close),
@@ -16,7 +17,7 @@ const api: Api = {
     list: () => ipcRenderer.invoke(IPC.documents.list),
     get: (id) => ipcRenderer.invoke(IPC.documents.get, id),
     import: () => ipcRenderer.invoke(IPC.documents.import),
-    rename: (id, name) => ipcRenderer.invoke(IPC.documents.rename, id, name),
+    rename: (id, name, historyGroup) => ipcRenderer.invoke(IPC.documents.rename, id, name, historyGroup),
     updateText: (id, text) => ipcRenderer.invoke(IPC.documents.updateText, id, text),
     delete: (id) => ipcRenderer.invoke(IPC.documents.delete, id)
   },
@@ -39,6 +40,8 @@ const api: Api = {
     allMembers: () => ipcRenderer.invoke(IPC.collections.allMembers),
     addMember: (collectionId, codeId) =>
       ipcRenderer.invoke(IPC.collections.addMember, collectionId, codeId),
+    addMembers: (collectionId, codeIds) =>
+      ipcRenderer.invoke(IPC.collections.addMembers, collectionId, codeIds),
     removeMember: (collectionId, codeId) =>
       ipcRenderer.invoke(IPC.collections.removeMember, collectionId, codeId)
   },
@@ -59,7 +62,7 @@ const api: Api = {
     delete: (id) => ipcRenderer.invoke(IPC.notes.delete, id)
   },
   transcription: {
-    env: () => ipcRenderer.invoke(IPC.transcription.env),
+    env: (binaryPath) => ipcRenderer.invoke(IPC.transcription.env, binaryPath),
     models: () => ipcRenderer.invoke(IPC.transcription.models),
     modelSize: (modelId) => ipcRenderer.invoke(IPC.transcription.modelSize, modelId),
     pickMedia: () => ipcRenderer.invoke(IPC.transcription.pickMedia),
@@ -103,6 +106,7 @@ const api: Api = {
     }
   },
   view: {
+    setInterfaceScale: (scale) => webFrame.setZoomFactor(scale),
     // o menu da janela precisa saber qual fonte esta ativa para marcar o radio
     notifyFont: (font: string) => ipcRenderer.send(IPC.view.fontChanged, font),
     onAction: (listener) => {
@@ -124,7 +128,11 @@ const api: Api = {
     }
   },
   app: {
+    setNotesDirty: (dirty) => ipcRenderer.send(IPC.app.notesDirty, dirty),
     setTextDirty: (dirty) => ipcRenderer.send(IPC.app.textDirty, dirty),
+    setMemoDirty: (dirty) => ipcRenderer.send(IPC.app.memoDirty, dirty),
+    setCodeDirty: (dirty) => ipcRenderer.send(IPC.app.codeDirty, dirty),
+    setNameDirty: (dirty) => ipcRenderer.send(IPC.app.nameDirty, dirty),
     onCloseRequested: (listener) => {
       const handler = (): void => listener()
       ipcRenderer.on(IPC.app.closeRequested, handler)
@@ -132,7 +140,8 @@ const api: Api = {
         ipcRenderer.removeListener(IPC.app.closeRequested, handler)
       }
     },
-    confirmClose: () => ipcRenderer.send(IPC.app.confirmClose)
+    confirmClose: () => ipcRenderer.send(IPC.app.confirmClose),
+    cancelClose: () => ipcRenderer.send(IPC.app.cancelClose)
   }
 }
 
