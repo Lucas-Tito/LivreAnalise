@@ -1,4 +1,4 @@
-import { type JSX } from 'react'
+import { type JSX, type Ref } from 'react'
 import { Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -29,11 +29,13 @@ export function SearchButton({
 }
 
 export function SearchField({
+  inputRef,
   value,
   onChange,
   onClose,
   placeholder
 }: {
+  inputRef?: Ref<HTMLInputElement>
   value: string
   onChange: (value: string) => void
   onClose: () => void
@@ -42,6 +44,7 @@ export function SearchField({
   return (
     <div className="flex items-center gap-1">
       <input
+        ref={inputRef}
         autoFocus
         value={value}
         onChange={(e) => onChange(e.target.value)}

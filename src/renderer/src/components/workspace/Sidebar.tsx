@@ -1,10 +1,11 @@
 import { type JSX, useCallback, useEffect, useRef, useState } from 'react'
 import { FileText, Tags } from 'lucide-react'
-import { DocumentsPanel } from './DocumentsPanel'
+import { DocumentsPanel, documentToRename } from './DocumentsPanel'
 import { CodesPanel } from './CodesPanel'
 import { cn } from '@/lib/utils'
-import type { CodeWithCount } from '@shared/types'
+import type { CodeWithCount, DocumentRecord } from '@shared/types'
 import { useAppStore } from '@/stores/appStore'
+import { useWorkspaceActions } from '@/lib/workspaceActions'
 
 type Tab = 'documents' | 'codes'
 
@@ -16,11 +17,17 @@ const WIDTH_KEY = 'sidebarWidth'
 interface Props {
   // null fecha o detalhe: o arrasto usa isso para não deixar painel nenhum em
   // cima da lista enquanto o código está em movimento.
-  onViewCode: (code: CodeWithCount | null) => void
+  onViewCode: (code: CodeWithCount | null, origin?: HTMLElement | null) => void
 }
 
 export function Sidebar({ onViewCode }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('documents')
+  const [createRequested, requestCreate] = useState(false)
+  const [renameRequested, requestRename] = useState<DocumentRecord | null>(null)
+  const finishRenameRequest = useCallback(() => requestRename(null), [])
+  const documentsScroll = useRef({ top: 0, left: 0 })
+  const codesScroll = useRef({ top: 0, left: 0 })
+  const tabButtons = useRef(new Map<Tab, HTMLButtonElement>())
   const [width, setWidth] = useState(() => {
     const stored = Number(localStorage.getItem(WIDTH_KEY))
     return stored >= MIN_WIDTH && stored <= MAX_WIDTH ? stored : DEFAULT_WIDTH
@@ -46,6 +53,23 @@ export function Sidebar({ onViewCode }: Props): JSX.Element {
     { id: 'documents', label: 'Documentos', icon: <FileText className="h-4 w-4" /> },
     { id: 'codes', label: 'Códigos', icon: <Tags className="h-4 w-4" /> }
   ]
+  const changeTab = async (next: Tab): Promise<boolean> => {
+    if (tab === next) return true
+    const leave = useAppStore.getState().sairDaRenomeacao
+    if (leave && !(await leave())) return false
+    setTab(next)
+    return true
+  }
+  useWorkspaceActions({
+    newCode: { run: async () => { if (await changeTab('codes')) requestCreate(true) } },
+    renameDocument: {
+      unavailable: (origin) => documentToRename(origin) ? undefined : 'Abra ou foque um documento primeiro.',
+      run: async (origin) => {
+        const document = documentToRename(origin)
+        if (document && await changeTab('documents')) requestRename(document)
+      }
+    }
+  })
 
   const onMouseMove = useCallback((e: MouseEvent) => {
     const next = Math.min(maxWidth, Math.max(MIN_WIDTH, e.clientX))
@@ -79,7 +103,21 @@ export function Sidebar({ onViewCode }: Props): JSX.Element {
           {tabs.map((t) => (
             <button
               key={t.id}
-               onClick={() => setTab(t.id)}
+              ref={(button) => {
+                if (button) tabButtons.current.set(t.id, button)
+                else tabButtons.current.delete(t.id)
+              }}
+              onClick={() => void changeTab(t.id)}
+              data-focus-key={`sidebar-${t.id}`}
+              data-area-default={t.id === tab ? true : undefined}
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+                event.preventDefault()
+                const next = t.id === 'documents' ? 'codes' : 'documents'
+                void changeTab(next).then((changed) => {
+                  if (changed) tabButtons.current.get(next)?.focus()
+                })
+              }}
                aria-pressed={tab === t.id}
               className={cn(
                 'flex flex-1 flex-col items-center gap-1 py-2 text-xs transition-colors',
@@ -94,8 +132,9 @@ export function Sidebar({ onViewCode }: Props): JSX.Element {
           ))}
         </div>
         <div className="min-h-0 flex-1">
-          {tab === 'documents' && <DocumentsPanel />}
-          {tab === 'codes' && <CodesPanel onViewCode={onViewCode} />}
+          {tab === 'documents' && <DocumentsPanel scrollPosition={documentsScroll} renameRequested={renameRequested} onRenameHandled={finishRenameRequest} />}
+          {tab === 'codes' && <CodesPanel onViewCode={onViewCode} scrollPosition={codesScroll}
+            createRequested={createRequested} onCreateRequested={() => requestCreate(false)} />}
         </div>
       </div>
       <div

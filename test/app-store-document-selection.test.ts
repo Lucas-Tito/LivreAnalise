@@ -141,4 +141,40 @@ describe('document selection', () => {
       currentDocument: interviews[0], codings: firstCodings, documentNotes: firstNotes
     })
   })
+
+  it('ignora a abertura antiga quando a abertura rápida termina primeiro', async () => {
+    const slow = deferred<DocumentWithText>()
+    getDocument.mockImplementationOnce(() => slow.promise)
+    const select = useAppStore.getState().selectDocument
+    const oldRequest = select(1)
+    await vi.waitFor(() => expect(getDocument).toHaveBeenCalledWith(1))
+
+    expect(await select(2)).toBe(true)
+    slow.resolve(interviews[0])
+
+    expect(await oldRequest).toBe(false)
+    expect(useAppStore.getState().currentDocument).toEqual(interviews[1])
+  })
+
+  it('recarrega o texto salvo sem concluir uma renomeação pendente', async () => {
+    const updated = { ...interviews[0], plainText: 'Texto salvo', charCount: 11 }
+    const leave = vi.fn(async () => false)
+    const updateText = vi.fn(async () => {})
+    Object.assign(window.api.documents, { updateText })
+    getDocument.mockResolvedValueOnce(updated)
+    useAppStore.setState({
+      sairDaRenomeacao: leave,
+      refreshDocuments: async () => {},
+      refreshCodes: async () => {},
+      refreshHistory: async () => {}
+    })
+
+    await useAppStore.getState().updateDocumentText(updated.id, updated.plainText)
+
+    expect(updateText).toHaveBeenCalledWith(updated.id, updated.plainText)
+    expect(leave).not.toHaveBeenCalled()
+    expect(useAppStore.getState().currentDocument).toEqual(updated)
+    expect(useAppStore.getState().documentNotes).toEqual([])
+  })
+
 })

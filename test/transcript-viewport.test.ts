@@ -77,6 +77,21 @@ describe('posição da transcrição entre modos', () => {
     restoreTranscriptViewport(empty.container, empty.content, viewport)
     expect(empty.container.scrollTop).toBe(0)
   })
+
+  it('mantém o trecho anotado na mesma altura ao estreitar o texto', () => {
+    const reading = layout(20, 87)
+    const viewport = captureTranscriptViewport(reading.container, reading.content, 120)
+    expect(viewport.position).toBe(120)
+    expect(viewport.top).toBe(33)
+    const narrow = layout(10, 87)
+    restoreTranscriptViewport(narrow.container, narrow.content, viewport)
+    expect(narrow.container.scrollTop).toBe(207)
+  })
+
+  it('não salta para uma nota fora da tela ao fechar o painel', () => {
+    const reading = layout(20, 87)
+    expect(captureTranscriptViewport(reading.container, reading.content, 180).position).toBe(80)
+  })
 })
 
 describe('posição ao cancelar alterações no texto', () => {

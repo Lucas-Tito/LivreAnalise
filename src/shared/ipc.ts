@@ -132,6 +132,8 @@ export const IPC = {
     notesDirty: 'app:notes-dirty',
     textDirty: 'app:text-dirty',
     memoDirty: 'app:memo-dirty',
+    codeDirty: 'app:code-dirty',
+    nameDirty: 'app:name-dirty',
     closeRequested: 'app:close-requested',
     confirmClose: 'app:confirm-close',
     cancelClose: 'app:cancel-close'
@@ -154,7 +156,7 @@ export interface Api {
     list: () => Promise<DocumentRecord[]>
     get: (id: number) => Promise<DocumentWithText | null>
     import: () => Promise<DocumentRecord[]>
-    rename: (id: number, name: string) => Promise<void>
+    rename: (id: number, name: string, historyGroup?: string) => Promise<void>
     updateText: (id: number, text: string) => Promise<void>
     delete: (id: number) => Promise<void>
   }
@@ -224,6 +226,8 @@ export interface Api {
     setNotesDirty: (dirty: boolean) => void
     setTextDirty: (dirty: boolean) => void
     setMemoDirty: (dirty: boolean) => void
+    setCodeDirty: (dirty: boolean) => void
+    setNameDirty: (dirty: boolean) => void
     onCloseRequested: (listener: () => void) => () => void
     confirmClose: () => void
     cancelClose: () => void

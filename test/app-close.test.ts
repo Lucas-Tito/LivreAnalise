@@ -42,6 +42,9 @@ beforeEach(async () => {
   state.active = false
   state.ipc.emit(IPC.app.textDirty, {}, false)
   state.ipc.emit(IPC.app.notesDirty, {}, false)
+  state.ipc.emit(IPC.app.memoDirty, {}, false)
+  state.ipc.emit(IPC.app.codeDirty, {}, false)
+  state.ipc.emit(IPC.app.nameDirty, {}, false)
   state.ipc.emit(IPC.app.cancelClose)
 })
 
@@ -57,6 +60,20 @@ it('keeps the database open during quit confirmation and closes only on will-qui
   expect(state.app.quit).toHaveBeenCalled()
   state.app.emit('will-quit')
   expect(state.closeDb).toHaveBeenCalledTimes(1)
+})
+
+it.each([IPC.app.codeDirty, IPC.app.nameDirty])('waits for %s before closing and clears it after confirmation', (channel) => {
+  state.ipc.emit(channel, {}, true)
+  const preventDefault = vi.fn()
+  state.windows[0].emit('close', { preventDefault })
+  expect(preventDefault).toHaveBeenCalled()
+  expect(state.windows[0].webContents.send).toHaveBeenCalledWith(IPC.app.closeRequested)
+  expect(state.closeDb).not.toHaveBeenCalled()
+  state.ipc.emit(IPC.app.confirmClose, { sender: {} })
+  expect(state.windows[0].close).toHaveBeenCalled()
+  const afterSave = vi.fn()
+  state.windows[0].emit('close', { preventDefault: afterSave })
+  expect(afterSave).not.toHaveBeenCalled()
 })
 
 it('waits for process cleanup before closing a window with an active operation', async () => {

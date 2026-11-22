@@ -39,7 +39,7 @@ it('allows viewing citations on a code that became a category', async () => {
   render(<CodesPanel onViewCode={onViewCode} />)
   await userEvent.click(screen.getByRole('button', { name: 'Ações de Categoria' }))
   await userEvent.click(await screen.findByRole('menuitem', { name: 'Ver trechos' }))
-  expect(onViewCode).toHaveBeenCalledWith(parent)
+  expect(onViewCode).toHaveBeenCalledWith(parent, screen.getByRole('treeitem', { name: 'Categoria' }))
 })
 
 it('offers loose codes for membership in an empty group', async () => {

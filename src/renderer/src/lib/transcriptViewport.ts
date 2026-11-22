@@ -29,15 +29,32 @@ function textNode(span: HTMLElement): Text | undefined {
   return Array.from(span.childNodes).find((node) => node.nodeType === 3) as Text | undefined
 }
 
-// Guarda um caractere visível, em vez de pixels: o editor tem outra largura
-// e quebra as linhas de forma diferente da visualização com etiquetas.
+// Guarda um caractere visível, em vez de pixels, para preservar o trecho
+// mesmo quando uma edição ou mudança de largura altera as quebras de linha.
 export function captureTranscriptViewport(
   container: HTMLElement,
-  content: HTMLElement
+  content: HTMLElement,
+  preferredPosition?: number
 ): TranscriptViewport {
   const viewport = container.getBoundingClientRect()
   const scrollFraction = container.scrollTop / Math.max(1, container.scrollHeight - container.clientHeight)
   const range = document.createRange()
+  // Ao anotar, prioriza o trecho escolhido, não a primeira linha da tela:
+  // estreitar o texto pode empurrar uma seleção mais abaixo para fora da vista.
+  if (preferredPosition != null) {
+    for (const span of content.querySelectorAll<HTMLElement>('[data-pos]')) {
+      const node = textNode(span)
+      const offset = preferredPosition - Number(span.dataset.pos)
+      if (!node || offset < 0 || offset >= node.length) continue
+      range.setStart(node, offset)
+      range.setEnd(node, offset + 1)
+      const rect = range.getBoundingClientRect()
+      if (rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom) {
+        return { position: preferredPosition, top: rect.top - viewport.top, scrollFraction }
+      }
+      break
+    }
+  }
   for (const span of content.querySelectorAll<HTMLElement>('[data-pos]')) {
     const node = textNode(span)
     if (!node?.length) continue

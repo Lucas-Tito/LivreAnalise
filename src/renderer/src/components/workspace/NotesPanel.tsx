@@ -13,11 +13,14 @@ import {
 } from 'lucide-react'
 import { useAppStore } from '@/stores/appStore'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { useScrollMemory } from '@/lib/useScrollMemory'
 import { cn } from '@/lib/utils'
 import { mensagemDeErro } from '@/lib/erros'
 import { createNoteSaver, type PendingNote } from '@/lib/noteAutosave'
 import type { Note } from '@shared/types'
 import { useAsyncAction } from '@/lib/useAsyncAction'
+import { captureFocus, hasKeyboardLayer, matchesCommand, restoreFocus, type FocusAnchor } from '@/lib/keyboard'
 
 const AUTOSAVE_DELAY = 800
 
@@ -50,6 +53,7 @@ function NoteCard({
 }): JSX.Element {
   return (
     <button
+      data-focus-key={`note-${note.id}`}
       onClick={onOpen}
       className="w-full rounded-md border bg-background px-3 py-2 text-left transition-colors hover:border-primary/50"
     >
@@ -163,7 +167,7 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
   }
 
   const handleKeyDown = (e: React.KeyboardEvent): void => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    if (!e.nativeEvent.isComposing && matchesCommand(e.nativeEvent, 'saveNote')) {
       e.preventDefault()
       void saveNow().catch(() => undefined)
     }
@@ -253,6 +257,9 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
           </Button>
         )}
         <input
+          autoFocus
+          data-focus-key="note-title"
+          data-area-default
           aria-label="Título da nota"
           readOnly={closingProject}
           value={title}
@@ -260,7 +267,8 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
           placeholder="Título da nota"
           className="mb-2 h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
-        <textarea
+        <Textarea
+          data-focus-key="note-body"
           aria-label="Conteúdo da nota"
           readOnly={closingProject}
           value={body}
@@ -274,7 +282,7 @@ function NoteEditor({ note, onBack }: { note: Note; onBack: () => void }): JSX.E
   )
 }
 
-export function NotesPanel(): JSX.Element {
+export function NotesPanel({ onReturnFocus }: { onReturnFocus?: (noteId: number | null) => void } = {}): JSX.Element {
   const currentDocument = useAppStore((s) => s.currentDocument)
   const documentNotes = useAppStore((s) => s.documentNotes)
   const projectNotes = useAppStore((s) => s.projectNotes)
@@ -284,11 +292,51 @@ export function NotesPanel(): JSX.Element {
   const createNote = useAppStore((s) => s.createNote)
   const [erroLista, setErroLista] = useState<string | null>(null)
   const { error: navigationError, run } = useAsyncAction()
+  const panel = useRef<HTMLDivElement>(null)
+  const editorOrigin = useRef<{ id: number; anchor: FocusAnchor } | null>(null)
+  const close = useCallback(async (): Promise<void> => {
+    await toggleNotesPanel()
+    onReturnFocus?.(editorNoteId)
+  }, [toggleNotesPanel, onReturnFocus, editorNoteId])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || event.isComposing || !matchesCommand(event, 'cancel')) return
+      // Diálogos e menus sobrepostos têm prioridade sobre o painel.
+      if (hasKeyboardLayer()) return
+      event.preventDefault()
+      void run(close)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [run, close])
 
   const [filter, setFilter] = useState('')
+  const listRef = useRef<HTMLDivElement>(null)
+  const listPosition = useRef({ top: 0, left: 0 })
 
   const allNotes = [...documentNotes, ...projectNotes]
   const editingNote = allNotes.find((n) => n.id === editorNoteId) ?? null
+  useScrollMemory(listRef, listPosition, !editingNote)
+
+  const open = async (id: number, origin = document.activeElement): Promise<void> => {
+    const anchor = panel.current?.contains(origin) ? captureFocus(origin) : null
+    await openNoteEditor(id)
+    editorOrigin.current = anchor ? { id, anchor } : null
+  }
+
+  const back = (): void => {
+    void run(async () => {
+      await openNoteEditor(null)
+      const origin = editorOrigin.current?.id === editorNoteId ? editorOrigin.current.anchor : null
+      editorOrigin.current = null
+      requestAnimationFrame(() => {
+        if (origin) restoreFocus(origin, panel.current?.querySelector('[data-area-default]'))
+        else if (onReturnFocus) onReturnFocus(editorNoteId)
+        else panel.current?.querySelector<HTMLElement>('[data-area-default]')?.focus({ preventScroll: true })
+      })
+    })
+  }
 
   const matches = (n: Note): boolean => {
     if (filter.trim() === '') return true
@@ -316,13 +364,14 @@ export function NotesPanel(): JSX.Element {
   }
 
   const handleCreate = async (scope: 'document' | 'project'): Promise<void> => {
+    const origin = document.activeElement
     try {
       const note = await createNote(
         scope === 'document' && currentDocument
           ? { scope, documentId: currentDocument.id }
           : { scope: 'project' }
       )
-      openNoteEditor(note.id)
+      await open(note.id, origin)
     } catch (e) {
       // antes a falha virava rejeicao sem dono: o botao simplesmente nao fazia nada
       setErroLista(mensagemDeErro(e, 'Não foi possível criar a nota.'))
@@ -330,7 +379,7 @@ export function NotesPanel(): JSX.Element {
   }
 
   return (
-    <div className="flex h-full w-80 max-w-[32vw] shrink-0 flex-col border-l bg-card">
+    <div ref={panel} className="flex h-full w-80 max-w-[32vw] shrink-0 flex-col border-l bg-card">
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <StickyNote className="h-4 w-4 text-muted-foreground" />
         <span className="font-medium">Notas</span>
@@ -341,9 +390,10 @@ export function NotesPanel(): JSX.Element {
           size="sm"
           variant="ghost"
           className="ml-auto"
-          onClick={() => void run(toggleNotesPanel)}
+          data-focus-key="notes-close"
+          onClick={() => void run(close)}
           aria-label="Fechar painel de notas"
-          title="Fechar painel de notas"
+          title="Fechar painel de notas (Esc)"
         >
           <X className="h-4 w-4" />
         </Button>
@@ -356,11 +406,13 @@ export function NotesPanel(): JSX.Element {
       )}
 
       {editingNote ? (
-        <NoteEditor key={editingNote.id} note={editingNote} onBack={() => void openNoteEditor(null)} />
+        <NoteEditor key={editingNote.id} note={editingNote} onBack={back} />
       ) : (
         <>
           <div className="border-b p-2">
             <input
+              data-focus-key="notes-filter"
+              data-area-default
               aria-label="Filtrar notas"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
@@ -368,7 +420,7 @@ export function NotesPanel(): JSX.Element {
               className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
           </div>
-          <div className="min-h-0 flex-1 space-y-4 overflow-auto p-3">
+          <div ref={listRef} className="min-h-0 flex-1 space-y-4 overflow-auto p-3">
             {currentDocument && (
               <section>
                 <div className="mb-1 flex items-center gap-1">
@@ -381,6 +433,7 @@ export function NotesPanel(): JSX.Element {
                     variant="ghost"
                     className="ml-auto h-6 px-1"
                     title="Nova nota do documento"
+                    data-focus-key="notes-new-document"
                     onClick={() => void handleCreate('document')}
                   >
                     <Plus className="h-3 w-3" />
@@ -392,7 +445,7 @@ export function NotesPanel(): JSX.Element {
                       key={n.id}
                       note={n}
                       quote={null}
-                       onOpen={() => void run(() => openNoteEditor(n.id))}
+                      onOpen={() => void run(() => open(n.id))}
                     />
                   ))}
                   {excerptAttached.map((n) => (
@@ -400,7 +453,7 @@ export function NotesPanel(): JSX.Element {
                       key={n.id}
                       note={n}
                       quote={quoteOf(n)}
-                       onOpen={() => void run(() => openNoteEditor(n.id))}
+                      onOpen={() => void run(() => open(n.id))}
                     />
                   ))}
                   {docScoped.length === 0 && excerptAttached.length === 0 && (
@@ -427,7 +480,7 @@ export function NotesPanel(): JSX.Element {
                       key={n.id}
                       note={n}
                       quote={quoteOf(n)}
-                       onOpen={() => void run(() => openNoteEditor(n.id))}
+                      onOpen={() => void run(() => open(n.id))}
                     />
                   ))}
                 </div>
@@ -456,7 +509,7 @@ export function NotesPanel(): JSX.Element {
               </div>
               <div className="space-y-2">
                 {project.map((n) => (
-                  <NoteCard key={n.id} note={n} quote={null} onOpen={() => void run(() => openNoteEditor(n.id))} />
+                  <NoteCard key={n.id} note={n} quote={null} onOpen={() => void run(() => open(n.id))} />
                 ))}
                 {project.length === 0 && (
                   <p className="text-xs text-muted-foreground">

@@ -42,8 +42,8 @@ export function registerDocumentHandlers(): void {
     return createDocuments(inputs)
   }))
 
-  ipcMain.handle(IPC.documents.rename, async (_e, id: number, name: string) => {
-    renameDocument(id, name)
+  ipcMain.handle(IPC.documents.rename, async (_e, id: number, name: string, historyGroup?: string) => {
+    renameDocument(id, name, historyGroup)
   })
 
   ipcMain.handle(

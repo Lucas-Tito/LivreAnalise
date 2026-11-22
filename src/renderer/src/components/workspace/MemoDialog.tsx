@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { mensagemDeErro } from '@/lib/erros'
 import { useAppStore } from '@/stores/appStore'
 import { memoSaver } from '@/lib/memoAutosave'
+import { matchesCommand, restoreFocus, type FocusAnchor } from '@/lib/keyboard'
 
 export interface MemoTarget {
   id: number
@@ -13,10 +14,16 @@ export interface MemoTarget {
   memo: string
 }
 
-export function MemoDialog({ target, onClose }: { target: MemoTarget; onClose: () => void }): JSX.Element {
+export function MemoDialog({ target, onClose, returnFocus }: {
+  target: MemoTarget
+  onClose: () => void
+  returnFocus?: FocusAnchor | null
+}): JSX.Element {
   return (
     <Dialog open onOpenChange={(open) => { if (!open) void useAppStore.getState().sairDoMemo?.() }}>
-      <DialogContent className="flex h-[80vh] max-h-[90vh] w-[90vw] max-w-4xl flex-col">
+      <DialogContent className="flex h-[80vh] max-h-[90vh] w-[90vw] max-w-4xl flex-col" onCloseAutoFocus={(event) => {
+        if (returnFocus) { event.preventDefault(); restoreFocus(returnFocus) }
+      }}>
         <DialogHeader>
           <DialogTitle>Memo de {target.kind}: {target.name}</DialogTitle>
           <DialogDescription>{memoHint(target.kind)}</DialogDescription>
@@ -93,13 +100,13 @@ export function MemoEditor({ target, onClose, showHint = false, unavailable = fa
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3" onKeyDown={(e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      if (!e.nativeEvent.isComposing && matchesCommand(e.nativeEvent, 'saveNote')) {
         e.preventDefault()
         void save().catch(() => undefined)
       }
     }}>
         {showHint && <p className="shrink-0 text-sm text-muted-foreground">{memoHint(target.kind)}</p>}
-        <Textarea className="min-h-0 flex-1 resize-none overflow-auto" aria-label="Texto do memo" spellCheck={false} value={text} readOnly={unavailable || closingProject} onChange={(e) => {
+        <Textarea autoFocus className="min-h-0 flex-1 resize-none overflow-auto" aria-label="Texto do memo" spellCheck={false} value={text} readOnly={unavailable || closingProject} onChange={(e) => {
           if (unavailableRef.current || useAppStore.getState().closingProject) return
           const value = e.target.value
           setText(value)

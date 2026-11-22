@@ -102,6 +102,18 @@ describe('coalescência do histórico', () => {
 
     expect(r).toEqual(['redo:v2'])
   })
+
+  it('não absorve uma nova edição no estado anterior depois de desfazer', () => {
+    const r: string[] = []
+    pushHistory(entrada('primeiro', r, 'código:1'), 1000)
+    pushHistory(entrada('outra ação', r), 1100)
+    historyUndo()
+    pushHistory(entrada('nova edição', r, 'código:1'), 1200)
+    historyUndo()
+    expect(r).toEqual(['undo:outra ação', 'undo:nova edição'])
+    expect(historyState().canUndo).toBe(true)
+    expect(historyState().redoLabel).toBe('nova edição')
+  })
 })
 
 it('does not coalesce a save across an undone action', () => {

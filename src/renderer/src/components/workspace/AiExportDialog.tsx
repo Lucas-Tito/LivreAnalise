@@ -24,10 +24,12 @@ import { useAppStore } from '@/stores/appStore'
 import { cn } from '@/lib/utils'
 import { mensagemDeErro } from '@/lib/erros'
 import type { AiExportScope } from '@shared/aiExport'
+import type { FocusAnchor } from '@/lib/keyboard'
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
+  returnFocus?: FocusAnchor | null
 }
 
 const ESCOPOS: {
@@ -57,7 +59,7 @@ const ESCOPOS: {
   }
 ]
 
-export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
+export function AiExportDialog({ open, onOpenChange, returnFocus }: Props): JSX.Element {
   const currentDocument = useAppStore((s) => s.currentDocument)
   const [scope, setScope] = useState<AiExportScope>('structure')
   const [includeNotes, setIncludeNotes] = useState(false)
@@ -123,7 +125,7 @@ export function AiExportDialog({ open, onOpenChange }: Props): JSX.Element {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent returnFocus={returnFocus} className="max-w-xl">
         <DialogHeader>
           <DialogTitle>Exportar para IA</DialogTitle>
         </DialogHeader>

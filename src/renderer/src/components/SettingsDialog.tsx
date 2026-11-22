@@ -10,10 +10,12 @@ import { useThemeStore } from '@/stores/themeStore'
 import { useZoomStore, type TranscriptFont } from '@/stores/zoomStore'
 import { INTERFACE_SCALES, useInterfaceScaleStore } from '@/stores/interfaceScaleStore'
 import { cn } from '@/lib/utils'
+import type { FocusAnchor } from '@/lib/keyboard'
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
+  returnFocus?: FocusAnchor | null
 }
 
 const FONTES: { id: TranscriptFont; nome: string; descricao: string }[] = [
@@ -27,7 +29,7 @@ const FONTES: { id: TranscriptFont; nome: string; descricao: string }[] = [
   }
 ]
 
-export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
+export function SettingsDialog({ open, onOpenChange, returnFocus }: Props): JSX.Element {
   const theme = useThemeStore((s) => s.theme)
   const toggle = useThemeStore((s) => s.toggle)
   const font = useZoomStore((s) => s.font)
@@ -37,7 +39,7 @@ export function SettingsDialog({ open, onOpenChange }: Props): JSX.Element {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent returnFocus={returnFocus} className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Configurações</DialogTitle>
         </DialogHeader>

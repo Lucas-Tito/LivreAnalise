@@ -13,13 +13,15 @@ import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/stores/appStore'
 import type { Collection } from '@shared/types'
 import { MemoEditor } from './MemoDialog'
+import { restoreFocus, type FocusAnchor } from '@/lib/keyboard'
 
 interface Props {
   collection: Collection | null
   onOpenChange: (open: boolean) => void
+  returnFocus?: FocusAnchor | null
 }
 
-export function CollectionMembersDialog({ collection: requested, onOpenChange }: Props): JSX.Element {
+export function CollectionMembersDialog({ collection: requested, onOpenChange, returnFocus }: Props): JSX.Element {
   const codes = useAppStore((s) => s.codes)
   const collections = useAppStore((s) => s.collections)
   const addCollectionMember = useAppStore((s) => s.addCollectionMember)
@@ -66,7 +68,13 @@ export function CollectionMembersDialog({ collection: requested, onOpenChange }:
         onOpenChange(open)
       })()
     }}>
-      <DialogContent className={memoOpen ? 'flex h-[80vh] max-h-[90vh] w-[90vw] max-w-4xl flex-col' : undefined}>
+      <DialogContent className={memoOpen ? 'flex h-[80vh] max-h-[90vh] w-[90vw] max-w-4xl flex-col' : undefined}
+        onCloseAutoFocus={(event) => {
+          if (returnFocus) { event.preventDefault(); restoreFocus(returnFocus) }
+        }}
+        onEscapeKeyDown={(event) => {
+          if (memoOpen) { event.preventDefault(); void useAppStore.getState().sairDoMemo?.() }
+        }}>
         <DialogHeader>
           <DialogTitle>Códigos e categorias no grupo "{collection?.name}"</DialogTitle>
         </DialogHeader>
@@ -111,7 +119,7 @@ export function CollectionMembersDialog({ collection: requested, onOpenChange }:
           )}
         </div>
         <DialogFooter>
-          <Button onClick={() => onOpenChange(false)}>Concluir</Button>
+          <Button onClick={() => onOpenChange(false)}>Fechar</Button>
         </DialogFooter>
         </>}
       </DialogContent>

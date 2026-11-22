@@ -14,16 +14,18 @@ import { useAppStore } from '@/stores/appStore'
 import { mensagemDeErro } from '@/lib/erros'
 import type { CodeWithCount } from '@shared/types'
 import { MemoEditor } from './MemoDialog'
+import { restoreFocus, type FocusAnchor } from '@/lib/keyboard'
 
 interface Props {
   category: CodeWithCount | null
   onOpenChange: (open: boolean) => void
+  returnFocus?: FocusAnchor | null
 }
 
 // Marcar põe o código dentro da categoria, desmarcar devolve ao 1º nível -- o
 // mesmo moveCodes do arrasto e do "Mover para categoria…". Só código sem filhos
 // entra: categoria dentro de categoria criaria o 3º nível.
-export function CategoryCodesDialog({ category: requested, onOpenChange }: Props): JSX.Element {
+export function CategoryCodesDialog({ category: requested, onOpenChange, returnFocus }: Props): JSX.Element {
   const codes = useAppStore((s) => s.codes)
   const moveCodes = useAppStore((s) => s.moveCodes)
   const [filter, setFilter] = useState('')
@@ -67,7 +69,13 @@ export function CategoryCodesDialog({ category: requested, onOpenChange }: Props
         onOpenChange(open)
       })()
     }}>
-      <DialogContent className={memoOpen ? 'flex h-[80vh] max-h-[90vh] w-[90vw] max-w-4xl flex-col' : undefined}>
+      <DialogContent className={memoOpen ? 'flex h-[80vh] max-h-[90vh] w-[90vw] max-w-4xl flex-col' : undefined}
+        onCloseAutoFocus={(event) => {
+          if (returnFocus) { event.preventDefault(); restoreFocus(returnFocus) }
+        }}
+        onEscapeKeyDown={(event) => {
+          if (memoOpen) { event.preventDefault(); void useAppStore.getState().sairDoMemo?.() }
+        }}>
         <DialogHeader>
           <DialogTitle>Códigos na categoria "{category?.name}"</DialogTitle>
         </DialogHeader>

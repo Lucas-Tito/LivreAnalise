@@ -147,7 +147,7 @@ export function createDocuments(inputs: DocumentInput[]): DocumentRecord[] {
   return snapshots
 }
 
-export function renameDocument(id: number, name: string): void {
+export function renameDocument(id: number, name: string, historyGroup?: string): void {
   const db = getDb()
   const before = getDocument(id)
   if (!before || before.name === name) return
@@ -156,6 +156,7 @@ export function renameDocument(id: number, name: string): void {
   const oldName = before?.name ?? ''
   pushHistory({
     label: `renomear documento`,
+    coalesceKey: historyGroup != null ? `rename:document:${id}:${historyGroup}` : undefined,
     undo: () => {
       getDb().update(documents).set({ name: oldName }).where(eq(documents.id, id)).run()
       touchProject()
@@ -466,13 +467,17 @@ export function updateCode(input: UpdateCodeInput): void {
   const beforeSnap = { ...before }
   const afterSnap = { ...after }
   const isMove = input.parentId !== undefined && Object.keys(patch).length === 1
+  const metadataAutosave = input.historyGroup != null &&
+    Object.keys(patch).every((key) => key === 'name' || key === 'color' || key === 'description')
   pushHistory({
     label: isMove
       ? input.parentId == null
         ? `remover "${after.name}" da categoria`
         : `mover "${after.name}"`
       : `editar código "${after.name}"`,
-    coalesceKey: Object.keys(patch).length === 1 && input.memo !== undefined ? `memo:code:${input.id}` : undefined,
+    coalesceKey: metadataAutosave
+      ? `edit:code:${input.id}:${input.historyGroup}`
+      : Object.keys(patch).length === 1 && input.memo !== undefined ? `memo:code:${input.id}` : undefined,
     undo: () => {
       getDb().update(codes).set({
         name: beforeSnap.name,
@@ -812,9 +817,13 @@ export function updateCollection(input: UpdateCollectionInput): void {
   const after = getCollection(input.id)
   const b = { ...before }
   const a = { ...after }
+  const metadataAutosave = input.historyGroup != null &&
+    Object.keys(patch).every((key) => key === 'name' || key === 'description')
   pushHistory({
     label: `editar grupo "${a.name}"`,
-    coalesceKey: Object.keys(patch).length === 1 && input.memo !== undefined ? `memo:group:${input.id}` : undefined,
+    coalesceKey: metadataAutosave
+      ? `edit:group:${input.id}:${input.historyGroup}`
+      : Object.keys(patch).length === 1 && input.memo !== undefined ? `memo:group:${input.id}` : undefined,
     undo: () => {
       getDb().update(collections).set({ name: b.name, description: b.description, memo: b.memo, sortOrder: b.sortOrder }).where(eq(collections.id, b.id)).run()
       touchProject()

@@ -55,7 +55,7 @@ interface AppState {
   refreshDocuments: () => Promise<void>
   importDocuments: () => Promise<void>
   selectDocument: (id: number) => Promise<boolean>
-  renameDocument: (id: number, name: string) => Promise<void>
+  renameDocument: (id: number, name: string, historyGroup?: string) => Promise<void>
   updateDocumentText: (id: number, text: string) => Promise<void>
   deleteDocument: (id: number) => Promise<void>
 
@@ -132,6 +132,10 @@ interface AppState {
   responderSaidaDoTexto: (ok: boolean) => void
   sairDoMemo: (() => Promise<boolean>) | null
   registerSairDoMemo: (fn: (() => Promise<boolean>) | null) => void
+  sairDoCodigo: (() => Promise<boolean>) | null
+  registerSairDoCodigo: (fn: (() => Promise<boolean>) | null) => void
+  sairDaRenomeacao: (() => Promise<boolean>) | null
+  registerSairDaRenomeacao: (fn: (() => Promise<boolean>) | null) => void
 }
 
 async function refreshAfterHistory(
@@ -200,7 +204,21 @@ function resetNotesState(): Partial<AppState> {
   }
 }
 
-async function finishMemo(state: AppState): Promise<boolean> {
+let documentSelection = 0
+
+async function loadDocument(id: number) {
+  const currentDocument = await window.api.documents.get(id)
+  if (!currentDocument) return null
+  const [codings, documentNotes] = await Promise.all([
+    window.api.codings.listByDocument(id),
+    window.api.notes.listByDocument(id)
+  ])
+  return { currentDocument, codings, documentNotes }
+}
+
+async function finishProjectEditors(state: AppState): Promise<boolean> {
+  if (state.sairDaRenomeacao && !(await state.sairDaRenomeacao())) return false
+  if (state.sairDoCodigo && !(await state.sairDoCodigo())) return false
   if (state.sairDoMemo && !(await state.sairDoMemo())) return false
   await flushPendingMemos()
   return true
@@ -257,14 +275,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   newProjectPrompt: null,
   setNewProjectPrompt: (prompt) => set({ newProjectPrompt: prompt }),
   createProject: async () => {
-    if (!(await finishMemo(get()))) return
+    if (!(await finishProjectEditors(get()))) return
     if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     set({ newProjectPrompt: { source: null, initialName: 'projeto' } })
   },
 
   saveNewProject: async (name) => {
-    if (!(await finishMemo(get()))) return
+    if (!(await finishProjectEditors(get()))) return
     if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     const prompt = get().newProjectPrompt
@@ -292,7 +310,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   openProject: async () => {
-    if (!(await finishMemo(get()))) return
+    if (!(await finishProjectEditors(get()))) return
     if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     const path = await window.api.project.pick()
@@ -306,7 +324,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   openRecent: async (path) => {
-    if (!(await finishMemo(get()))) return
+    if (!(await finishProjectEditors(get()))) return
     if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     const result = await window.api.project.openPath(path)
@@ -318,7 +336,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   closingProject: false,
   closeProject: async () => {
-    if (!(await finishMemo(get()))) return
+    if (!(await finishProjectEditors(get()))) return
     if (!(await get().podeSairDoTexto())) return
     if (get().closingProject) return
     set({ closingProject: true })
@@ -358,27 +376,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectDocument: async (id) => {
-    // O salvar do próprio texto chama selectDocument no mesmo documento para
-    // recarregar; só trocar de documento é sair da edição.
+    const selection = ++documentSelection
+    const project = get().project
+    const stillRequested = () =>
+      selection === documentSelection && get().project === project && !get().closingProject
+    const leave = get().sairDaRenomeacao
+    if (leave && !(await leave())) return false
+    if (!stillRequested()) return false
     if (get().currentDocument?.id !== id && !(await get().podeSairDoTexto())) return false
     await get().notesFlush?.()
-    const doc = await window.api.documents.get(id)
-    // Documento apagado: manter o que esta aberto. Publicar `null` aqui
-    // esvaziava a tela e fazia a pessoa perder o documento que estava lendo,
-    // por causa de um clique num item de lista desatualizada.
-    if (!doc) return false
-    const [codings, documentNotes] = await Promise.all([
-      window.api.codings.listByDocument(doc.id),
-      window.api.notes.listByDocument(doc.id)
-    ])
-    // Publica tudo junto: medir o texto novo com as citações do documento
-    // anterior pode criar colunas extras e deixar a faixa de códigos enorme.
-    set({ currentDocument: doc, codings, documentNotes, navigateNoteId: null, editorNoteId: null })
+    if (!stillRequested()) return false
+    const document = await loadDocument(id)
+    // Documento, citações e notas precisam chegar juntos, na ordem dos pedidos.
+    if (!document || !stillRequested()) return false
+    set({ ...document, navigateNoteId: null, editorNoteId: null })
     return true
   },
 
-  renameDocument: async (id, name) => {
-    await window.api.documents.rename(id, name)
+  renameDocument: async (id, name, historyGroup) => {
+    await window.api.documents.rename(id, name, historyGroup)
     await get().refreshDocuments()
     const current = get().currentDocument
     if (current && current.id === id) {
@@ -388,18 +404,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateDocumentText: async (id, text) => {
+    const project = get().project
     await get().notesFlush?.()
     await window.api.documents.updateText(id, text)
     await get().refreshDocuments()
-    const current = get().currentDocument
-    if (current && current.id === id) {
-      await get().selectDocument(id)
+    if (get().project === project && get().currentDocument?.id === id) {
+      const document = await loadDocument(id)
+      if (document && get().project === project && get().currentDocument?.id === id) set(document)
     }
     await get().refreshCodes()
     await get().refreshHistory()
   },
 
   deleteDocument: async (id) => {
+    if (get().sairDaRenomeacao && !(await get().sairDaRenomeacao!())) return
     // Descobre a nota aberta no editor ANTES de mexer no estado: depois do
     // refresh ela sumiu da lista e nao da mais para saber de que documento era.
     const editorId = get().editorNoteId
@@ -488,7 +506,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   undo: async () => {
-    if (!(await finishMemo(get()))) return null
+    if (!(await finishProjectEditors(get()))) return null
     if (!(await get().podeSairDoTexto())) return null
     await get().notesFlush?.()
     const label = await window.api.history.undo()
@@ -497,7 +515,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   redo: async () => {
-    if (!(await finishMemo(get()))) return null
+    if (!(await finishProjectEditors(get()))) return null
     if (!(await get().podeSairDoTexto())) return null
     await get().notesFlush?.()
     const label = await window.api.history.redo()
@@ -514,7 +532,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   createVersion: async (label) => {
-    if (!(await finishMemo(get()))) return
+    if (!(await finishProjectEditors(get()))) return
     if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     await window.api.versions.create(label)
@@ -527,7 +545,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   restoreVersion: async (id) => {
-    if (!(await finishMemo(get()))) return
+    if (!(await finishProjectEditors(get()))) return
     if (!(await get().podeSairDoTexto())) return
     await get().notesFlush?.()
     const result = await window.api.versions.restore(id)
@@ -700,6 +718,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   sairDoMemo: null,
   registerSairDoMemo: (fn) => set({ sairDoMemo: fn }),
+  sairDoCodigo: null,
+  registerSairDoCodigo: (fn) => set({ sairDoCodigo: fn }),
+  sairDaRenomeacao: null,
+  registerSairDaRenomeacao: (fn) => set({ sairDaRenomeacao: fn }),
   notasSujo: false,
   setNotasSujo: (sujo) => {
     if (get().notasSujo === sujo) return

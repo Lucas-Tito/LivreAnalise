@@ -13,13 +13,19 @@ import { casaBusca } from '@shared/busca'
 import { SearchButton, SearchField } from './SearchField'
 import type { CodeWithCount, CodingWithCode } from '@shared/types'
 import { MemoEditor } from './MemoDialog'
+import { restoreFocus, type FocusAnchor } from '@/lib/keyboard'
+import { mensagemDeErro } from '@/lib/erros'
+import { useAsyncAction } from '@/lib/useAsyncAction'
 
 interface Props {
   code: CodeWithCount | null
   onOpenChange: (open: boolean) => void
+  returnFocus?: FocusAnchor | null
 }
 
-export function CodeQuotationsDialog({ code: requestedCode, onOpenChange }: Props): JSX.Element {
+export function CodeQuotationsDialog({ code: requestedCode, onOpenChange, returnFocus }: Props): JSX.Element {
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const { working, run } = useAsyncAction()
   const [quotes, setQuotes] = useState<CodingWithCode[]>([])
   const [somenteDocumento, setSomenteDocumento] = useState(false)
   const [atual, setAtual] = useState(0)
@@ -53,8 +59,11 @@ export function CodeQuotationsDialog({ code: requestedCode, onOpenChange }: Prop
       return
     }
     let vivo = true
+    setLoadError(null)
     window.api.codings.listByCode(code.id).then((lista) => {
       if (vivo) setQuotes(lista)
+    }).catch((error) => {
+      if (vivo) setLoadError(mensagemDeErro(error, 'Não foi possível carregar os trechos.'))
     })
     return () => {
       vivo = false
@@ -64,7 +73,7 @@ export function CodeQuotationsDialog({ code: requestedCode, onOpenChange }: Prop
   useEffect(() => {
     setAtual(0)
     setAviso(null)
-  }, [code, somenteDocumento, termo])
+  }, [requestedId, somenteDocumento, termo])
 
   useEffect(() => {
     if (!code) {
@@ -90,41 +99,47 @@ export function CodeQuotationsDialog({ code: requestedCode, onOpenChange }: Prop
   // As setas percorrem a LISTA, não o texto: num diálogo que cobre a
   // transcrição, navegar pelo documento por baixo não mostraria nada. Abrir a
   // ocorrência é o clique (ou Enter), e aí o diálogo sai da frente.
-  const andar = (dir: 1 | -1, moveFocus = false): void => {
+  const andar = (dir: 1 | -1, moverFoco = false): void => {
     if (visiveis.length === 0) return
     const next = (indice + dir + visiveis.length) % visiveis.length
     setAtual(next)
-    if (moveFocus) listaRef.current?.querySelector<HTMLButtonElement>(`[data-indice="${next}"]`)?.focus()
+    if (moverFoco) {
+      listaRef.current?.querySelector<HTMLButtonElement>(`[data-indice="${next}"]`)?.focus({ preventScroll: true })
+    }
   }
 
   useEffect(() => {
     if (indice < 0) return
     listaRef.current
       ?.querySelector(`[data-indice="${indice}"]`)
-      ?.scrollIntoView({ block: 'nearest' })
+      ?.scrollIntoView?.({ block: 'nearest' })
   }, [indice])
 
-  const abrir = async (q: CodingWithCode): Promise<void> => {
-    const ok = await locateOccurrence(q)
-    if (!ok) {
-      setAviso('Esse trecho não existe mais: o documento foi apagado.')
-      return
-    }
-    onOpenChange(false)
+  const abrir = (quote: CodingWithCode): void => {
+    void run(async () => {
+      setAviso(null)
+      try {
+        if (await locateOccurrence(quote)) onOpenChange(false)
+        else if (!useAppStore.getState().documents.some((doc) => doc.id === quote.documentId)) {
+          setAviso('Esse trecho não existe mais: o documento foi apagado.')
+        }
+      } catch (error) {
+        setAviso(mensagemDeErro(error, 'Não foi possível abrir o trecho.'))
+      }
+    })
   }
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
-    if (memoOpen || e.defaultPrevented || e.nativeEvent.isComposing) return
+    if (memoOpen || e.defaultPrevented || e.nativeEvent.isComposing || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
     const target = e.target as HTMLElement
     const searching = buscaAberta && target.tagName === 'INPUT'
-    const inResults = listaRef.current?.contains(target)
-    if (!searching && !inResults) return
+    if (indice < 0) return
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
-      andar(e.key === 'ArrowDown' ? 1 : -1, !!inResults)
-    } else if (searching && e.key === 'Enter' && indice >= 0) {
+      andar(e.key === 'ArrowDown' ? 1 : -1, !searching)
+    } else if (searching && e.key === 'Enter') {
       e.preventDefault()
-      void abrir(visiveis[indice])
+      abrir(visiveis[indice])
     }
   }
 
@@ -138,9 +153,15 @@ export function CodeQuotationsDialog({ code: requestedCode, onOpenChange }: Prop
       <DialogContent
         className={memoOpen ? 'flex h-[80vh] max-h-[90vh] w-[90vw] max-w-4xl flex-col' : 'max-w-2xl'}
         onKeyDown={onKeyDown}
+        onCloseAutoFocus={(event) => {
+          if (returnFocus) { event.preventDefault(); restoreFocus(returnFocus) }
+        }}
         onEscapeKeyDown={(e) => {
           // Esc com a busca aberta fecha só a busca, não o diálogo inteiro.
-          if (!memoOpen && buscaAberta) {
+          if (memoOpen) {
+            e.preventDefault()
+            void useAppStore.getState().sairDoMemo?.()
+          } else if (buscaAberta) {
             e.preventDefault()
             fecharBusca()
           }
@@ -237,9 +258,9 @@ export function CodeQuotationsDialog({ code: requestedCode, onOpenChange }: Prop
           />
         )}
 
-        {aviso && (
-          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-600 dark:text-amber-400">
-            {aviso}
+        {(aviso || loadError) && (
+          <p role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+            {aviso || loadError}
           </p>
         )}
 
@@ -266,7 +287,8 @@ export function CodeQuotationsDialog({ code: requestedCode, onOpenChange }: Prop
                 key={q.id}
                 data-indice={i}
                 title="Localizar no texto"
-                onClick={() => void abrir(q)}
+                aria-disabled={working}
+                onClick={() => abrir(q)}
                 onFocus={() => setAtual(i)}
                 onMouseEnter={() => setAtual(i)}
                 className={cn(

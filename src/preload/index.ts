@@ -17,7 +17,7 @@ const api: Api = {
     list: () => ipcRenderer.invoke(IPC.documents.list),
     get: (id) => ipcRenderer.invoke(IPC.documents.get, id),
     import: () => ipcRenderer.invoke(IPC.documents.import),
-    rename: (id, name) => ipcRenderer.invoke(IPC.documents.rename, id, name),
+    rename: (id, name, historyGroup) => ipcRenderer.invoke(IPC.documents.rename, id, name, historyGroup),
     updateText: (id, text) => ipcRenderer.invoke(IPC.documents.updateText, id, text),
     delete: (id) => ipcRenderer.invoke(IPC.documents.delete, id)
   },
@@ -131,6 +131,8 @@ const api: Api = {
     setNotesDirty: (dirty) => ipcRenderer.send(IPC.app.notesDirty, dirty),
     setTextDirty: (dirty) => ipcRenderer.send(IPC.app.textDirty, dirty),
     setMemoDirty: (dirty) => ipcRenderer.send(IPC.app.memoDirty, dirty),
+    setCodeDirty: (dirty) => ipcRenderer.send(IPC.app.codeDirty, dirty),
+    setNameDirty: (dirty) => ipcRenderer.send(IPC.app.nameDirty, dirty),
     onCloseRequested: (listener) => {
       const handler = (): void => listener()
       ipcRenderer.on(IPC.app.closeRequested, handler)

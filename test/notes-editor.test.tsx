@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { NotesPanel } from '../src/renderer/src/components/workspace/NotesPanel'
@@ -17,6 +17,43 @@ beforeEach(() => {
   useAppStore.setState({ projectNotes: [note], editorNoteId: note.id, notesPanelOpen: true })
 })
 afterEach(cleanup)
+
+it('Esc salva o rascunho antes de fechar o painel, inclusive com foco no editor', async () => {
+  const updateNote = vi.fn(async (input) => ({ ...note, title: input.title, body: input.body }))
+  useAppStore.setState({ updateNote })
+  render(<NotesPanel />)
+  const input = screen.getByRole('textbox', { name: 'Conteúdo da nota' })
+  fireEvent.change(input, { target: { value: 'guardar antes de sair' } })
+  await act(async () => { fireEvent.keyDown(input, { key: 'Escape' }) })
+  expect(updateNote).toHaveBeenCalledWith({ id: note.id, title: null, body: 'guardar antes de sair' })
+  expect(useAppStore.getState().notesPanelOpen).toBe(false)
+  expect(useAppStore.getState().notasSujo).toBe(false)
+})
+
+it('Esc mantém o painel e o rascunho se não conseguir salvar', async () => {
+  useAppStore.setState({ updateNote: async () => { throw new Error('disco cheio') } })
+  render(<NotesPanel />)
+  const input = screen.getByRole('textbox', { name: 'Conteúdo da nota' })
+  fireEvent.change(input, { target: { value: 'não perder' } })
+  await act(async () => { fireEvent.keyDown(input, { key: 'Escape' }) })
+  expect(useAppStore.getState().notesPanelOpen).toBe(true)
+  expect(useAppStore.getState().notasSujo).toBe(true)
+  expect((input as HTMLTextAreaElement).value).toBe('não perder')
+  expect(screen.getByRole('alert').textContent).toBe('disco cheio')
+})
+
+it('Esc fecha a lista mesmo quando o foco está fora do painel', async () => {
+  useAppStore.setState({ editorNoteId: null })
+  render(<NotesPanel />)
+  await act(async () => { fireEvent.keyDown(document.body, { key: 'Escape' }) })
+  expect(useAppStore.getState().notesPanelOpen).toBe(false)
+})
+
+it('Esc não fecha as notas quando há um diálogo sobreposto', async () => {
+  render(<><NotesPanel /><div role="dialog">Confirmação</div></>)
+  await act(async () => { fireEvent.keyDown(document.body, { key: 'Escape' }) })
+  expect(useAppStore.getState().notesPanelOpen).toBe(true)
+})
 
 it('flushes the newest draft even when a previous save is still in flight', async () => {
   let release!: () => void

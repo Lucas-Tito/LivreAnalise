@@ -41,6 +41,8 @@ ipcMain.on(IPC.view.fontChanged, (_e, font: string) => {
 let textoPendente = false
 let notasPendentes = false
 let memoPendente = false
+let codigoPendente = false
+let nomePendente = false
 let quitting = false
 ipcMain.on(IPC.app.notesDirty, (_e, dirty: boolean) => {
   notasPendentes = dirty
@@ -49,10 +51,14 @@ ipcMain.on(IPC.app.textDirty, (_e, dirty: boolean) => {
   textoPendente = dirty
 })
 ipcMain.on(IPC.app.memoDirty, (_e, dirty: boolean) => { memoPendente = dirty })
+ipcMain.on(IPC.app.codeDirty, (_e, dirty: boolean) => { codigoPendente = dirty })
+ipcMain.on(IPC.app.nameDirty, (_e, dirty: boolean) => { nomePendente = dirty })
 ipcMain.on(IPC.app.confirmClose, (e) => {
   textoPendente = false
   notasPendentes = false
   memoPendente = false
+  codigoPendente = false
+  nomePendente = false
   if (quitting) app.quit()
   else BrowserWindow.fromWebContents(e.sender)?.close()
 })
@@ -86,7 +92,7 @@ function createWindow(): void {
 
   let stoppingOperation = false
   mainWindow.on('close', (e) => {
-    if (textoPendente || notasPendentes || memoPendente) {
+    if (textoPendente || notasPendentes || memoPendente || codigoPendente || nomePendente) {
       e.preventDefault()
       mainWindow.webContents.send(IPC.app.closeRequested)
       return
@@ -115,6 +121,8 @@ function createWindow(): void {
     textoPendente = false
     notasPendentes = false
     memoPendente = false
+    codigoPendente = false
+    nomePendente = false
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {

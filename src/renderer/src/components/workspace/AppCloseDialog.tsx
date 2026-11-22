@@ -6,10 +6,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { flushPendingMemos } from '@/lib/memoAutosave'
 
 export function AppCloseDialog(): JSX.Element {
-  const podeSairDoTexto = useAppStore((s) => s.podeSairDoTexto)
-
   const closePending = useRef(false)
-  const savingNotes = useRef(false)
+  const preparingClose = useRef(false)
   const [closeError, setCloseError] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
 
@@ -20,21 +18,33 @@ export function AppCloseDialog(): JSX.Element {
     else window.api.app.cancelClose()
   }
 
-  const flushAndClose = useCallback(async (): Promise<void> => {
-    if (savingNotes.current) return
-    savingNotes.current = true
+  const prepareClose = useCallback(async (): Promise<void> => {
+    if (preparingClose.current) return
+    preparingClose.current = true
     useAppStore.setState({ closingProject: true })
     setRetrying(true)
     try {
+      const { sairDaRenomeacao, sairDoCodigo, podeSairDoTexto } = useAppStore.getState()
+      if (sairDaRenomeacao && !(await sairDaRenomeacao())) {
+        throw new Error('Não foi possível salvar a renomeação.')
+      }
+      if (sairDoCodigo && !(await sairDoCodigo())) {
+        throw new Error('Não foi possível salvar as alterações do código.')
+      }
+      setCloseError(null)
+      if (!(await podeSairDoTexto())) {
+        closePending.current = false
+        window.api.app.cancelClose()
+        return
+      }
       await flushPendingMemos()
       await useAppStore.getState().notesFlush?.()
       closePending.current = false
-      setCloseError(null)
       window.api.app.confirmClose()
     } catch (error) {
       setCloseError(mensagemDeErro(error, 'Não foi possível salvar as alterações.'))
     } finally {
-      savingNotes.current = false
+      preparingClose.current = false
       useAppStore.setState({ closingProject: false })
       setRetrying(false)
     }
@@ -47,17 +57,12 @@ export function AppCloseDialog(): JSX.Element {
       return
     }
     closePending.current = true
-    if (!(await podeSairDoTexto())) {
-      closePending.current = false
-      window.api.app.cancelClose()
-      return
-    }
-    await flushAndClose()
-  }), [flushAndClose, podeSairDoTexto])
+    await prepareClose()
+  }), [prepareClose])
 
   return (
     <Dialog open={closeError !== null} onOpenChange={(open) => {
-      if (!open && !savingNotes.current) decideClose(false)
+      if (!open && !preparingClose.current) decideClose(false)
     }}>
       <DialogContent>
         <DialogHeader>
@@ -73,7 +78,7 @@ export function AppCloseDialog(): JSX.Element {
           <Button variant="destructive" disabled={retrying} onClick={() => decideClose(true)}>
             Sair sem salvar
           </Button>
-          <Button disabled={retrying} onClick={() => void flushAndClose()}>
+          <Button disabled={retrying} onClick={() => void prepareClose()}>
             Tentar novamente
           </Button>
         </DialogFooter>

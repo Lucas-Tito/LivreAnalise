@@ -102,6 +102,8 @@ export interface UpdateCodeInput {
   memo?: string
   parentId?: number | null
   sortOrder?: number
+  // Identifica uma sessão de autosave, sem persistir no banco.
+  historyGroup?: string
 }
 
 export interface MoveCodesInput {
@@ -139,6 +141,7 @@ export interface UpdateCollectionInput {
   description?: string | null
   memo?: string
   sortOrder?: number
+  historyGroup?: string
 }
 
 export interface CreateCodingInput {
